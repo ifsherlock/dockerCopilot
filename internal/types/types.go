@@ -33,10 +33,7 @@ type GetProgressReq struct {
 	TaskId string `path:"taskid"`
 }
 
-type GetLogsReq struct {
-	Level string `form:"level,optional"`
-	Tail  int    `form:"tail,optional"`
-}
+type GetLogsReq struct{}
 
 type PullImageReq struct {
 	ImageName   string `json:"imageName"`

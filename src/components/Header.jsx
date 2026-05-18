@@ -11,7 +11,6 @@ import {
   Palette,
   Info,
   Bot,
-  NotebookText,
   ChevronDown,
   ChevronRight
 } from 'lucide-react'
@@ -99,11 +98,6 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
       id: '#bot',
       label: '交互',
       icon: Bot,
-    },
-    {
-      id: '#logs',
-      label: '日志',
-      icon: NotebookText,
     },
     {
       id: '#about',
@@ -446,11 +440,6 @@ export function MobileBottomNav({ activeTab, onTabChange, windowWidth = 1024 }) 
       id: '#bot',
       label: '交互',
       icon: Bot,
-    },
-    {
-      id: '#logs',
-      label: '日志',
-      icon: NotebookText,
     },
     {
       id: '#about',
