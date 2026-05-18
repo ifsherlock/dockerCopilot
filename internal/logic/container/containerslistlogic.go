@@ -3,7 +3,6 @@ package container
 import (
 	"context"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
-	"strings"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -83,15 +82,10 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		}
 		containerInfo.CreateImage = containerInspect.Config.Image
 		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
+			// /api/containers must stay local-fast.
+			// Never re-check remote registries synchronously while rendering the page;
+			// just reuse cached update state and let the background refresh update it.
 			v.Update = cached
-		}
-		if v.Update {
-			createImage := strings.TrimSpace(containerInfo.CreateImage)
-			if createImage != "" && strings.Contains(createImage, ":") && !strings.HasPrefix(createImage, "sha256:") {
-				if !utiles.ContainerNeedsUpdate(l.svcCtx, v.ID, createImage) {
-					v.Update = false
-				}
-			}
 		}
 		t := time.Unix(v.Created, 0)
 		containerInfo.CreateTime = t.Format("2006-01-02 15:04:05")
