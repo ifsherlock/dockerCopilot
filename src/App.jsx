@@ -7,6 +7,7 @@ import { Backups } from './components/Backups.jsx'
 import { Icons } from './components/Icons.jsx'
 import { About } from './components/About.jsx'
 import { Bot } from './components/Bot.jsx'
+import { LogsPage } from './components/LogsPage.jsx'
 import { ThemeProvider } from './hooks/useTheme.jsx'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cn } from './utils/cn.js'
@@ -142,6 +143,8 @@ function AppContent() {
         return <Backups />
       case '#bot':
         return <Bot />
+      case '#logs':
+        return <LogsPage />
       case '#about':
         return <About />
       default:

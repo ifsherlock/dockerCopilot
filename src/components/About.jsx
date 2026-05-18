@@ -1,60 +1,22 @@
-import React, { useEffect, useState } from 'react'
-import { Github, Mail, Heart, MessageSquare, Logs, RefreshCw } from 'lucide-react'
-import { imageAPI } from '../api/client.js'
+import React from 'react'
+import { Github, Mail, Heart, MessageSquare } from 'lucide-react'
 import wechatImg from '../assets/wechat.jpg'
 import alipayImg from '../assets/alipay.jpg'
 import logoImg from '../assets/DockerCopilot-logo.png'
 
 export function About() {
-  const [logs, setLogs] = useState([])
-  const [loadingLogs, setLoadingLogs] = useState(false)
-
-  const loadLogs = async () => {
-    try {
-      setLoadingLogs(true)
-      const res = await imageAPI.getLogs()
-      setLogs(Array.isArray(res.data?.data) ? res.data.data.slice().reverse() : [])
-    } catch (e) {
-      setLogs([{ time: '', type: 'error', title: '日志加载失败', message: e.message }])
-    } finally {
-      setLoadingLogs(false)
-    }
-  }
-
-  useEffect(() => { loadLogs() }, [])
-
   return (
     <div className="max-w-[1800px] mx-auto">
       <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4 space-y-6">
-        {/* 操作日志 */}
-        <div className="card p-6 rounded-3xl overflow-hidden">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <div className="flex items-center gap-2">
-              <Logs className="h-5 w-5 text-sky-500" />
-              <h3 className="text-lg font-bold text-gray-900 dark:text-white">日志</h3>
-              <span className="text-xs text-gray-500 dark:text-gray-400">拉取 / 更新 / 重建等整体操作记录</span>
-            </div>
-            <button onClick={loadLogs} disabled={loadingLogs} className="inline-flex items-center gap-2 px-3 py-2 rounded-xl bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-600 text-sm disabled:opacity-50">
-              <RefreshCw className={`h-4 w-4 ${loadingLogs ? 'animate-spin' : ''}`} />刷新日志
-            </button>
-          </div>
-          <div className="h-56 overflow-auto rounded-2xl bg-gray-950 text-green-300 text-xs p-4 font-mono whitespace-pre-wrap">
-            {logs.length === 0 ? '暂无日志。执行加速拉取、容器更新或后续重建操作后会显示在这里。' : logs.map((log, idx) => `[${log.time || '-'}] ${log.title || log.type || '日志'} ${log.message || ''}`).join('\n')}
-          </div>
-        </div>
-
-        {/* 项目展示卡片 */}
         <div className="card p-8 flex flex-col items-center text-center relative overflow-hidden">
           <div className="relative mb-4">
             <div className="absolute inset-0 bg-primary-400/20 blur-xl rounded-full"></div>
             <img src={logoImg} alt="Docker Copilot" className="relative w-20 h-20 rounded-2xl shadow-lg" />
           </div>
-
           <h1 className="text-3xl font-bold text-gray-900 dark:text-white mb-2">Docker Copilot</h1>
           <p className="text-gray-600 dark:text-gray-400 max-w-lg mx-auto mb-6">
             一个简洁、优雅且强大的 Docker 容器管理工具，旨在为您提供流畅的容器运维体验。
           </p>
-
           <div className="flex flex-wrap items-center justify-center gap-3">
             <a href="https://github.com/ifsherlock/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
               <Github className="h-4 w-4" /><span>GitHub</span>
