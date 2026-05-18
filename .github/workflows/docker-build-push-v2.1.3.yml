@@ -1,10 +1,29 @@
-name: docker-build-push-v2.1.3
+name: docker-images
 
 on:
   workflow_dispatch:
   push:
     branches:
       - latest
+    paths:
+      - version
+      - src/**
+      - public/**
+      - package.json
+      - package-lock.json
+      - internal/**
+      - dockercopilot.go
+      - go.mod
+      - go.sum
+      - etc/**
+      - docker/**
+      - start.sh
+      - bot/**
+      - .github/workflows/docker-build-push-v2.1.3.yml
+
+concurrency:
+  group: docker-images-${{ github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read

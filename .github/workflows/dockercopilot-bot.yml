@@ -9,6 +9,10 @@ on:
       - 'bot/**'
       - '.github/workflows/dockercopilot-bot.yml'
 
+concurrency:
+  group: dockercopilot-bot-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
   packages: write

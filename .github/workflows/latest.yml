@@ -18,6 +18,10 @@ on:
       - etc/**
       - .github/workflows/latest.yml
 
+concurrency:
+  group: latest-release-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

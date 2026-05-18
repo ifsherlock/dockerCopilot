@@ -18,6 +18,10 @@ on:
       - etc/**
       - .github/workflows/FNOS.yml
 
+concurrency:
+  group: fnos-${{ github.ref }}
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
