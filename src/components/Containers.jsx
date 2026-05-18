@@ -911,7 +911,7 @@ export function Containers() {
   }
 
   return (
-    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
+    <div className="max-w-[1800px] mx-auto">
       <style>{`
         @keyframes shimmer {
           0% { background-position: -200% 0; }
@@ -973,17 +973,18 @@ export function Containers() {
       )}
 
       {/* 页面标题和操作 */}
-      <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-4 space-y-4 sm:space-y-0 pt-4 sm:pt-0">
-        <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">容器管理</h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">
-            管理您的Docker容器，包括启动、停止、重启等操作
-          </p>
-        </div>
+      <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+          <div>
+            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">容器管理</h2>
+            <p className="text-gray-600 dark:text-gray-400 mt-1">
+              管理您的Docker容器，包括启动、停止、重启等操作
+            </p>
+          </div>
 
-        {/* 批量操作按钮区域 */}
-        {!isBatchMode ? (
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+          {/* 批量操作按钮区域 */}
+          {!isBatchMode ? (
+            <div className="flex flex-wrap items-center justify-end gap-2">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <input
@@ -1001,13 +1002,6 @@ export function Containers() {
               批量操作
             </button>
 
-            <button
-              className="btn-primary"
-              onClick={() => refetch()}
-            >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              刷新
-            </button>
             <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
               <button
                 onClick={() => setViewMode('card')}
@@ -1024,6 +1018,13 @@ export function Containers() {
                 <LayoutList className="h-4 w-4" />
               </button>
             </div>
+            <button
+              className="btn-primary"
+              onClick={() => refetch()}
+            >
+              <RefreshCw className="h-4 w-4 mr-2" />
+              刷新
+            </button>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
@@ -1086,17 +1087,18 @@ export function Containers() {
               <span className="sm:hidden">✕</span>
             </button>
           </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
-        <div className="grid grid-cols-2 sm:grid-cols-5 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 min-h-[116px]">
           {/* 总容器数 */}
           <button
             onClick={() => setFilterStatus(null)}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === null ? "bg-primary-50 dark:bg-primary-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -1113,7 +1115,7 @@ export function Containers() {
           <button
             onClick={() => setFilterStatus('running')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === 'running' ? "bg-green-50 dark:bg-green-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -1130,7 +1132,7 @@ export function Containers() {
           <button
             onClick={() => setFilterStatus('stopped')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === 'stopped' ? "bg-red-50 dark:bg-red-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -1147,7 +1149,7 @@ export function Containers() {
           <button
             onClick={() => setFilterStatus('update')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
               filterStatus === 'update' ? "bg-yellow-50 dark:bg-yellow-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -1164,7 +1166,7 @@ export function Containers() {
           <button
             onClick={() => setFilterStatus('ignored')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
               filterStatus === 'ignored' ? "bg-gray-100 dark:bg-gray-700/50" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -1268,7 +1270,7 @@ export function Containers() {
 
         {containers.length > 0 ? (
           viewMode === 'table' ? renderTableView() : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
             {filteredContainers.map((container) => {
                 const isSelected = selectedContainers.includes(container.id)
                 return (
@@ -1285,7 +1287,7 @@ export function Containers() {
                         }
                       }}
                       className={cn(
-                        "card relative overflow-hidden transition-all duration-200 hover:shadow-lg border rounded-2xl p-4 cursor-pointer active:scale-98",
+                        "card relative overflow-hidden transition-all duration-200 hover:shadow-lg border rounded-2xl p-4 min-h-[188px] cursor-pointer active:scale-98",
                         isSelected
                           ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-md"
                           : isUpdateIgnored(container)
