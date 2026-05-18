@@ -31,12 +31,18 @@ trap shutdown INT TERM
 BACKEND_PID=$!
 echo "Docker Copilot 后端已启动 PID=$BACKEND_PID"
 
-# 可选启动 Telegram Bot：只有配置了 TELEGRAM_BOT_TOKEN 或 /app/config/config.json 才启动
-if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] || [ -f "/app/config/config.json" ]; then
+# 可选启动 Telegram Bot：只有环境变量或配置文件里存在非空 bot_token 才启动。
+# /app/config/config.json 还会保存更新黑名单等 UI 配置，不能仅因文件存在就启动 Bot。
+CONFIG_BOT_TOKEN=""
+if [ -f "/app/config/config.json" ]; then
+    CONFIG_BOT_TOKEN=$(python3 -c "import json; p='/app/config/config.json'; print(((json.load(open(p, encoding='utf-8')).get('telegram') or {}).get('bot_token')) or '')" 2>/dev/null || true)
+fi
+
+if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] || [ -n "$CONFIG_BOT_TOKEN" ]; then
     if [ -d "/app/bot" ]; then
         echo "检测到 Telegram Bot 配置，正在启动 Bot..."
         cd /app/bot
-        python -m src.main &
+        /app/bot/.venv/bin/python -m src.main &
         BOT_PID=$!
         echo "Telegram Bot 已启动 PID=$BOT_PID"
         cd "${WORKDIR:-/app}"
@@ -44,7 +50,7 @@ if [ -n "${TELEGRAM_BOT_TOKEN:-}" ] || [ -f "/app/config/config.json" ]; then
         echo "警告：未找到 /app/bot，跳过 Telegram Bot 启动"
     fi
 else
-    echo "未配置 TELEGRAM_BOT_TOKEN，跳过 Telegram Bot 启动"
+    echo "未配置 Telegram Bot Token，跳过 Telegram Bot 启动"
 fi
 
 # 任一进程退出，则关闭全部，方便容器重启
