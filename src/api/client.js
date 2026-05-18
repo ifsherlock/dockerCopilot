@@ -137,6 +137,7 @@ export const imageAPI = {
     displayName,
   }),
   getLogs: () => apiClient.get('/api/logs'),
+  getDockerLogs: ({ level = 'all', tail = 300 } = {}) => apiClient.get(`/api/logs/docker?level=${encodeURIComponent(level)}&tail=${Number(tail) || 300}`),
   uploadIcon: (file, imageName, containerName) => {
     const formData = new FormData()
     formData.append('file', file)

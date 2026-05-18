@@ -11,6 +11,7 @@ import (
 	container "github.com/onlyLTY/dockerCopilot/internal/handler/container"
 	icons "github.com/onlyLTY/dockerCopilot/internal/handler/icons"
 	image "github.com/onlyLTY/dockerCopilot/internal/handler/image"
+	logs "github.com/onlyLTY/dockerCopilot/internal/handler/logs"
 	progress "github.com/onlyLTY/dockerCopilot/internal/handler/progress"
 	version "github.com/onlyLTY/dockerCopilot/internal/handler/version"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -167,6 +168,18 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodGet,
 				Path:    "/logs",
 				Handler: image.LogsHandler(serverCtx),
+			},
+		},
+		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
+		rest.WithPrefix("/api"),
+	)
+
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				Method:  http.MethodGet,
+				Path:    "/logs/docker",
+				Handler: logs.DockerLogsHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
