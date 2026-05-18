@@ -1,4 +1,4 @@
-name: v2.1.2
+name: latest
 
 on:
   workflow_dispatch:
