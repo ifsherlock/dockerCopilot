@@ -53,15 +53,17 @@ else
     echo "未配置 Telegram Bot Token，跳过 Telegram Bot 启动"
 fi
 
-# 任一进程退出，则关闭全部，方便容器重启
+# 后端是容器生命周期的权威进程：后端退出才停止容器。
+# Telegram Bot 是可选辅助进程，Bot 启动失败/运行中退出不能拖垮后端，避免容器重启循环。
 while true; do
     if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
         echo "Docker Copilot 后端已退出"
         shutdown
     fi
     if [ -n "$BOT_PID" ] && ! kill -0 "$BOT_PID" 2>/dev/null; then
-        echo "Telegram Bot 已退出"
-        shutdown
+        wait "$BOT_PID" 2>/dev/null || true
+        echo "Telegram Bot 已退出，后端继续运行"
+        BOT_PID=""
     fi
     sleep 2
 done

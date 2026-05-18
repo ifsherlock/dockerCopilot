@@ -248,6 +248,15 @@ export function Containers() {
   const ignoreUpdate = async (container) => saveUpdateBlacklist([...updateBlacklist, ...getBlacklistCandidates(container)])
   const unignoreUpdate = async (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
   const displayedHaveUpdate = (container) => container.haveUpdate && !isUpdateIgnored(container)
+  const selectedContainerItems = containers.filter(c => selectedContainers.includes(c.id))
+  const hasSelectedIgnored = selectedContainerItems.some(isUpdateIgnored)
+  const getUpdateImageRef = (container) => container?.createImage || container?.usingImage || ''
+  const unignoreSelected = async () => {
+    const selected = containers.filter(c => selectedContainers.includes(c.id))
+    await saveUpdateBlacklist(updateBlacklist.filter(item => !selected.some(container => matchesBlacklistItem(container, item))))
+    setSelectedContainers([])
+    setIsBatchMode(false)
+  }
 
   const handleContainerAction = async (containerId, action) => {
     try {
@@ -366,8 +375,15 @@ export function Containers() {
         })
       }
 
+      const actionableContainerIds = action === 'update'
+        ? selectedContainers.filter(containerId => {
+          const container = containers.find(c => c.id === containerId)
+          return container && !isUpdateIgnored(container) && displayedHaveUpdate(container)
+        })
+        : selectedContainers
+
       // 对每个选中的容器执行操作
-      for (const containerId of selectedContainers) {
+      for (const containerId of actionableContainerIds) {
         try {
           const container = containers.find(c => c.id === containerId)
 
@@ -386,7 +402,7 @@ export function Containers() {
                 const response = await containerAPI.updateContainer(
                   containerId,
                   container.name,
-                  container.usingImage,
+                  getUpdateImageRef(container),
                   true
                 )
 
@@ -473,7 +489,13 @@ export function Containers() {
         return
       }
 
-      console.log(`开始更新容器 "${container.name}"，使用镜像: ${container.usingImage}`)
+      if (isUpdateIgnored(container)) {
+        console.log(`容器 "${container.name}" 已在更新黑名单，跳过更新`)
+        return
+      }
+
+      const updateImageRef = getUpdateImageRef(container)
+      console.log(`开始更新容器 "${container.name}"，使用镜像: ${updateImageRef}`)
 
       setContainerActions(prev => ({
         ...prev,
@@ -494,7 +516,7 @@ export function Containers() {
       const response = await containerAPI.updateContainer(
         containerId,
         container.name,
-        container.usingImage,
+        updateImageRef,
         true
       )
 
@@ -910,9 +932,9 @@ export function Containers() {
                       {container.status === 'running' ? '运行中' : '已停止'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={container.usingImage}>
-                    <button onClick={(e) => { e.stopPropagation(); toggleContainerSelection(container.id) }} className="truncate text-primary-600 dark:text-primary-400 hover:underline font-medium text-left">
-                      {container.usingImage}
+                  <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={getContainerImageRef(container)}>
+                    <button onClick={(e) => { e.stopPropagation(); setSelectedContainer(container) }} className="truncate text-primary-600 dark:text-primary-400 hover:underline font-medium text-left">
+                      {getContainerImageRef(container)}
                     </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
@@ -1047,7 +1069,7 @@ export function Containers() {
             {viewMode === 'table' ? (
               <>
                 <button
-                  className="btn-secondary px-3 sm:px-4 py-2"
+                  className="px-3 sm:px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition-colors"
                   onClick={toggleSelectAll}
                 >
                   {filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
@@ -1062,7 +1084,7 @@ export function Containers() {
                   <span className="hidden sm:inline">启动</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('stop')}
                   title="停止"
@@ -1071,7 +1093,7 @@ export function Containers() {
                   <span className="hidden sm:inline">停止</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('restart')}
                   title="重启"
@@ -1080,7 +1102,7 @@ export function Containers() {
                   <span className="hidden sm:inline">重启</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('update')}
                   title="更新"
@@ -1089,17 +1111,21 @@ export function Containers() {
                   <span className="hidden sm:inline">更新</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : hasSelectedIgnored ? 'bg-amber-600 hover:bg-amber-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
                   disabled={selectedContainers.length === 0}
-                  onClick={() => {
-                    const selected = containers.filter(c => selectedContainers.includes(c.id))
-                    saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
-                    setSelectedContainers([])
+                  onClick={async () => {
+                    if (hasSelectedIgnored) {
+                      await unignoreSelected()
+                    } else {
+                      const selected = containers.filter(c => selectedContainers.includes(c.id))
+                      await saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
+                      setSelectedContainers([])
+                    }
                   }}
-                  title="批量忽略更新"
+                  title={hasSelectedIgnored ? '取消忽略' : '批量忽略更新'}
                 >
                   <Ban className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">批量忽略</span>
+                  <span className="hidden sm:inline">{hasSelectedIgnored ? '取消忽略' : '批量忽略'}</span>
                 </button>
               </>
             ) : !isBatchMode ? (
@@ -1112,7 +1138,7 @@ export function Containers() {
             ) : (
               <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
                 <button
-                  className="btn-secondary px-3 sm:px-4 py-2"
+                  className="px-3 sm:px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition-colors"
                   onClick={toggleSelectAll}
                   title={selectedContainers.length === containers.length ? '取消全选' : '全选'}
                 >
@@ -1133,7 +1159,7 @@ export function Containers() {
                   <span className="hidden sm:inline">启动</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('stop')}
                   title="停止"
@@ -1142,7 +1168,7 @@ export function Containers() {
                   <span className="hidden sm:inline">停止</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('restart')}
                   title="重启"
@@ -1151,7 +1177,7 @@ export function Containers() {
                   <span className="hidden sm:inline">重启</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('update')}
                   title="更新"
@@ -1160,18 +1186,22 @@ export function Containers() {
                   <span className="hidden sm:inline">更新</span>
                 </button>
                 <button
-                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : hasSelectedIgnored ? 'bg-amber-600 hover:bg-amber-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
                   disabled={selectedContainers.length === 0}
-                  onClick={() => {
-                    const selected = containers.filter(c => selectedContainers.includes(c.id))
-                    saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
-                    setSelectedContainers([])
-                    setIsBatchMode(false)
+                  onClick={async () => {
+                    if (hasSelectedIgnored) {
+                      await unignoreSelected()
+                    } else {
+                      const selected = containers.filter(c => selectedContainers.includes(c.id))
+                      await saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
+                      setSelectedContainers([])
+                      setIsBatchMode(false)
+                    }
                   }}
-                  title="批量忽略更新"
+                  title={hasSelectedIgnored ? '取消忽略' : '批量忽略更新'}
                 >
                   <Ban className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">批量忽略</span>
+                  <span className="hidden sm:inline">{hasSelectedIgnored ? '取消忽略' : '批量忽略'}</span>
                 </button>
                 <button
                   className="btn-secondary px-3 sm:px-4 py-2 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
@@ -1390,10 +1420,10 @@ export function Containers() {
                     )}
                     {filterStatus === 'ignored' && (
                       <button
-                        onClick={() => saveUpdateBlacklist([])}
-                        className="px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-100 bg-green-100 dark:bg-green-800/50 rounded transition-colors"
+                        onClick={() => saveUpdateBlacklist(updateBlacklist.filter(item => !filteredContainers.some(container => matchesBlacklistItem(container, item))))}
+                        className="px-2 py-0.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded transition-colors shadow-sm"
                       >
-                        取消全部忽略
+                        取消忽略
                       </button>
                     )}
                   </>

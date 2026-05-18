@@ -243,10 +243,18 @@ export function Images() {
       .replace(/kb/gi, 'KB')
   }
 
+  const getSizeInMB = (size) => {
+    const raw = String(size || '').trim().toLowerCase()
+    const value = parseFloat(raw) || 0
+    if (raw.includes('gb')) return value * 1024
+    if (raw.includes('kb')) return value / 1024
+    return value
+  }
+
   const getSizeColor = (size) => {
-    const sizeInMB = parseInt(size)
-    if (sizeInMB < 100) return 'text-green-600 dark:text-green-400'
-    if (sizeInMB < 300) return 'text-yellow-600 dark:text-yellow-400'
+    const sizeInMB = getSizeInMB(size)
+    if (sizeInMB < 200) return 'text-green-600 dark:text-green-400'
+    if (sizeInMB < 1024) return 'text-yellow-600 dark:text-yellow-400'
     return 'text-red-600 dark:text-red-400'
   }
 
@@ -659,7 +667,7 @@ export function Images() {
                         />
                       </label>
                     </th>
-                    {['镜像名称', '状态', 'Tag', '大小', '创建时间', '镜像ID', '加速', '操作'].map((title) => (
+                    {['镜像名称', 'Tag', '大小', '状态', '创建时间', '镜像ID', '加速', '操作'].map((title) => (
                       <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{title}</th>
                     ))}
                   </tr>
@@ -685,14 +693,14 @@ export function Images() {
                           <span className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px]" title={image.name}>{image.name}</span>
                         </div>
                       </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>{image.tag}</td>
+                      <td className={cn('px-4 py-3 text-sm font-semibold whitespace-nowrap', getSizeColor(image.size))}>{formatImageSize(image.size)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <span className={cn('inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium', image.inUsed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>
                           <span className={cn('h-2 w-2 rounded-full', image.inUsed ? 'bg-green-500' : 'bg-gray-400')} />
                           {image.inUsed ? '使用中' : '未使用'}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>{image.tag}</td>
-                      <td className={cn('px-4 py-3 text-sm font-semibold whitespace-nowrap', getSizeColor(image.size))}>{formatImageSize(image.size)}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{image.createTime || '-'}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap" title={image.id}>{shortImageId(image.id)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">

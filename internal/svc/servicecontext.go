@@ -9,8 +9,8 @@ import (
 	"sync"
 	"time"
 
-	dockerBackend "github.com/docker/docker/api/types/backend"
 	dockerTypes "github.com/docker/docker/api/types"
+	dockerBackend "github.com/docker/docker/api/types/backend"
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
@@ -35,6 +35,8 @@ type ServiceContext struct {
 	DockerClient               *client.Client
 	BackupCron                 *cron.Cron
 	OperationLogs              []OperationLog
+	UpdateCheckRunning         bool
+	UpdateCheckLast            time.Time
 	mu                         sync.Mutex
 }
 
@@ -75,6 +77,39 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 		))),
 	}
+}
+
+func (ctx *ServiceContext) GetHubImageUpdate(imageID string) (bool, bool) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	cached, ok := ctx.HubImageInfo.Data[imageID]
+	if !ok {
+		return false, false
+	}
+	return cached.NeedUpdate, true
+}
+
+func (ctx *ServiceContext) SetHubImageUpdate(imageID string, needUpdate bool) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.HubImageInfo.Data[imageID] = module.ImageCheckList{NeedUpdate: needUpdate}
+}
+
+func (ctx *ServiceContext) TryStartUpdateCheck(cooldown time.Duration) bool {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if ctx.UpdateCheckRunning || time.Since(ctx.UpdateCheckLast) < cooldown {
+		return false
+	}
+	ctx.UpdateCheckRunning = true
+	ctx.UpdateCheckLast = time.Now()
+	return true
+}
+
+func (ctx *ServiceContext) FinishUpdateCheck() {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	ctx.UpdateCheckRunning = false
 }
 
 func (ctx *ServiceContext) UpdateProgress(taskID string, progress TaskProgress) {
@@ -205,10 +240,10 @@ func (ctx *ServiceContext) runJSONBackup() error {
 		inspectedContainer.Config.Hostname = ""
 		inspectedContainer.Image = inspectedContainer.Config.Image
 		backupList = append(backupList, dockerBackend.ContainerCreateConfig{
-			Config: inspectedContainer.Config,
-			HostConfig: inspectedContainer.HostConfig,
+			Config:           inspectedContainer.Config,
+			HostConfig:       inspectedContainer.HostConfig,
 			NetworkingConfig: &network.NetworkingConfig{EndpointsConfig: inspectedContainer.NetworkSettings.Networks},
-			Name: containerName,
+			Name:             containerName,
 		})
 	}
 

@@ -91,10 +91,15 @@ def main():
                 # 继续尝试连接其他实例
 
         if not docker_clients:
-            logger.error("所有Docker Copilot实例连接失败")
-            sys.exit(1)
+            logger.warning("所有Docker Copilot实例首次连接失败，Bot 将继续启动，后续请求时自动重试连接")
+            for instance in config.dockercopilot.instances:
+                docker_clients[instance.name] = DockerCopilotClient(
+                    api_url=instance.api_url,
+                    secret_key=instance.secret_key,
+                    timeout=instance.timeout
+                )
 
-        logger.info(f"成功连接 {len(docker_clients)}/{len(config.dockercopilot.instances)} 个实例")
+        logger.info(f"成功初始化 {len(docker_clients)}/{len(config.dockercopilot.instances)} 个实例")
 
         # 初始化Telegram Bot（传入多个客户端）
         if config.telegram.proxy.url():

@@ -48,8 +48,20 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 	}
 	resp.Msg = "success"
 	var containerInfoList []Info
-	list = utiles.CheckImageUpdate(l.svcCtx, list)
+	// 容器列表必须优先稳定返回本地 Docker 状态。
+	// 远端镜像更新检测会访问 DockerHub/GHCR/私有仓库，遇到无权限、无 RepoDigest 或网络慢时会阻塞页面，
+	// 因此不能在 /api/containers 同步执行。这里仅复用已有缓存；后台会带冷却异步刷新缓存。
+	if l.svcCtx.TryStartUpdateCheck(2 * time.Minute) {
+		checkList := append([]types.Container(nil), list...)
+		go func() {
+			defer l.svcCtx.FinishUpdateCheck()
+			utiles.CheckImageUpdate(l.svcCtx, checkList)
+		}()
+	}
 	for _, v := range list {
+		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
+			v.Update = cached
+		}
 		var containerInfo Info
 		containerInfo.Id = v.ID
 		containerInfo.Status = v.State

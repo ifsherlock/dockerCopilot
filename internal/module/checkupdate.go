@@ -40,41 +40,71 @@ func (i *ImageUpdateData) CheckUpdate(imageList []types.Image) {
 }
 
 func (i *ImageUpdateData) checkSingleImage(image types.Image) {
+	needUpdate, err := CheckImageRefUpdate(image.ImageName+":"+image.ImageTag, image.RepoDigests)
+	if err != nil {
+		return
+	}
+	i.Data[image.ID] = ImageCheckList{NeedUpdate: needUpdate}
+}
+
+func CheckImageRefUpdate(imageNameAndTag string, localRepoDigests []string) (bool, error) {
+	imageName, imageTag, ok := strings.Cut(imageNameAndTag, ":")
+	if !ok || imageName == "" || imageTag == "" || imageTag == "None" {
+		return false, nil
+	}
+	image := types.Image{ImageName: imageName, ImageTag: imageTag}
 	token, err := GetToken(image, "")
 	if err != nil {
-		logx.Error("获取token失败或者无需获取token，继续尝试检查" + err.Error())
+		token = ""
 	}
 	digestURL, err := BuildManifestURL(image)
 	if err != nil {
-		logx.Error("获取digestURL失败" + err.Error())
-		return
+		return false, nil
 	}
 	remoteDigest, err := GetDigest(digestURL, token)
 	if err != nil {
-		logx.Error("获取digest失败" + err.Error())
-		return
+		// 私有仓库/匿名无权限/网络抖动时无法可靠检测，按“不提示更新”降级，避免刷错误日志或误报。
+		return false, nil
 	}
-	if len(image.RepoDigests) == 0 {
-		logx.Error("未在本地获取到repoDigest" + image.ImageName + ":" + image.ImageTag)
-		return
+	if len(localRepoDigests) == 0 {
+		// 本地构建镜像、刚被重新 tag 的镜像、或部分私有仓库镜像可能没有 RepoDigest。
+		// 这种情况下不能精确比较远端 digest，也不应该刷错误日志或误判为可更新。
+		return false, nil
 	}
 	needUpdate := false
-	for _, localRepoDigests := range image.RepoDigests {
-		localDigest := strings.Split(localRepoDigests, "@")[1]
+	matchedRepo := false
+	remoteRepo := strings.Split(imageNameAndTag, ":")[0]
+	for _, localRepoDigest := range localRepoDigests {
+		parts := strings.Split(localRepoDigest, "@")
+		if len(parts) != 2 {
+			continue
+		}
+		localRepo, localDigest := parts[0], parts[1]
+		if normalizeRepoName(localRepo) != normalizeRepoName(remoteRepo) {
+			continue
+		}
+		matchedRepo = true
 		if remoteDigest != localDigest {
 			if remoteDigest == "" || localDigest == "" {
-				logx.Error("Digest为空" + image.ImageName + ":" + image.ImageTag)
 				continue
 			}
-			logx.Info(image.ImageName + ":" + image.ImageTag + " need update")
-			logx.Infof("localDigest: %s, remoteDigest: %s", localDigest, remoteDigest)
 			needUpdate = true
 		} else {
-			logx.Info(image.ImageName + ":" + image.ImageTag + " not need update")
-			needUpdate = false
+			return false, nil
 		}
 	}
-	i.Data[image.ID] = ImageCheckList{NeedUpdate: needUpdate}
+	if !matchedRepo {
+		// 运行镜像可能只有其它仓库/旧 tag 的 RepoDigest。无法可靠判断时按“不提示更新”处理，避免误报。
+		return false, nil
+	}
+	return needUpdate, nil
+}
+
+func normalizeRepoName(repo string) string {
+	repo = strings.TrimPrefix(repo, "registry-1.docker.io/")
+	repo = strings.TrimPrefix(repo, "docker.io/")
+	repo = strings.TrimPrefix(repo, "library/")
+	return repo
 }
 
 func BuildManifestURL(image types.Image) (string, error) {

@@ -13,7 +13,6 @@ import (
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -80,22 +79,13 @@ export const customImageLogos = {
 		}
 	}
 
-	list, err := utiles.GetImagesList(ctx)
-	if err != nil {
-		logx.Errorf("panic获取镜像列表出错: %v", err)
-		panic(err)
-	}
-	go ctx.HubImageInfo.CheckUpdate(list)
+	// 镜像更新检测改为容器列表请求时按容器创建镜像实时判断，
+	// 避免启动时全量扫描 registry 导致服务卡顿或 Bot 首次连接超时。
 	corndanmu := cron.New(cron.WithParser(cron.NewParser(
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 	)))
 	_, err = corndanmu.AddFunc("30 * * * *", func() {
-		list, err := utiles.GetImagesList(ctx)
-		if err != nil {
-			logx.Errorf("panic获取镜像列表出错: %v", err)
-			panic(err)
-		}
-		ctx.HubImageInfo.CheckUpdate(list)
+		// 保留定时器占位，更新状态由容器列表按实际 createImage/ImageID 检测。
 	})
 	if err != nil {
 		logx.Errorf("panic添加定时任务出错: %v", err)

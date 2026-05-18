@@ -25,7 +25,6 @@ var DefaultAcceleratorHostList = []string{"docker.1ms.run", "docker.m.daocloud.i
 	"docker.anye.in", "hub.rat.dev", "docker.amingg.com"}
 
 func GetToken(image types.Image, registryAuth string) (string, error) {
-	logx.Infof("image name %s", image.ImageName)
 	normalizedRef, err := ref.ParseNormalizedNamed(image.ImageName)
 	if err != nil {
 		return "", err
@@ -92,8 +91,6 @@ func GetBearerHeader(challenge string, imageRef ref.Named, registryAuth string) 
 	if registryAuth != "" {
 		logx.Info("私有镜像，无法获取是否有更新")
 		r.Header.Add("Authorization", fmt.Sprintf("Basic %s", registryAuth))
-	} else {
-		logx.Info("No credentials found.")
 	}
 
 	var authResponse *http.Response
