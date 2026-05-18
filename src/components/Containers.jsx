@@ -221,10 +221,20 @@ export function Containers() {
     }
   }
 
-  const getBlacklistKey = (container) => container?.usingImage || container?.createImage || container?.name
-  const isUpdateIgnored = (container) => updateBlacklist.includes(getBlacklistKey(container))
+  const getBlacklistCandidates = (container) => [
+    container?.usingImage,
+    container?.createImage,
+    container?.name,
+  ].map(value => String(value || '').trim()).filter(Boolean)
+  const getBlacklistKey = (container) => getBlacklistCandidates(container)[0] || ''
+  const matchesBlacklistItem = (container, item) => {
+    const normalizedItem = String(item || '').trim()
+    if (!normalizedItem) return false
+    return getBlacklistCandidates(container).some(candidate => candidate === normalizedItem || candidate.includes(normalizedItem))
+  }
+  const isUpdateIgnored = (container) => updateBlacklist.some(item => matchesBlacklistItem(container, item))
   const ignoreUpdate = (container) => saveUpdateBlacklist([...updateBlacklist, getBlacklistKey(container)])
-  const unignoreUpdate = (container) => saveUpdateBlacklist(updateBlacklist.filter(item => item !== getBlacklistKey(container)))
+  const unignoreUpdate = (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
   const displayedHaveUpdate = (container) => container.haveUpdate && !isUpdateIgnored(container)
 
   const handleContainerAction = async (containerId, action) => {
@@ -720,7 +730,7 @@ export function Containers() {
       container.createImage,
       container.createTime,
       container.runningTime,
-      getBlacklistKey(container)
+      ...getBlacklistCandidates(container)
     ].some(value => String(value || '').toLowerCase().includes(keyword))
     if (!matchesKeyword) return false
     if (!filterStatus) return true
