@@ -854,11 +854,13 @@ export function Containers() {
           </button>
         )}
         <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
-          "px-2 py-1 text-xs rounded-md border disabled:opacity-40 disabled:cursor-not-allowed",
-          displayedHaveUpdate(container)
-            ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
-            : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-        )} title={isUpdateIgnored(container) ? '已忽略更新' : '更新'}>
+          "px-2 py-1 text-xs rounded-md border transition-colors",
+          isUpdateIgnored(container)
+            ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-70"
+            : displayedHaveUpdate(container)
+              ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+              : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
+        )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
           更新
         </button>
         {isUpdateIgnored(container) ? (
@@ -1102,10 +1104,10 @@ export function Containers() {
                   <span className="hidden sm:inline">重启</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={selectedContainers.length === 0}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 || hasSelectedIgnored ? 'bg-gray-400 dark:bg-gray-600 opacity-70 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  disabled={selectedContainers.length === 0 || hasSelectedIgnored}
                   onClick={() => handleBatchAction('update')}
-                  title="更新"
+                  title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}
                 >
                   <Upload className="h-4 w-4 flex-shrink-0" />
                   <span className="hidden sm:inline">更新</span>
@@ -1177,10 +1179,10 @@ export function Containers() {
                   <span className="hidden sm:inline">重启</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={selectedContainers.length === 0}
+                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 || hasSelectedIgnored ? 'bg-gray-400 dark:bg-gray-600 opacity-70 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  disabled={selectedContainers.length === 0 || hasSelectedIgnored}
                   onClick={() => handleBatchAction('update')}
-                  title="更新"
+                  title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}
                 >
                   <Upload className="h-4 w-4 flex-shrink-0" />
                   <span className="hidden sm:inline">更新</span>
@@ -1669,12 +1671,14 @@ export function Containers() {
                                 onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }}
                                 disabled={isUpdateIgnored(container)}
                                 className={cn(
-                                  "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 bg-white dark:bg-gray-800 border rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed",
-                                  displayedHaveUpdate(container)
-                                    ? "text-yellow-600 dark:text-yellow-400 border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
-                                    : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-200 dark:hover:border-purple-800"
+                                  "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 border rounded-lg transition-all duration-200 shadow-sm text-xs font-medium whitespace-nowrap",
+                                  isUpdateIgnored(container)
+                                    ? "text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-70"
+                                    : displayedHaveUpdate(container)
+                                      ? "text-yellow-600 dark:text-yellow-400 bg-white dark:bg-gray-800 border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 hover:shadow active:scale-95"
+                                      : "text-purple-600 dark:text-purple-400 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-200 dark:hover:border-purple-800 hover:shadow active:scale-95"
                                 )}
-                                title={isUpdateIgnored(container) ? '已忽略更新' : '更新'}
+                                title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}
                               >
                                 <Upload className="h-4 w-4" />
                                 <span>更新</span>
