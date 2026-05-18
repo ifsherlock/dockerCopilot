@@ -1,11 +1,10 @@
-name: latest
+name: v2.1.2
 
 on:
   workflow_dispatch:
   push:
     branches:
       - latest
-      - v2.1.3
     paths:
       - version
       - src/**
