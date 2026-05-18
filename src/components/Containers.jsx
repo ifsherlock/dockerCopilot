@@ -767,15 +767,18 @@ export function Containers() {
     return action.action === 'update' ? 5 : 0
   }
 
+  const getContainerImageRef = (container) => container?.createImage || container?.usingImage || ''
+
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
+    const imageRef = getContainerImageRef(container)
     let iconUrl = container.iconUrl
-    if (!iconUrl && container.usingImage) {
-      const builtInLogo = getImageLogo(container.usingImage)
+    if (!iconUrl && imageRef) {
+      const builtInLogo = getImageLogo(imageRef)
       if (builtInLogo) {
         iconUrl = builtInLogo
       } else {
         for (const [imageName, logoUrl] of Object.entries(customIcons || {})) {
-          if (container.usingImage.startsWith(imageName) || container.usingImage.includes(`${imageName}:`)) {
+          if (imageRef.startsWith(imageName) || imageRef.includes(`${imageName}:`)) {
             iconUrl = logoUrl
             break
           }
@@ -1494,9 +1497,10 @@ export function Containers() {
                         {/* 图标 */}
                         <div className="flex-shrink-0">
                           {(() => {
+                            const imageRef = getContainerImageRef(container);
                             let iconUrl = container.iconUrl;
-                            if (!iconUrl && container.usingImage) {
-                              const builtInLogo = getImageLogo(container.usingImage);
+                            if (!iconUrl && imageRef) {
+                              const builtInLogo = getImageLogo(imageRef);
                               if (builtInLogo) {
                                 iconUrl = builtInLogo;
                               } else {
@@ -1506,8 +1510,8 @@ export function Containers() {
                                 const imageLogos = customIcons;
 
                                 for (const [imageName, logoUrl] of Object.entries(imageLogos)) {
-                                  if (container.usingImage.startsWith(imageName) ||
-                                    container.usingImage.includes(`${imageName}:`)) {
+                                  if (imageRef.startsWith(imageName) ||
+                                    imageRef.includes(`${imageName}:`)) {
                                     iconUrl = logoUrl;
                                     break;
                                   }
