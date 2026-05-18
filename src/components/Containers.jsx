@@ -105,6 +105,7 @@ export function Containers() {
   const [updateBlacklist, setUpdateBlacklist] = useState([])
   const [searchKeyword, setSearchKeyword] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false)
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -738,6 +739,20 @@ export function Containers() {
     }
   }
 
+  const handleManualCheckUpdates = async () => {
+    try {
+      setIsCheckingUpdates(true)
+      await containerAPI.checkUpdates()
+      setTimeout(async () => {
+        await refetch()
+        setIsCheckingUpdates(false)
+      }, 3000)
+    } catch (error) {
+      console.error('手动检测更新失败:', error)
+      setIsCheckingUpdates(false)
+    }
+  }
+
   // 获取状态指示器颜色
   const getStatusIndicatorColor = (status) => {
     const statusConfig = {
@@ -1234,6 +1249,15 @@ export function Containers() {
                 <LayoutList className="h-4 w-4" />
               </button>
             </div>
+            <button
+              className="btn-secondary"
+              onClick={handleManualCheckUpdates}
+              disabled={isCheckingUpdates}
+              title="手动检测容器镜像更新"
+            >
+              <Upload className={cn('h-4 w-4 mr-2', isCheckingUpdates && 'animate-pulse')} />
+              {isCheckingUpdates ? '检测中' : '检测更新'}
+            </button>
             <button
               className="btn-primary"
               onClick={handleRefresh}

@@ -97,6 +97,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/containers",
 				Handler: container.ContainersListHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/containers/check-update",
+				Handler: container.CheckUpdateHandler(serverCtx),
+			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api"),

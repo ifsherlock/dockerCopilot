@@ -102,6 +102,7 @@ export const versionAPI = {
 // 容器相关API
 export const containerAPI = {
   getContainers: () => apiClient.get('/api/containers'),
+  checkUpdates: () => apiClient.post('/api/containers/check-update'),
   startContainer: (id) => apiClient.post(`/api/container/${id}/start`),
   stopContainer: (id) => apiClient.post(`/api/container/${id}/stop`),
   restartContainer: (id) => apiClient.post(`/api/container/${id}/restart`),
