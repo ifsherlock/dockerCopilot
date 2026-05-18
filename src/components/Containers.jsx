@@ -82,6 +82,14 @@ function firstWord(value) {
   return text.split(/\s+/)[0]
 }
 
+function splitStoppedRuntime(value) {
+  const text = String(value || '').trim()
+  if (!text) return ['', '-']
+  const match = text.match(/^(Exited\s*\([^)]*\)|Exited)\s+(.+)$/i)
+  if (match) return [match[1], match[2]]
+  return ['', text]
+}
+
 export function Containers() {
   const queryClient = useQueryClient()
   const [selectedContainer, setSelectedContainer] = useState(null)
@@ -776,7 +784,7 @@ export function Containers() {
     }
 
     return (
-      <div className="flex items-center gap-1 justify-end">
+      <div className="flex items-center gap-1 justify-start">
         {container.status === 'running' ? (
           <>
             <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700" title="停止">
@@ -868,11 +876,23 @@ export function Containers() {
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 max-w-[280px] truncate" title={container.usingImage}>{container.usingImage}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.status === 'running' ? formatRunningTime(container.runningTime) : container.runningTime || '-'}</td>
-                  <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                    {container.status === 'running' ? (
+                      formatRunningTime(container.runningTime)
+                    ) : (() => {
+                      const [exitCode, exitAgo] = splitStoppedRuntime(container.runningTime)
+                      return (
+                        <div className="leading-5" title={container.runningTime || '-'}>
+                          {exitCode && <div className="font-medium text-red-600 dark:text-red-400">{exitCode}</div>}
+                          <div>{exitAgo}</div>
+                        </div>
+                      )
+                    })()}
+                  </td>
+                  <td className="px-2 py-3 whitespace-nowrap min-w-[190px]" onClick={(e) => e.stopPropagation()}>
                     {renderTableActionButtons(container)}
                   </td>
-                  <td className="px-4 py-3 min-w-[240px]">
+                  <td className="px-3 py-3 min-w-[220px]">
                     <div className="flex items-center gap-2">
                       <span className="w-9 text-xs font-semibold text-gray-700 dark:text-gray-300 text-right">{progressPercent}%</span>
                       <div className="h-2.5 w-40 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
@@ -1077,6 +1097,20 @@ export function Containers() {
               <span className="hidden sm:inline">更新</span>
             </button>
             <button
+              className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={selectedContainers.length === 0}
+              onClick={() => {
+                const selected = containers.filter(c => selectedContainers.includes(c.id))
+                saveUpdateBlacklist([...updateBlacklist, ...selected.map(getBlacklistKey)])
+                setSelectedContainers([])
+                setIsBatchMode(false)
+              }}
+              title="批量忽略更新"
+            >
+              <Ban className="h-4 w-4 flex-shrink-0" />
+              <span className="hidden sm:inline">批量忽略</span>
+            </button>
+            <button
               className="btn-danger px-3 sm:px-4 py-2"
               onClick={() => {
                 setSelectedContainers([])
@@ -1173,7 +1207,7 @@ export function Containers() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
               <div className="text-2xl sm:text-3xl font-bold text-gray-600 dark:text-gray-300 transition-transform duration-300 group-hover:scale-110">
-                {containers.filter(c => isUpdateIgnored(c)).length}
+                {updateBlacklist.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">更新黑名单</div>
             </div>

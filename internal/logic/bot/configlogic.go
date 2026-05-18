@@ -3,6 +3,7 @@ package bot
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,6 +147,40 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		"username": req.ProxyUsername,
 		"password": req.ProxyPassword,
 	}
+	if strings.TrimSpace(req.DefaultInstance) != "" {
+		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
+	}
+	if strings.TrimSpace(req.Instances) != "" {
+		var instances []map[string]interface{}
+		if err := json.Unmarshal([]byte(req.Instances), &instances); err != nil {
+			resp.Code = 400
+			resp.Msg = "instances 配置格式错误: " + err.Error()
+			resp.Data = map[string]interface{}{}
+			return resp, nil
+		}
+		cleaned := make([]map[string]interface{}, 0, len(instances))
+		for _, inst := range instances {
+			name := strings.TrimSpace(toString(inst["name"]))
+			apiURL := strings.TrimSpace(toString(inst["api_url"]))
+			if name == "" || apiURL == "" {
+				continue
+			}
+			secretKey := toString(inst["secret_key"])
+			timeout := toInt(inst["timeout"], 30)
+			cleaned = append(cleaned, map[string]interface{}{
+				"name":       name,
+				"api_url":    apiURL,
+				"secret_key": secretKey,
+				"timeout":    timeout,
+			})
+		}
+		if len(cleaned) > 0 {
+			cfg.Dockercopilot["instances"] = cleaned
+			if strings.TrimSpace(req.DefaultInstance) == "" {
+				cfg.Dockercopilot["default_instance"] = cleaned[0]["name"]
+			}
+		}
+	}
 
 	path := configPath()
 	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
@@ -182,4 +217,36 @@ func splitLinesOrComma(s string) []string {
 		}
 	}
 	return out
+}
+
+
+func toString(v interface{}) string {
+	switch t := v.(type) {
+	case string:
+		return t
+	case nil:
+		return ""
+	default:
+		return fmt.Sprint(t)
+	}
+}
+
+func toInt(v interface{}, fallback int) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case float64:
+		return int(t)
+	case json.Number:
+		i, err := t.Int64()
+		if err == nil {
+			return int(i)
+		}
+	case string:
+		var i int
+		if _, err := fmt.Sscanf(t, "%d", &i); err == nil && i > 0 {
+			return i
+		}
+	}
+	return fallback
 }

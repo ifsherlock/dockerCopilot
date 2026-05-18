@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, BrushCleaning, X, AlertCircle, CheckCircle, List, LayoutGrid, Search } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, List, LayoutGrid, Search, CheckSquare } from 'lucide-react'
 import { imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -34,6 +34,8 @@ export function Images() {
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
   const [viewMode, setViewMode] = useState('card')
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [selectedImages, setSelectedImages] = useState([])
+  const [isBatchMode, setIsBatchMode] = useState(false)
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -110,6 +112,44 @@ export function Images() {
     }
   }
 
+  const toggleImageSelection = (imageId) => {
+    setSelectedImages(prev => prev.includes(imageId) ? prev.filter(id => id !== imageId) : [...prev, imageId])
+  }
+
+  const toggleSelectAllImages = () => {
+    const ids = filteredImages.map(img => img.id)
+    const allSelected = ids.length > 0 && ids.every(id => selectedImages.includes(id))
+    setSelectedImages(allSelected ? selectedImages.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedImages, ...ids])))
+    setIsBatchMode(!allSelected)
+  }
+
+  const openBatchDelete = () => {
+    const selected = images.filter(img => selectedImages.includes(img.id))
+    setPruneModal({ isOpen: true, type: 'selected', images: selected })
+  }
+
+  const handleBatchDelete = async (imagesToDelete, force = false) => {
+    try {
+      setIsLoading(true)
+      setError(null)
+      if (!imagesToDelete.length) {
+        setError('请先选择要删除的镜像')
+        setIsLoading(false)
+        return
+      }
+      await Promise.all(imagesToDelete.map(image => imageAPI.deleteImage(image.id, force)))
+      setSuccessModal({ isOpen: true, message: `成功删除 ${imagesToDelete.length} 个镜像` })
+      setSelectedImages([])
+      setIsBatchMode(false)
+      fetchImages()
+      setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
+    } catch (error) {
+      const errorMsg = error.response?.data?.msg || error.message || '批量删除镜像失败'
+      setError(errorMsg)
+      setIsLoading(false)
+    }
+  }
+
   const handlePrune = async (type) => {
     try {
       setIsLoading(true)
@@ -120,6 +160,8 @@ export function Images() {
         imagesToDelete = images.filter(img => img.tag === 'None' || img.tag === '<none>')
       } else if (type === 'unused') {
         imagesToDelete = images.filter(img => !img.inUsed)
+      } else if (type === 'selected') {
+        imagesToDelete = pruneModal.images || []
       }
 
       if (imagesToDelete.length === 0) {
@@ -137,7 +179,9 @@ export function Images() {
 
       const message = type === 'dangling'
         ? `成功清理 ${imagesToDelete.length} 个无Tag镜像`
-        : `成功清理 ${imagesToDelete.length} 个未使用的镜像`
+        : type === 'unused'
+          ? `成功清理 ${imagesToDelete.length} 个未使用的镜像`
+          : `成功删除 ${imagesToDelete.length} 个镜像`
 
       setSuccessModal({ isOpen: true, message })
       fetchImages()
@@ -180,7 +224,7 @@ export function Images() {
 
   if (isLoading && images.length === 0) {
     return (
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
+      <div className="max-w-[1800px] mx-auto px-4 sm:px-6 py-4">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -194,7 +238,7 @@ export function Images() {
   }
 
   return (
-    <div className="max-w-[1600px] mx-auto">
+    <div className="max-w-[1800px] mx-auto">
       {/* 页面头部 */}
       <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
@@ -214,26 +258,26 @@ export function Images() {
               />
             </div>
             <button
-              onClick={() => {
-                const imagesToDelete = images.filter(img => img.tag === 'None' || img.tag === '<none>')
-                setPruneModal({ isOpen: true, type: 'dangling', images: imagesToDelete })
-              }}
-              disabled={isLoading || images.filter(img => img.tag === 'None' || img.tag === '<none>').length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900 dark:text-orange-200 rounded-lg hover:bg-orange-200 dark:hover:bg-orange-800 transition-colors disabled:opacity-50 text-sm font-medium"
+              onClick={() => setIsBatchMode(!isBatchMode)}
+              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
             >
-              <BrushCleaning className="h-4 w-4" />
-              <span>无Tag</span>
+              <CheckSquare className="h-4 w-4" />
+              <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
             </button>
             <button
-              onClick={() => {
-                const imagesToDelete = images.filter(img => !img.inUsed)
-                setPruneModal({ isOpen: true, type: 'unused', images: imagesToDelete })
-              }}
-              disabled={isLoading || images.filter(img => !img.inUsed).length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-purple-100 text-purple-700 dark:bg-purple-900 dark:text-purple-200 rounded-lg hover:bg-purple-200 dark:hover:bg-purple-800 transition-colors disabled:opacity-50 text-sm font-medium"
+              onClick={toggleSelectAllImages}
+              disabled={isLoading || filteredImages.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
             >
-              <BrushCleaning className="h-4 w-4" />
-              <span>未使用</span>
+              <span>{filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id)) ? '取消全选' : '全选'}</span>
+            </button>
+            <button
+              onClick={openBatchDelete}
+              disabled={isLoading || selectedImages.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
             </button>
             <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
               <button
@@ -407,23 +451,31 @@ export function Images() {
         </div>
       </div>
 
-      {/* 筛选提示 */}
-      {filterStatus && (
+      {/* 筛选/批量提示 */}
+      {(filterStatus || selectedImages.length > 0) && (
         <div className="px-4 sm:px-6 pt-2 pb-0">
           <div className="mb-0 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-center gap-2 justify-between">
+              <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-blue-700 dark:text-blue-300">
                 筛选中：
                 {filterStatus === 'used' && '使用中的镜像'}
                 {filterStatus === 'unused' && '未使用的镜像'}
                 {filterStatus === 'dangling' && '无Tag的镜像'}
+                {selectedImages.length > 0 && ` · 已选中 ${selectedImages.length} 个镜像`}
               </span>
-              <button
+              {filterStatus && <button
                 onClick={() => setFilterStatus(null)}
                 className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 bg-blue-100 dark:bg-blue-800/50 rounded transition-colors"
               >
                 清除筛选
-              </button>
+              </button>}
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={toggleSelectAllImages} className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 bg-blue-100 dark:bg-blue-800/50 rounded transition-colors">全选结果</button>
+                <button onClick={openBatchDelete} disabled={selectedImages.length === 0} className="px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-300 hover:text-red-800 dark:hover:text-red-100 bg-red-100 dark:bg-red-800/50 rounded transition-colors disabled:opacity-50">删除所选</button>
+                {selectedImages.length > 0 && <button onClick={() => setSelectedImages([])} className="px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 bg-gray-100 dark:bg-gray-700 rounded transition-colors">取消选择</button>}
+              </div>
             </div>
           </div>
         </div>
@@ -443,6 +495,14 @@ export function Images() {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-900/60">
                   <tr>
+                    <th className="w-12 px-4 py-3 text-left">
+                      <input
+                        type="checkbox"
+                        checked={filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))}
+                        onChange={toggleSelectAllImages}
+                        className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                      />
+                    </th>
                     {['镜像名称', '状态', 'Tag', '大小', '创建时间', '镜像ID', '详情链接', '操作'].map((title) => (
                       <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{title}</th>
                     ))}
@@ -450,7 +510,10 @@ export function Images() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
                   {filteredImages.map((image) => (
-                    <tr key={image.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                    <tr key={image.id} onClick={() => isBatchMode && toggleImageSelection(image.id)} className={cn("hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors", selectedImages.includes(image.id) && "bg-primary-50 dark:bg-primary-900/20")}>
+                      <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                        <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                      </td>
                       <td className="px-4 py-3 min-w-[260px]">
                         <div className="flex items-center gap-3">
                           <div className="h-9 w-9 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -482,8 +545,8 @@ export function Images() {
                         ) : <span className="text-sm text-gray-400">-</span>}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <button onClick={() => setDeleteModal({ isOpen: true, image, force: false })} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
-                        {image.inUsed && <button onClick={() => setDeleteModal({ isOpen: true, image, force: true })} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700">强制</button>}
+                        <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
+                        {image.inUsed && <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700">强制</button>}
                       </td>
                     </tr>
                   ))}
@@ -492,10 +555,15 @@ export function Images() {
             </div>
           </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
             {filteredImages
               .map((image) => (
-                <div key={image.id} className="group card p-4 rounded-2xl hover:shadow-lg transition-all">
+                <div key={image.id} onClick={() => isBatchMode && toggleImageSelection(image.id)} className={cn("group card p-4 rounded-2xl hover:shadow-lg transition-all cursor-pointer", selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20")}>
+                  {isBatchMode && (
+                    <div className="flex justify-end mb-2">
+                      <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} onClick={(e) => e.stopPropagation()} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                    </div>
+                  )}
                   {/* 头部：图标、名字、状态指示器和大小 */}
                   <div className="flex items-start gap-3 mb-4">
                     <div className="h-10 w-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
@@ -556,7 +624,7 @@ export function Images() {
                   {/* 操作按钮 */}
                   <div className="flex gap-2 pt-4 border-t border-gray-100 dark:border-gray-700">
                     <button
-                      onClick={() => setDeleteModal({ isOpen: true, image, force: false })}
+                      onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
                       className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors active:scale-95"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
@@ -564,7 +632,7 @@ export function Images() {
                     </button>
                     {image.inUsed && (
                       <button
-                        onClick={() => setDeleteModal({ isOpen: true, image, force: true })}
+                        onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
                         className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors active:scale-95"
                         title="强制删除正在使用的镜像"
                       >
@@ -593,7 +661,7 @@ export function Images() {
                 </div>
                 <div className="flex-1">
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">
-                    {pruneModal.type === 'dangling' ? '删除无Tag镜像' : '删除未使用的镜像'}
+                    {pruneModal.type === 'dangling' ? '删除无Tag镜像' : pruneModal.type === 'unused' ? '删除未使用的镜像' : '删除所选镜像'}
                   </h3>
                   <p className="text-sm text-gray-600 dark:text-gray-400 mt-2">
                     将永久删除 <span className="font-semibold text-orange-600 dark:text-orange-400">{pruneModal.images.length} 个</span> 镜像，此操作不可恢复

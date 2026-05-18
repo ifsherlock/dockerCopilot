@@ -11,7 +11,10 @@ import {
   Eye,
   EyeOff,
   Search,
-  X
+  X,
+  Server,
+  Plus,
+  Trash2
 } from 'lucide-react'
 import { cn } from '../utils/cn.js'
 import { botAPI, containerAPI } from '../api/client.js'
@@ -32,6 +35,8 @@ export function Bot() {
     proxyPort: '',
     proxyUsername: '',
     proxyPassword: '',
+    defaultInstance: 'local',
+    instances: JSON.stringify([{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]),
   })
   const [showToken, setShowToken] = useState(false)
   const [showProxyPassword, setShowProxyPassword] = useState(false)
@@ -40,6 +45,8 @@ export function Bot() {
   const [message, setMessage] = useState('')
   const [containers, setContainers] = useState([])
   const [blacklistSearch, setBlacklistSearch] = useState('')
+  const [showInstanceSettings, setShowInstanceSettings] = useState(false)
+  const [blacklistInstance, setBlacklistInstance] = useState('local')
 
   useEffect(() => {
     const loadContainers = async () => {
@@ -61,6 +68,12 @@ export function Bot() {
         const data = res.data?.data || {}
         const telegram = data.telegram || {}
         const proxy = telegram.proxy || {}
+        const dockercopilot = data.dockercopilot || {}
+        const instances = Array.isArray(dockercopilot.instances) && dockercopilot.instances.length > 0
+          ? dockercopilot.instances
+          : [{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
+        const defaultInstance = dockercopilot.default_instance || instances[0]?.name || 'local'
+        setBlacklistInstance(defaultInstance)
         setConfig(prev => ({
           ...prev,
           botToken: telegram.bot_token || '',
@@ -77,6 +90,8 @@ export function Bot() {
           proxyPort: proxy.port ? String(proxy.port) : '',
           proxyUsername: proxy.username || '',
           proxyPassword: proxy.password || '',
+          defaultInstance,
+          instances: JSON.stringify(instances, null, 2),
         }))
       } catch (error) {
         setMessage(`读取配置失败：${error.response?.data?.msg || error.message}`)
@@ -90,6 +105,38 @@ export function Bot() {
   const handleChange = (field, value) => {
     setConfig(prev => ({ ...prev, [field]: value }))
   }
+
+  const parsedInstances = (() => {
+    try {
+      const value = JSON.parse(config.instances || '[]')
+      return Array.isArray(value) ? value : []
+    } catch {
+      return []
+    }
+  })()
+
+  const updateInstance = (index, field, value) => {
+    const next = parsedInstances.map((inst, i) => i === index ? { ...inst, [field]: field === 'timeout' ? Number(value || 0) : value } : inst)
+    handleChange('instances', JSON.stringify(next, null, 2))
+    if (field === 'name' && config.defaultInstance === parsedInstances[index]?.name) {
+      handleChange('defaultInstance', value)
+    }
+  }
+
+  const addInstance = () => {
+    const next = [...parsedInstances, { name: `instance-${parsedInstances.length + 1}`, api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
+    handleChange('instances', JSON.stringify(next, null, 2))
+  }
+
+  const removeInstance = (index) => {
+    const next = parsedInstances.filter((_, i) => i !== index)
+    handleChange('instances', JSON.stringify(next, null, 2))
+    if (!next.some(inst => inst.name === config.defaultInstance)) {
+      handleChange('defaultInstance', next[0]?.name || '')
+    }
+  }
+
+  const isLocalBlacklistInstance = blacklistInstance === config.defaultInstance || blacklistInstance === 'local'
 
   const selectedBlacklist = config.updateBlacklist
     .split(/[\n,;]+/)
@@ -312,6 +359,81 @@ export function Bot() {
         </div>
       </div>
 
+      {/* 多实例配置 */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <Server className="h-5 w-5 text-cyan-500" />
+              多实例配置
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              默认隐藏；需要同时管理多个 DockerCopilot 时再展开。Bot 会按实例名连接多个管理器。
+            </p>
+          </div>
+          <button
+            onClick={() => setShowInstanceSettings(!showInstanceSettings)}
+            className={cn(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0",
+              showInstanceSettings ? "bg-primary-600" : "bg-gray-300 dark:bg-gray-600"
+            )}
+          >
+            <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", showInstanceSettings ? "translate-x-6" : "translate-x-1")} />
+          </button>
+        </div>
+
+        {showInstanceSettings && (
+          <div className="mt-5 space-y-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">默认实例</label>
+              <select
+                value={config.defaultInstance}
+                onChange={(e) => handleChange('defaultInstance', e.target.value)}
+                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              >
+                {parsedInstances.map(inst => <option key={inst.name} value={inst.name}>{inst.name}</option>)}
+              </select>
+            </div>
+
+            <div className="space-y-3">
+              {parsedInstances.map((inst, index) => (
+                <div key={index} className="p-4 rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30">
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">实例名</label>
+                      <input value={inst.name || ''} onChange={(e) => updateInstance(index, 'name', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                    </div>
+                    <div className="md:col-span-2">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">API 地址</label>
+                      <input value={inst.api_url || ''} onChange={(e) => updateInstance(index, 'api_url', e.target.value)} placeholder="http://host:12712" className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">超时秒数</label>
+                      <input type="number" value={inst.timeout || 30} onChange={(e) => updateInstance(index, 'timeout', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                    </div>
+                    <div className="md:col-span-3">
+                      <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">访问密钥</label>
+                      <input type="password" value={inst.secret_key || ''} onChange={(e) => updateInstance(index, 'secret_key', e.target.value)} placeholder="secretKey" className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                    </div>
+                    <div className="flex items-end">
+                      <button onClick={() => removeInstance(index)} disabled={parsedInstances.length <= 1} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 text-sm">
+                        <Trash2 className="h-4 w-4" /> 删除
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+            <button onClick={addInstance} className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300 hover:bg-primary-200 dark:hover:bg-primary-900/50 text-sm font-medium">
+              <Plus className="h-4 w-4" /> 添加实例
+            </button>
+            <p className="text-xs text-amber-600 dark:text-amber-300">
+              注意：主容器内的本机实例可以和“容器页更新黑名单”联动；外部实例只能给 Bot 使用，无法自动同步外部实例自己的容器黑名单。
+            </p>
+          </div>
+        )}
+      </div>
+
       {/* 更新检测配置 */}
       <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
         <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2 mb-4">
@@ -429,9 +551,16 @@ export function Bot() {
           更新黑名单
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          黑名单与容器页“忽略更新”同步保存。建议选择镜像名作为黑名单项，这样容器改名后仍然有效。
+          本机实例黑名单与容器页“忽略更新”一一对应，统一保存到 telegram.update_blacklist。外部实例可以在 Bot 里选择使用，但这里不能自动同步外部 DockerCopilot 的容器黑名单。
         </p>
         <div className="space-y-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">黑名单关联实例</label>
+            <select value={blacklistInstance} onChange={(e) => setBlacklistInstance(e.target.value)} className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+              {parsedInstances.map(inst => <option key={inst.name} value={inst.name}>{inst.name}</option>)}
+            </select>
+            {!isLocalBlacklistInstance && <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">当前选择的是外部实例：Bot 会使用这份黑名单，但无法自动同步外部实例容器页的黑名单。</p>}
+          </div>
           <div className="relative">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
             <input

@@ -109,4 +109,6 @@ type BotConfigReq struct {
 	ProxyPort            int    `json:"proxyPort"`
 	ProxyUsername        string `json:"proxyUsername"`
 	ProxyPassword        string `json:"proxyPassword"`
+	DefaultInstance      string `json:"defaultInstance"`
+	Instances            string `json:"instances"`
 }
