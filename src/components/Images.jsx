@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus, Gauge } from 'lucide-react'
 import { imageAPI, botAPI, progressAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -43,6 +43,8 @@ export function Images() {
   const [accelerators, setAccelerators] = useState([])
   const [newAccelerator, setNewAccelerator] = useState('')
   const [defaultAccelerator, setDefaultAccelerator] = useState('')
+  const [acceleratorLatency, setAcceleratorLatency] = useState({})
+  const [testingAccelerators, setTestingAccelerators] = useState(false)
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -137,6 +139,48 @@ export function Images() {
     }
     loadAccelerators()
   }, [])
+
+
+  const testAcceleratorLatency = async () => {
+    try {
+      setTestingAccelerators(true)
+      const res = await imageAPI.getAcceleratorLatency()
+      const list = Array.isArray(res.data?.data) ? res.data.data : []
+      const next = {}
+      list.forEach(item => {
+        next[item.source] = item
+      })
+      setAcceleratorLatency(next)
+    } catch (e) {
+      setError(e.response?.data?.msg || e.message || '测速失败')
+    } finally {
+      setTestingAccelerators(false)
+    }
+  }
+
+  const formatLatency = (source) => {
+    const info = acceleratorLatency[source]
+    if (!info) return '未测速'
+    if (info.status === 'failed') return '失败'
+    if (info.latency < 0) return '超时'
+    return `${info.latency} ms`
+  }
+
+  const latencyClassName = (source) => {
+    const info = acceleratorLatency[source]
+    if (!info) return 'text-gray-400 dark:text-gray-500'
+    if (info.status === 'failed' || info.latency < 0) return 'text-red-600 dark:text-red-400'
+    if (info.latency <= 800) return 'text-green-600 dark:text-green-400'
+    if (info.latency <= 2000) return 'text-amber-600 dark:text-amber-400'
+    return 'text-orange-600 dark:text-orange-400'
+  }
+
+  // 自动测速加速源延迟：加速源加载/变更后自动刷新，不需要手动按钮
+  useEffect(() => {
+    if (accelerators.length > 0) {
+      testAcceleratorLatency()
+    }
+  }, [accelerators.join('|')])
 
   const handleDeleteImage = async (imageId, force = false) => {
     try {
@@ -912,9 +956,15 @@ export function Images() {
                   <input value={acceleratorModal.imageName} onChange={(e) => setAcceleratorModal(prev => ({ ...prev, imageName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="例如 library/nginx:latest" />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">镜像源</label>
+                  <div className="flex items-center justify-between mb-2">
+                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">镜像源</label>
+                    <span className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1">
+                      <Gauge className={cn("h-3.5 w-3.5", testingAccelerators && "animate-pulse text-sky-500")} />
+                      {testingAccelerators ? '自动测速中...' : '已自动测速'}
+                    </span>
+                  </div>
                   <select value={acceleratorModal.selectedSource} onChange={(e) => { setAcceleratorModal(prev => ({ ...prev, selectedSource: e.target.value })); persistAccelerators(accelerators, e.target.value) }} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
-                    {accelerators.map(src => <option key={src} value={src}>{src}</option>)}
+                    {accelerators.map(src => <option key={src} value={src}>{src} · {formatLatency(src)}</option>)}
                   </select>
                 </div>
               </div>
@@ -924,7 +974,10 @@ export function Images() {
                   <button onClick={addAccelerator} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 flex items-center gap-1"><Plus className="h-4 w-4" />添加</button>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {accelerators.map(src => <button key={src} onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: src }))} className={cn("px-2 py-1 text-xs rounded-lg border", acceleratorModal.selectedSource === src ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>{src}</button>)}
+                  {accelerators.map(src => <button key={src} onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: src }))} className={cn("px-2 py-1 text-xs rounded-lg border flex items-center gap-1", acceleratorModal.selectedSource === src ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>
+                    <span>{src}</span>
+                    <span className={cn("font-mono", latencyClassName(src))}>{formatLatency(src)}</span>
+                  </button>)}
                 </div>
               </div>
               <div>

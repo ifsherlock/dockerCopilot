@@ -186,7 +186,7 @@ func (ctx *ServiceContext) GetProgress(taskID string) (TaskProgress, bool) {
 }
 
 func (ctx *ServiceContext) BackupMaxFiles() int {
-	cfg, err := loadBackupRuntimeConfig()
+	cfg, err := LoadRuntimeConfigForRead()
 	if err != nil {
 		return 20
 	}
@@ -215,7 +215,7 @@ func (ctx *ServiceContext) ReloadBackupSchedulers() error {
 		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 	)))
 
-	cfg, err := loadBackupRuntimeConfig()
+	cfg, err := LoadRuntimeConfigForRead()
 	if err != nil {
 		return err
 	}
@@ -369,7 +369,7 @@ func (ctx *ServiceContext) pruneBackups() error {
 	return nil
 }
 
-func loadBackupRuntimeConfig() (backupRuntimeConfig, error) {
+func LoadRuntimeConfigForRead() (backupRuntimeConfig, error) {
 	path := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG"))
 	if path == "" {
 		path = "/app/config/config.json"
@@ -423,4 +423,29 @@ func asString(v interface{}, fallback string) string {
 		return s
 	}
 	return fallback
+}
+
+func StringList(v interface{}) []string {
+	out := []string{}
+	switch t := v.(type) {
+	case []string:
+		for _, item := range t {
+			if s := strings.TrimSpace(item); s != "" {
+				out = append(out, s)
+			}
+		}
+	case []interface{}:
+		for _, item := range t {
+			if s := strings.TrimSpace(asString(item, "")); s != "" {
+				out = append(out, s)
+			}
+		}
+	case string:
+		for _, item := range strings.FieldsFunc(t, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' || r == ';' }) {
+			if s := strings.TrimSpace(item); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
 }

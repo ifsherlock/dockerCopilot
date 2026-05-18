@@ -489,20 +489,6 @@ export function Backups() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
-          <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
-            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">备份最大份数</label>
-            <input
-              type="number"
-              min="1"
-              max="200"
-              step="1"
-              value={backupConfig.backupMaxFiles}
-              onChange={(e) => handleBackupScheduleChange('backupMaxFiles', e.target.value)}
-              className="input-field max-w-xs"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">按修改时间保留最新 N 个备份，超出的旧备份会在创建新备份后自动删除；设置范围 1-200。</p>
-          </div>
-
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
@@ -629,6 +615,28 @@ export function Backups() {
               <Save className={`h-4 w-4 ${isSavingSchedule ? 'animate-spin' : ''}`} />
               <span className="text-sm font-medium">保存定时配置</span>
             </button>
+          </div>
+
+          <div className="mb-4 rounded-2xl border border-emerald-200 dark:border-emerald-800 bg-emerald-50/70 dark:bg-emerald-900/10 p-4">
+            <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+              <div>
+                <div className="font-semibold text-gray-900 dark:text-white">备份保留份数</div>
+                <p className="text-xs text-gray-600 dark:text-gray-400 mt-1">创建新备份后自动保留最新 N 份，超过数量的旧备份会自动删除。</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="text-sm text-gray-600 dark:text-gray-400">最多</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="200"
+                  step="1"
+                  value={backupConfig.backupMaxFiles}
+                  onChange={(e) => handleBackupScheduleChange('backupMaxFiles', e.target.value)}
+                  className="w-24 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+                <span className="text-sm text-gray-600 dark:text-gray-400">份</span>
+              </div>
+            </div>
           </div>
 
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">

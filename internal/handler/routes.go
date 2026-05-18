@@ -178,6 +178,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/logs",
 				Handler: image.LogsHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/image/accelerators/latency",
+				Handler: image.AcceleratorLatencyHandler(serverCtx),
+			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api"),

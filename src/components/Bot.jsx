@@ -37,6 +37,11 @@ export function Bot() {
     proxyPassword: '',
     defaultInstance: 'local',
     instances: JSON.stringify([{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]),
+    autoBackupJson: false,
+    backupJsonCron: '0 1 * * *',
+    autoBackupCompose: false,
+    backupComposeCron: '30 1 * * *',
+    backupMaxFiles: 20,
   })
   const [showToken, setShowToken] = useState(false)
   const [showProxyPassword, setShowProxyPassword] = useState(false)
@@ -92,6 +97,11 @@ export function Bot() {
           proxyPassword: proxy.password || '',
           defaultInstance,
           instances: JSON.stringify(instances, null, 2),
+          autoBackupJson: telegram.auto_backup_json ?? false,
+          backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
+          autoBackupCompose: telegram.auto_backup_compose ?? false,
+          backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
+          backupMaxFiles: telegram.backup_max_files || 20,
         }))
       } catch (error) {
         setMessage(`读取配置失败：${error.response?.data?.msg || error.message}`)

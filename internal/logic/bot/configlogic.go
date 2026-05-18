@@ -292,6 +292,22 @@ func validateCronExpr(label string, expr string) (string, error) {
 	return normalized, nil
 }
 
+func existingString(m map[string]interface{}, key string, fallback string) string {
+	if value, ok := m[key]; ok {
+		if s := strings.TrimSpace(toString(value)); s != "" {
+			return s
+		}
+	}
+	return fallback
+}
+
+func requestOrExisting(value string, m map[string]interface{}, key string, fallback string) string {
+	if strings.TrimSpace(value) != "" {
+		return value
+	}
+	return existingString(m, key, fallback)
+}
+
 func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
 	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
@@ -302,35 +318,44 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		return resp, nil
 	}
 
-	updateCheckCron, cronErr := validateCronExpr("更新检测 Cron", req.UpdateCheckCron)
+	// SaveConfig is used by multiple pages. Some pages only submit their own fields,
+	// so missing cron fields must be merged from the current runtime config instead of
+	// being treated as empty values or overwriting existing config.
+	updateCheckCronReq := requestOrExisting(req.UpdateCheckCron, cfg.Telegram, "update_check_cron", "0 18 * * *")
+	cleanImagesCronReq := requestOrExisting(req.CleanImagesCron, cfg.Telegram, "clean_images_cron", "3 2 * * *")
+	updateContainersCronReq := requestOrExisting(req.UpdateContainersCron, cfg.Telegram, "update_containers_cron", "0 */6 * * *")
+	backupJSONCronReq := requestOrExisting(req.BackupJsonCron, cfg.Telegram, "backup_json_cron", "0 1 * * *")
+	backupComposeCronReq := requestOrExisting(req.BackupComposeCron, cfg.Telegram, "backup_compose_cron", "30 1 * * *")
+
+	updateCheckCron, cronErr := validateCronExpr("更新检测 Cron", updateCheckCronReq)
 	if cronErr != nil {
 		resp.Code = 400
 		resp.Msg = cronErr.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
-	cleanImagesCron, cronErr := validateCronExpr("清理 Cron", req.CleanImagesCron)
+	cleanImagesCron, cronErr := validateCronExpr("清理 Cron", cleanImagesCronReq)
 	if cronErr != nil {
 		resp.Code = 400
 		resp.Msg = cronErr.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
-	updateContainersCron, cronErr := validateCronExpr("自动更新 Cron", req.UpdateContainersCron)
+	updateContainersCron, cronErr := validateCronExpr("自动更新 Cron", updateContainersCronReq)
 	if cronErr != nil {
 		resp.Code = 400
 		resp.Msg = cronErr.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
-	backupJSONCron, cronErr := validateCronExpr("JSON 备份 Cron", req.BackupJsonCron)
+	backupJSONCron, cronErr := validateCronExpr("JSON 备份 Cron", backupJSONCronReq)
 	if cronErr != nil {
 		resp.Code = 400
 		resp.Msg = cronErr.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
-	backupComposeCron, cronErr := validateCronExpr("YAML 备份 Cron", req.BackupComposeCron)
+	backupComposeCron, cronErr := validateCronExpr("YAML 备份 Cron", backupComposeCronReq)
 	if cronErr != nil {
 		resp.Code = 400
 		resp.Msg = cronErr.Error()
@@ -338,6 +363,9 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		return resp, nil
 	}
 	backupMaxFiles := req.BackupMaxFiles
+	if backupMaxFiles <= 0 {
+		backupMaxFiles = toInt(cfg.Telegram["backup_max_files"], 20)
+	}
 	if backupMaxFiles <= 0 {
 		backupMaxFiles = 20
 	}
@@ -362,13 +390,31 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["clean_images_cron"] = cleanImagesCron
 	cfg.Telegram["auto_update_containers"] = req.AutoUpdateContainers
 	cfg.Telegram["update_containers_cron"] = updateContainersCron
-	cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
+	backupFieldsPresent := strings.TrimSpace(req.BackupJsonCron) != "" || strings.TrimSpace(req.BackupComposeCron) != "" || req.BackupMaxFiles > 0
+	if backupFieldsPresent {
+		cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
+		cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
+	} else {
+		if _, ok := cfg.Telegram["auto_backup_json"]; !ok {
+			cfg.Telegram["auto_backup_json"] = false
+		}
+		if _, ok := cfg.Telegram["auto_backup_compose"]; !ok {
+			cfg.Telegram["auto_backup_compose"] = false
+		}
+	}
 	cfg.Telegram["backup_json_cron"] = backupJSONCron
-	cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
 	cfg.Telegram["backup_compose_cron"] = backupComposeCron
 	cfg.Telegram["backup_max_files"] = backupMaxFiles
-	cfg.Telegram["image_accelerators"] = splitLinesOrComma(req.ImageAccelerators)
-	cfg.Telegram["default_image_accelerator"] = strings.TrimSpace(req.DefaultImageAccelerator)
+	if strings.TrimSpace(req.ImageAccelerators) != "" {
+		cfg.Telegram["image_accelerators"] = splitLinesOrComma(req.ImageAccelerators)
+	} else if _, ok := cfg.Telegram["image_accelerators"]; !ok {
+		cfg.Telegram["image_accelerators"] = []string{}
+	}
+	if strings.TrimSpace(req.DefaultImageAccelerator) != "" {
+		cfg.Telegram["default_image_accelerator"] = strings.TrimSpace(req.DefaultImageAccelerator)
+	} else if _, ok := cfg.Telegram["default_image_accelerator"]; !ok {
+		cfg.Telegram["default_image_accelerator"] = ""
+	}
 	cfg.Telegram["proxy"] = map[string]interface{}{
 		"type":     req.ProxyType,
 		"host":     req.ProxyHost,

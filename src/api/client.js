@@ -139,6 +139,7 @@ export const imageAPI = {
     displayName,
   }),
   getLogs: () => apiClient.get('/api/logs'),
+  getAcceleratorLatency: () => apiClient.get('/api/image/accelerators/latency'),
   uploadIcon: (file, imageName, containerName) => {
     const formData = new FormData()
     formData.append('file', file)

@@ -360,7 +360,6 @@ export function Containers() {
       setContainerActions(prev => {
         const newState = { ...prev }
         delete newState[containerId]
-        if (containerName) delete newState[`name:${containerName}`]
         return newState
       })
 
