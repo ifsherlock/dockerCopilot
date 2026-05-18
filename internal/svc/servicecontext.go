@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -95,6 +97,23 @@ func (ctx *ServiceContext) SetHubImageUpdate(imageID string, needUpdate bool) {
 	ctx.HubImageInfo.Data[imageID] = module.ImageCheckList{NeedUpdate: needUpdate}
 }
 
+func (ctx *ServiceContext) ClearHubImageUpdate(imageID string) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	delete(ctx.HubImageInfo.Data, imageID)
+}
+
+func (ctx *ServiceContext) ClearHubImageUpdates(imageIDs ...string) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	for _, imageID := range imageIDs {
+		if imageID == "" {
+			continue
+		}
+		delete(ctx.HubImageInfo.Data, imageID)
+	}
+}
+
 func (ctx *ServiceContext) TryStartUpdateCheck(cooldown time.Duration) bool {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
@@ -164,6 +183,21 @@ func (ctx *ServiceContext) GetProgress(taskID string) (TaskProgress, bool) {
 	defer ctx.mu.Unlock()
 	progress, ok := ctx.ProgressStore[taskID]
 	return progress, ok
+}
+
+func (ctx *ServiceContext) BackupMaxFiles() int {
+	cfg, err := loadBackupRuntimeConfig()
+	if err != nil {
+		return 20
+	}
+	maxFiles := asInt(cfg.Telegram["backup_max_files"], 20)
+	if maxFiles <= 0 {
+		return 20
+	}
+	if maxFiles > 200 {
+		return 200
+	}
+	return maxFiles
 }
 
 func (ctx *ServiceContext) ReloadBackupSchedulers() error {
@@ -259,7 +293,10 @@ func (ctx *ServiceContext) runJSONBackup() error {
 		return err
 	}
 	fileName := "backup-" + time.Now().Format("2006-01-02") + ".json"
-	return os.WriteFile(filepath.Join(backupDir, fileName), jsonData, 0644)
+	if err := os.WriteFile(filepath.Join(backupDir, fileName), jsonData, 0644); err != nil {
+		return err
+	}
+	return ctx.pruneBackups()
 }
 
 func (ctx *ServiceContext) runComposeBackup() error {
@@ -275,7 +312,61 @@ func (ctx *ServiceContext) runComposeBackup() error {
 		}
 		containerJSONs = append(containerJSONs, inspectedContainer)
 	}
-	return backupCompose.DockerConfig2ComposeYaml(containerJSONs)
+	if err := backupCompose.DockerConfig2ComposeYaml(containerJSONs); err != nil {
+		return err
+	}
+	return ctx.pruneBackups()
+}
+
+func (ctx *ServiceContext) pruneBackups() error {
+	backupDir := os.Getenv("BACKUP_DIR")
+	if backupDir == "" {
+		backupDir = "/data/backups"
+	}
+	entries, err := os.ReadDir(backupDir)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	type backupFile struct {
+		name    string
+		path    string
+		modTime int64
+	}
+	files := make([]backupFile, 0)
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+		name := entry.Name()
+		lower := strings.ToLower(name)
+		if !strings.HasPrefix(name, "backup-") || !(strings.HasSuffix(lower, ".json") || strings.HasSuffix(lower, ".yaml") || strings.HasSuffix(lower, ".yml")) {
+			continue
+		}
+		info, err := entry.Info()
+		if err != nil {
+			continue
+		}
+		files = append(files, backupFile{name: name, path: filepath.Join(backupDir, name), modTime: info.ModTime().UnixNano()})
+	}
+	maxFiles := ctx.BackupMaxFiles()
+	if len(files) <= maxFiles {
+		return nil
+	}
+	sort.Slice(files, func(i, j int) bool {
+		if files[i].modTime == files[j].modTime {
+			return files[i].name > files[j].name
+		}
+		return files[i].modTime > files[j].modTime
+	})
+	for _, file := range files[maxFiles:] {
+		if err := os.Remove(file.path); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	return nil
 }
 
 func loadBackupRuntimeConfig() (backupRuntimeConfig, error) {
@@ -309,6 +400,22 @@ func asBool(v interface{}) bool {
 	default:
 		return false
 	}
+}
+
+func asInt(v interface{}, fallback int) int {
+	switch t := v.(type) {
+	case int:
+		return t
+	case int64:
+		return int(t)
+	case float64:
+		return int(t)
+	case string:
+		if n, err := strconv.Atoi(strings.TrimSpace(t)); err == nil {
+			return n
+		}
+	}
+	return fallback
 }
 
 func asString(v interface{}, fallback string) string {

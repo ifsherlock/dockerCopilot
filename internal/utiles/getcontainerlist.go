@@ -46,13 +46,12 @@ func CheckImageUpdate(ctx *svc.ServiceContext, containerListData []MyType.Contai
 		imageInspect, _, err := ctx.DockerClient.ImageInspectWithRaw(context.Background(), v.ImageID)
 		if err != nil {
 			logx.Errorf("inspect container image for update check failed %s: %v", v.ImageID, err)
+			ctx.ClearHubImageUpdate(v.ImageID)
 			continue
 		}
 		needUpdate, err := module.CheckImageRefUpdate(createImage, imageInspect.RepoDigests)
 		if err != nil {
-			if cached, ok := ctx.GetHubImageUpdate(v.ImageID); ok && cached {
-				containerListData[i].Update = true
-			}
+			ctx.ClearHubImageUpdate(v.ImageID)
 			continue
 		}
 		containerListData[i].Update = needUpdate
@@ -95,6 +94,7 @@ func ContainerNeedsUpdate(ctx *svc.ServiceContext, id string, imageNameAndTag st
 	if err != nil {
 		return true
 	}
+	ctx.SetHubImageUpdate(inspect.Image, needUpdate)
 	return needUpdate
 }
 

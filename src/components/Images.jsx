@@ -787,7 +787,7 @@ export function Images() {
                   <div className="flex gap-2 pt-4 border-t border-gray-100 dark:border-gray-700">
                     <button
                       onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
-                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors active:scale-95"
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       <span>删除</span>
@@ -795,7 +795,7 @@ export function Images() {
                     {image.inUsed && (
                       <button
                         onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 rounded-lg transition-colors active:scale-95"
+                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-gray-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 hover:border-orange-200 dark:hover:border-orange-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95"
                         title="强制删除正在使用的镜像"
                       >
                         <Trash2 className="h-3.5 w-3.5" />

@@ -63,6 +63,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: container.StopHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodDelete,
+				Path:    "/container/:id",
+				Handler: container.RemoveHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/container/:id/update",
 				Handler: container.UpdateHandler(serverCtx),

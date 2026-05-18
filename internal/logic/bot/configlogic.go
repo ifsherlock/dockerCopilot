@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -76,6 +77,7 @@ func defaultConfig(secretKey string) runtimeConfig {
 			"backup_json_cron":          "0 1 * * *",
 			"auto_backup_compose":       false,
 			"backup_compose_cron":       "30 1 * * *",
+			"backup_max_files":          20,
 			"image_accelerators":        []string{"docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"},
 			"default_image_accelerator": "docker.1ms.run",
 			"proxy": map[string]interface{}{
@@ -229,6 +231,67 @@ func (l *ConfigLogic) SaveUpdateBlacklist(req *types.UpdateBlacklistReq) (resp *
 	return resp, nil
 }
 
+func normalizeCronExpr(expr string) string {
+	return strings.Join(strings.Fields(strings.TrimSpace(expr)), " ")
+}
+
+func validateCronField(field string, min int, max int) error {
+	if field == "" {
+		return fmt.Errorf("不能为空")
+	}
+	for _, part := range strings.Split(field, ",") {
+		if part == "" {
+			return fmt.Errorf("列表里有空项")
+		}
+		pieces := strings.Split(part, "/")
+		if len(pieces) > 2 {
+			return fmt.Errorf("字段 %q 的 / 只能出现一次", field)
+		}
+		rangePart := pieces[0]
+		if len(pieces) == 2 {
+			step, err := strconv.Atoi(pieces[1])
+			if err != nil || step <= 0 {
+				return fmt.Errorf("步长 %q 无效", pieces[1])
+			}
+		}
+		if rangePart == "*" {
+			continue
+		}
+		if strings.Contains(rangePart, "-") {
+			bounds := strings.Split(rangePart, "-")
+			if len(bounds) != 2 {
+				return fmt.Errorf("范围 %q 无效", rangePart)
+			}
+			start, err1 := strconv.Atoi(bounds[0])
+			end, err2 := strconv.Atoi(bounds[1])
+			if err1 != nil || err2 != nil || start > end || start < min || end > max {
+				return fmt.Errorf("范围 %q 应在 %d-%d", rangePart, min, max)
+			}
+			continue
+		}
+		num, err := strconv.Atoi(rangePart)
+		if err != nil || num < min || num > max {
+			return fmt.Errorf("数值 %q 应在 %d-%d", rangePart, min, max)
+		}
+	}
+	return nil
+}
+
+func validateCronExpr(label string, expr string) (string, error) {
+	normalized := normalizeCronExpr(expr)
+	fields := strings.Fields(normalized)
+	if len(fields) != 5 {
+		return normalized, fmt.Errorf("%s 必须是 5 段：分钟 小时 日期 月份 星期；当前是 %d 段。例：40 13 * * *", label, len(fields))
+	}
+	ranges := [][2]int{{0, 59}, {0, 23}, {1, 31}, {1, 12}, {0, 7}}
+	for i, field := range fields {
+		if err := validateCronField(field, ranges[i][0], ranges[i][1]); err != nil {
+			return normalized, fmt.Errorf("%s 第 %d 段无效：%w", label, i+1, err)
+		}
+	}
+	return normalized, nil
+}
+
 func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
 	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
@@ -239,10 +302,56 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		return resp, nil
 	}
 
+	updateCheckCron, cronErr := validateCronExpr("更新检测 Cron", req.UpdateCheckCron)
+	if cronErr != nil {
+		resp.Code = 400
+		resp.Msg = cronErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	cleanImagesCron, cronErr := validateCronExpr("清理 Cron", req.CleanImagesCron)
+	if cronErr != nil {
+		resp.Code = 400
+		resp.Msg = cronErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	updateContainersCron, cronErr := validateCronExpr("自动更新 Cron", req.UpdateContainersCron)
+	if cronErr != nil {
+		resp.Code = 400
+		resp.Msg = cronErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	backupJSONCron, cronErr := validateCronExpr("JSON 备份 Cron", req.BackupJsonCron)
+	if cronErr != nil {
+		resp.Code = 400
+		resp.Msg = cronErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	backupComposeCron, cronErr := validateCronExpr("YAML 备份 Cron", req.BackupComposeCron)
+	if cronErr != nil {
+		resp.Code = 400
+		resp.Msg = cronErr.Error()
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+	backupMaxFiles := req.BackupMaxFiles
+	if backupMaxFiles <= 0 {
+		backupMaxFiles = 20
+	}
+	if backupMaxFiles > 200 {
+		resp.Code = 400
+		resp.Msg = "备份最大份数必须在 1-200 之间"
+		resp.Data = map[string]interface{}{}
+		return resp, nil
+	}
+
 	chatIDs := splitLinesOrComma(req.ChatIds)
 	cfg.Telegram["bot_token"] = req.BotToken
 	cfg.Telegram["chat_ids"] = chatIDs
-	cfg.Telegram["update_check_cron"] = req.UpdateCheckCron
+	cfg.Telegram["update_check_cron"] = updateCheckCron
 	cfg.Telegram["notify_on_update"] = req.NotifyOnUpdate
 	if strings.TrimSpace(req.UpdateBlacklist) != "" {
 		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
@@ -250,13 +359,14 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		cfg.Telegram["update_blacklist"] = []string{}
 	}
 	cfg.Telegram["auto_clean_images"] = req.AutoCleanImages
-	cfg.Telegram["clean_images_cron"] = req.CleanImagesCron
+	cfg.Telegram["clean_images_cron"] = cleanImagesCron
 	cfg.Telegram["auto_update_containers"] = req.AutoUpdateContainers
-	cfg.Telegram["update_containers_cron"] = req.UpdateContainersCron
+	cfg.Telegram["update_containers_cron"] = updateContainersCron
 	cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
-	cfg.Telegram["backup_json_cron"] = req.BackupJsonCron
+	cfg.Telegram["backup_json_cron"] = backupJSONCron
 	cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
-	cfg.Telegram["backup_compose_cron"] = req.BackupComposeCron
+	cfg.Telegram["backup_compose_cron"] = backupComposeCron
+	cfg.Telegram["backup_max_files"] = backupMaxFiles
 	cfg.Telegram["image_accelerators"] = splitLinesOrComma(req.ImageAccelerators)
 	cfg.Telegram["default_image_accelerator"] = strings.TrimSpace(req.DefaultImageAccelerator)
 	cfg.Telegram["proxy"] = map[string]interface{}{

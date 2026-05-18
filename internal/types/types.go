@@ -124,6 +124,7 @@ type BotConfigReq struct {
 	BackupJsonCron          string `json:"backupJsonCron"`
 	AutoBackupCompose       bool   `json:"autoBackupCompose"`
 	BackupComposeCron       string `json:"backupComposeCron"`
+	BackupMaxFiles          int    `json:"backupMaxFiles"`
 	ImageAccelerators       string `json:"imageAccelerators"`
 	DefaultImageAccelerator string `json:"defaultImageAccelerator"`
 }

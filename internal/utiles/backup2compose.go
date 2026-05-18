@@ -27,5 +27,5 @@ func Backup2Compose(ctx *svc.ServiceContext) (err error) {
 		logx.Error("备份失败" + err.Error())
 		return err
 	}
-	return nil
+	return PruneBackups(ctx.BackupMaxFiles())
 }

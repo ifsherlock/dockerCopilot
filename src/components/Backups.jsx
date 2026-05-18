@@ -41,6 +41,7 @@ export function Backups() {
     backupJsonCron: '0 1 * * *',
     autoBackupCompose: false,
     backupComposeCron: '30 1 * * *',
+    backupMaxFiles: 20,
   })
   const [isSavingSchedule, setIsSavingSchedule] = useState(false)
 
@@ -92,6 +93,7 @@ export function Backups() {
           backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
           autoBackupCompose: telegram.auto_backup_compose ?? false,
           backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
+          backupMaxFiles: telegram.backup_max_files || 20,
         })
       } catch (err) {
         console.error('读取备份定时配置失败:', err)
@@ -312,14 +314,100 @@ export function Backups() {
     })
   }
 
+
+  const normalizeCronExpression = (value) => String(value || '').trim().replace(/\s+/g, ' ')
+
+  const explainCronField = (field, min, max) => {
+    if (!field) return '不能为空'
+    for (const part of String(field).split(',')) {
+      if (!part) return '列表里有空项'
+      const pieces = part.split('/')
+      if (pieces.length > 2) return `字段「${field}」的 / 只能出现一次`
+      const rangePart = pieces[0]
+      if (pieces[1] !== undefined && (!/^\d+$/.test(pieces[1]) || Number(pieces[1]) <= 0)) return `步长「${pieces[1]}」无效`
+      if (rangePart === '*') continue
+      if (rangePart.includes('-')) {
+        const [start, end] = rangePart.split('-')
+        if (!/^\d+$/.test(start) || !/^\d+$/.test(end)) return `范围「${rangePart}」无效`
+        const a = Number(start), b = Number(end)
+        if (a > b || a < min || b > max) return `范围「${rangePart}」应在 ${min}-${max}`
+        continue
+      }
+      if (!/^\d+$/.test(rangePart)) return `字段「${field}」只能使用数字、*、,、-、/`
+      const n = Number(rangePart)
+      if (n < min || n > max) return `数值「${rangePart}」应在 ${min}-${max}`
+    }
+    return ''
+  }
+
+  const validateCronExpression = (value) => {
+    const cron = normalizeCronExpression(value)
+    const fields = cron.split(' ').filter(Boolean)
+    if (fields.length !== 5) return { ok: false, normalized: cron, message: `Cron 必须是 5 段：分钟 小时 日期 月份 星期；当前是 ${fields.length} 段。例：30 1 * * *` }
+    const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]]
+    for (let i = 0; i < fields.length; i++) {
+      const err = explainCronField(fields[i], ranges[i][0], ranges[i][1])
+      if (err) return { ok: false, normalized: cron, message: `第 ${i + 1} 段无效：${err}` }
+    }
+    return { ok: true, normalized: cron, message: '' }
+  }
+
+  const cronError = (field) => {
+    const result = validateCronExpression(backupConfig[field])
+    return result.ok ? '' : result.message
+  }
+
+  const renderCronInput = (field, placeholder) => {
+    const error = cronError(field)
+    return (
+      <>
+        <input
+          type="text"
+          value={backupConfig[field]}
+          onChange={(e) => handleBackupScheduleChange(field, e.target.value)}
+          onBlur={() => handleBackupScheduleChange(field, normalizeCronExpression(backupConfig[field]))}
+          placeholder={placeholder}
+          className={cn(
+            "input-field font-mono text-sm",
+            error && "border-red-300 dark:border-red-700 focus:ring-red-500 focus:border-red-500"
+          )}
+        />
+        {error && <p className="text-xs text-red-600 dark:text-red-400 mt-2">{error}</p>}
+      </>
+    )
+  }
+
   const handleBackupScheduleChange = (key, value) => {
     setBackupConfig(prev => ({ ...prev, [key]: value }))
   }
 
   const handleSaveBackupSchedule = async () => {
     try {
+      const cronFields = [
+        ...(backupConfig.autoBackupJson ? [['backupJsonCron', 'JSON 备份 Cron']] : []),
+        ...(backupConfig.autoBackupCompose ? [['backupComposeCron', 'YAML 备份 Cron']] : []),
+      ]
+      for (const [field, label] of cronFields) {
+        const result = validateCronExpression(backupConfig[field])
+        if (!result.ok) {
+          setError(`${label} 无效：${result.message}`)
+          return
+        }
+      }
+      const maxFiles = Number(backupConfig.backupMaxFiles)
+      if (!Number.isInteger(maxFiles) || maxFiles < 1 || maxFiles > 200) {
+        setError('备份最大份数必须是 1-200 之间的整数')
+        return
+      }
       setIsSavingSchedule(true)
       setError(null)
+      const cleanBackupConfig = {
+        ...backupConfig,
+        backupJsonCron: normalizeCronExpression(backupConfig.backupJsonCron),
+        backupComposeCron: normalizeCronExpression(backupConfig.backupComposeCron),
+        backupMaxFiles: maxFiles,
+      }
+      setBackupConfig(cleanBackupConfig)
       const res = await botAPI.getConfig()
       const data = res.data?.data || {}
       const telegram = data.telegram || {}
@@ -342,10 +430,13 @@ export function Backups() {
         proxyPassword: proxy.password || '',
         defaultInstance: data.dockercopilot?.default_instance || '',
         instances,
-        autoBackupJson: backupConfig.autoBackupJson,
-        backupJsonCron: backupConfig.backupJsonCron,
-        autoBackupCompose: backupConfig.autoBackupCompose,
-        backupComposeCron: backupConfig.backupComposeCron,
+        imageAccelerators: Array.isArray(telegram.image_accelerators) ? telegram.image_accelerators.join('\n') : '',
+        defaultImageAccelerator: telegram.default_image_accelerator || '',
+        autoBackupJson: cleanBackupConfig.autoBackupJson,
+        backupJsonCron: cleanBackupConfig.backupJsonCron,
+        autoBackupCompose: cleanBackupConfig.autoBackupCompose,
+        backupComposeCron: cleanBackupConfig.backupComposeCron,
+        backupMaxFiles: cleanBackupConfig.backupMaxFiles,
       })
       setSuccessModal({ isOpen: true, message: response.data?.msg || '定时备份配置保存成功' })
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
@@ -398,6 +489,20 @@ export function Backups() {
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
+          <div className="mb-4 rounded-lg border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-4">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">备份最大份数</label>
+            <input
+              type="number"
+              min="1"
+              max="200"
+              step="1"
+              value={backupConfig.backupMaxFiles}
+              onChange={(e) => handleBackupScheduleChange('backupMaxFiles', e.target.value)}
+              className="input-field max-w-xs"
+            />
+            <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">按修改时间保留最新 N 个备份，超出的旧备份会在创建新备份后自动删除；设置范围 1-200。</p>
+          </div>
+
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>
             <div className="h-10 bg-gray-200 dark:bg-gray-700 rounded"></div>

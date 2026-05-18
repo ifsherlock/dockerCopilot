@@ -68,5 +68,5 @@ func BackupContainer(ctx *svc.ServiceContext) error {
 		logx.Error("Error writing to file:", err)
 		return err
 	}
-	return nil
+	return PruneBackups(ctx.BackupMaxFiles())
 }

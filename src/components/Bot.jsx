@@ -187,11 +187,107 @@ export function Bot() {
     return [container.name, container.usingImage, container.createImage, container.status].some(value => String(value || '').toLowerCase().includes(keyword))
   })
 
+
+  const normalizeCronExpression = (value) => String(value || '').trim().replace(/\s+/g, ' ')
+
+  const splitCronFields = (value) => normalizeCronExpression(value).split(' ').filter(Boolean)
+
+  const explainCronField = (field, min, max) => {
+    if (!field) return '不能为空'
+    const parts = String(field).split(',')
+    for (const part of parts) {
+      if (!part) return '列表里有空项'
+      const [rangePart, stepPart] = part.split('/')
+      if (part.split('/').length > 2) return `字段「${field}」的 / 只能出现一次`
+      if (stepPart !== undefined && (!/^\d+$/.test(stepPart) || Number(stepPart) <= 0)) return `步长「${stepPart}」无效`
+      if (rangePart === '*') continue
+      if (rangePart.includes('-')) {
+        const [start, end] = rangePart.split('-')
+        if (!/^\d+$/.test(start) || !/^\d+$/.test(end)) return `范围「${rangePart}」无效`
+        const a = Number(start), b = Number(end)
+        if (a > b || a < min || b > max) return `范围「${rangePart}」应在 ${min}-${max}`
+        continue
+      }
+      if (!/^\d+$/.test(rangePart)) return `字段「${field}」只能使用数字、*、,、-、/`
+      const n = Number(rangePart)
+      if (n < min || n > max) return `数值「${rangePart}」应在 ${min}-${max}`
+    }
+    return ''
+  }
+
+  const validateCronExpression = (value) => {
+    const cron = normalizeCronExpression(value)
+    const fields = splitCronFields(cron)
+    if (fields.length !== 5) {
+      return { ok: false, normalized: cron, message: `Cron 必须是 5 段：分钟 小时 日期 月份 星期；当前是 ${fields.length} 段。例：40 13 * * *` }
+    }
+    const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]]
+    for (let i = 0; i < fields.length; i++) {
+      const err = explainCronField(fields[i], ranges[i][0], ranges[i][1])
+      if (err) return { ok: false, normalized: cron, message: `第 ${i + 1} 段无效：${err}` }
+    }
+    return { ok: true, normalized: cron, message: '' }
+  }
+
+  const getCronError = (field) => {
+    const result = validateCronExpression(config[field])
+    return result.ok ? '' : result.message
+  }
+
+  const getCronHint = (field) => {
+    const raw = String(config[field] || '')
+    const normalized = normalizeCronExpression(raw)
+    if (raw && raw !== normalized) return `将自动整理空格为：${normalized}`
+    return ''
+  }
+
+  const renderCronInput = (field, placeholder, helper) => {
+    const error = getCronError(field)
+    const hint = getCronHint(field)
+    return (
+      <>
+        <input
+          type="text"
+          value={config[field]}
+          onChange={(e) => handleChange(field, e.target.value)}
+          onBlur={() => handleChange(field, normalizeCronExpression(config[field]))}
+          placeholder={placeholder}
+          className={cn(
+            "w-full px-4 py-2 rounded-lg border bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:border-transparent font-mono text-sm",
+            error ? "border-red-300 dark:border-red-700 focus:ring-red-500" : "border-gray-300 dark:border-gray-600 focus:ring-primary-500"
+          )}
+        />
+        {helper && <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">{helper}</p>}
+        {hint && !error && <p className="text-xs text-amber-600 dark:text-amber-300 mt-1">{hint}</p>}
+        {error && <p className="text-xs text-red-600 dark:text-red-400 mt-1">{error}</p>}
+      </>
+    )
+  }
+
   const handleSave = async () => {
     try {
+      const cronFields = [
+        ['updateCheckCron', '更新检测 Cron'],
+        ...(config.autoCleanImages ? [['cleanImagesCron', '清理 Cron']] : []),
+        ...(config.autoUpdateContainers ? [['updateContainersCron', '自动更新 Cron']] : []),
+      ]
+      for (const [field, label] of cronFields) {
+        const result = validateCronExpression(config[field])
+        if (!result.ok) {
+          setMessage(`${label} 无效：${result.message}`)
+          return
+        }
+      }
       setSaving(true)
       setMessage('')
-      const res = await botAPI.saveConfig(config)
+      const cleanConfig = {
+        ...config,
+        updateCheckCron: normalizeCronExpression(config.updateCheckCron),
+        cleanImagesCron: normalizeCronExpression(config.cleanImagesCron),
+        updateContainersCron: normalizeCronExpression(config.updateContainersCron),
+      }
+      setConfig(cleanConfig)
+      const res = await botAPI.saveConfig(cleanConfig)
       if (res.data?.code >= 200 && res.data?.code < 300) {
         setMessage('配置已保存。Bot 会在容器重启后加载新配置。')
       } else {
@@ -496,14 +592,7 @@ export function Bot() {
               <Clock className="h-4 w-4 inline mr-1" />
               更新检测 Cron 表达式
             </label>
-            <input
-              type="text"
-              value={config.updateCheckCron}
-              onChange={(e) => handleChange('updateCheckCron', e.target.value)}
-              placeholder="0 18 * * *"
-              className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">5位 cron 格式，默认每天18:00检测</p>
+{renderCronInput('updateCheckCron', '0 18 * * *', '5位 cron 格式，默认每天18:00检测；例：40 13 * * * = 每天13:40')}
           </div>
 
           <div className="flex items-center justify-between">
@@ -530,13 +619,7 @@ export function Bot() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 清理 Cron 表达式
               </label>
-              <input
-                type="text"
-                value={config.cleanImagesCron}
-                onChange={(e) => handleChange('cleanImagesCron', e.target.value)}
-                placeholder="3 2 * * *"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-              />
+{renderCronInput('cleanImagesCron', '3 2 * * *', '5位 cron 格式；例：3 2 * * * = 每天02:03')}
             </div>
           )}
 
@@ -564,13 +647,7 @@ export function Bot() {
               <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
                 自动更新 Cron 表达式
               </label>
-              <input
-                type="text"
-                value={config.updateContainersCron}
-                onChange={(e) => handleChange('updateContainersCron', e.target.value)}
-                placeholder="0 */6 * * *"
-                className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm"
-              />
+{renderCronInput('updateContainersCron', '0 */6 * * *', '5位 cron 格式；例：0 */6 * * * = 每6小时整点')}
             </div>
           )}
         </div>

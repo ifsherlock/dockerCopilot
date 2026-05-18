@@ -14,7 +14,8 @@ import {
   LayoutList,
   LayoutGrid,
   Ban,
-  Undo2
+  Undo2,
+  CheckSquare
 } from 'lucide-react'
 import { containerAPI, progressAPI, imageAPI, botAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
@@ -105,7 +106,6 @@ export function Containers() {
   const [updateBlacklist, setUpdateBlacklist] = useState([])
   const [searchKeyword, setSearchKeyword] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
-  const [isCheckingUpdates, setIsCheckingUpdates] = useState(false)
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -131,7 +131,7 @@ export function Containers() {
         throw new Error(response.data.msg)
       }
     },
-    refetchInterval: 10000, // 每10秒自动刷新一次
+    refetchInterval: () => Object.values(containerActions).some(action => action?.action === 'update' && (action?.loading || action?.done)) ? false : 10000, // 更新动画期间暂停自动刷新，避免卡片被新 id 替换后一闪而过
   })
 
   // 获取自定义图标配置
@@ -248,15 +248,58 @@ export function Containers() {
   const isUpdateIgnored = (container) => updateBlacklist.some(item => matchesBlacklistItem(container, item))
   const ignoreUpdate = async (container) => saveUpdateBlacklist([...updateBlacklist, ...getBlacklistCandidates(container)])
   const unignoreUpdate = async (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
-  const displayedHaveUpdate = (container) => container.haveUpdate && !isUpdateIgnored(container)
+  const getContainerActionState = (container) => containerActions[container.id] || containerActions[`name:${container.name}`]
+
+  const setContainerUpdateAction = (containerId, containerName, actionState) => {
+    setContainerActions(prev => ({
+      ...prev,
+      [containerId]: actionState,
+      ...(containerName ? { [`name:${containerName}`]: actionState } : {})
+    }))
+  }
+
+  const clearContainerUpdateAction = (containerId, containerName) => {
+    setContainerActions(prev => {
+      const newState = { ...prev }
+      delete newState[containerId]
+      if (containerName) delete newState[`name:${containerName}`]
+      return newState
+    })
+  }
+
+  const displayedHaveUpdate = (container) => {
+    const action = getContainerActionState(container)
+    return container.haveUpdate && !isUpdateIgnored(container) && !(action?.action === 'update' && (action?.loading || action?.done))
+  }
   const selectedContainerItems = containers.filter(c => selectedContainers.includes(c.id))
   const hasSelectedIgnored = selectedContainerItems.some(isUpdateIgnored)
   const getUpdateImageRef = (container) => container?.createImage || container?.usingImage || ''
+  const topButtonClass = (enabledClass, disabled) => cn(
+    'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium',
+    disabled
+      ? 'bg-gray-200 text-gray-500 border border-gray-300 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600 cursor-not-allowed'
+      : enabledClass
+  )
   const unignoreSelected = async () => {
     const selected = containers.filter(c => selectedContainers.includes(c.id))
     await saveUpdateBlacklist(updateBlacklist.filter(item => !selected.some(container => matchesBlacklistItem(container, item))))
     setSelectedContainers([])
     setIsBatchMode(false)
+  }
+
+  const handleDeleteContainer = (container) => {
+    const name = container?.name || '该容器'
+    setConfirmModal({
+      isOpen: true,
+      title: '删除容器',
+      message: `确定要删除已停止的容器「${name}」吗？此操作不会删除镜像。`,
+      type: 'danger',
+      onCancel: null,
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: false })
+        await handleContainerAction(container.id, 'delete')
+      }
+    })
   }
 
   const handleContainerAction = async (containerId, action) => {
@@ -277,6 +320,9 @@ export function Containers() {
         case 'restart':
           await containerAPI.restartContainer(containerId)
           break
+        case 'delete':
+          await containerAPI.deleteContainer(containerId)
+          break
         default:
           break
       }
@@ -286,6 +332,9 @@ export function Containers() {
         if (!oldData) return oldData
 
         return oldData.map(container => {
+          if (action === 'delete' && container.id === containerId) {
+            return null
+          }
           if (container.id === containerId) {
             let newStatus = container.status
             switch (action) {
@@ -304,13 +353,14 @@ export function Containers() {
             return { ...container, status: newStatus }
           }
           return container
-        })
+        }).filter(Boolean)
       })
 
       // 清除操作状态
       setContainerActions(prev => {
         const newState = { ...prev }
         delete newState[containerId]
+        if (containerName) delete newState[`name:${containerName}`]
         return newState
       })
 
@@ -383,11 +433,18 @@ export function Containers() {
         })
         : selectedContainers
 
-      // 对每个选中的容器执行操作
-      for (const containerId of actionableContainerIds) {
-        try {
+      if (action === 'update') {
+        actionableContainerIds.forEach(containerId => {
           const container = containers.find(c => c.id === containerId)
+          setContainerUpdateAction(containerId, container?.name, { action: 'update', loading: true, progress: '正在准备更新...', percentage: 1 })
+        })
+      }
 
+      // 对每个选中的容器执行操作；批量启停/重启允许单个请求超时，不让整批直接弹红色失败
+      const failedItems = []
+      for (const containerId of actionableContainerIds) {
+        const container = containers.find(c => c.id === containerId)
+        try {
           switch (action) {
             case 'start':
               await containerAPI.startContainer(containerId)
@@ -416,13 +473,24 @@ export function Containers() {
                       [containerId]: taskID
                     }))
                     // 调用轮询进度函数
-                    pollProgress(containerId, taskID)
+                    pollProgress(containerId, taskID, container?.name)
                   }
                 }
               }
               break
             default:
               break
+          }
+        } catch (error) {
+          const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout')
+          // Docker stop/restart 可能已经提交成功但响应超过前端超时，先不按失败打断整批，刷新后以实际状态为准
+          if (isTimeout && action !== 'update') {
+            console.warn(`批量${action}请求超时，稍后刷新确认实际状态:`, container?.name || containerId)
+          } else {
+            failedItems.push({
+              name: container?.name || containerId,
+              message: error.response?.data?.msg || error.message || '未知错误'
+            })
           }
         } finally {
           // 对于非更新操作，立即清除操作状态
@@ -441,11 +509,25 @@ export function Containers() {
         setTimeout(() => {
           refetch()
         }, 1500)
+        setTimeout(() => {
+          refetch()
+        }, 5000)
       }
 
       // 清除选中状态
       setSelectedContainers([])
       setIsBatchMode(false)
+
+      if (failedItems.length > 0) {
+        setConfirmModal({
+          isOpen: true,
+          title: '部分操作失败',
+          message: failedItems.slice(0, 3).map(item => `${item.name}: ${item.message}`).join('；') + (failedItems.length > 3 ? `；另有 ${failedItems.length - 3} 个失败` : ''),
+          onConfirm: () => setConfirmModal({ isOpen: false }),
+          onCancel: null,
+          type: 'danger'
+        })
+      }
     } catch (error) {
       console.error('批量操作失败:', error)
       // 清除所有操作状态
@@ -456,6 +538,12 @@ export function Containers() {
           return newState
         })
       })
+
+      const isTimeout = error.code === 'ECONNABORTED' || error.message?.includes('timeout')
+      if (isTimeout && action !== 'update') {
+        setTimeout(() => refetch(), 1500)
+        return
+      }
 
       // 使用自定义弹窗显示错误信息
       setConfirmModal({
@@ -498,10 +586,7 @@ export function Containers() {
       const updateImageRef = getUpdateImageRef(container)
       console.log(`开始更新容器 "${container.name}"，使用镜像: ${updateImageRef}`)
 
-      setContainerActions(prev => ({
-        ...prev,
-        [containerId]: { action: 'update', loading: true, progress: '正在准备更新...', percentage: 0 }
-      }))
+      setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在准备更新...', percentage: 1 })
 
       if (existingTaskID) {
         console.log('复用已有更新任务, taskID:', existingTaskID)
@@ -509,7 +594,7 @@ export function Containers() {
           ...prev,
           [containerId]: existingTaskID
         }))
-        pollProgress(containerId, existingTaskID)
+        pollProgress(containerId, existingTaskID, container.name)
         return
       }
 
@@ -534,7 +619,7 @@ export function Containers() {
             [containerId]: taskID
           }))
 
-          pollProgress(containerId, taskID)
+          pollProgress(containerId, taskID, container?.name)
         } else {
           // 如果没有返回taskID,说明更新可能立即完成
           setContainerActions(prev => {
@@ -585,7 +670,7 @@ export function Containers() {
   }
 
   // 轮询进度
-  const pollProgress = async (containerId, taskID) => {
+  const pollProgress = async (containerId, taskID, containerName = null) => {
     const maxAttempts = 60 // 最多轮询60次 (2分钟)
     let attempts = 0
     let pollTimer = null
@@ -663,10 +748,31 @@ export function Containers() {
         const isCompleted = isDone && !isFailed
 
         if (isCompleted) {
-          // 任务完成 - 立即停止轮询
+          // 任务完成 - 先把最终状态展示出来，再清理并刷新，避免“已是最新”这种秒完成任务看起来卡住/没反应
           console.log('容器更新完成，停止轮询')
-          clearPollState()
+          if (pollTimer) {
+            clearTimeout(pollTimer)
+            pollTimer = null
+          }
+          const doneState = {
+            ...(containerActions[containerId] || {}),
+            action: 'update',
+            loading: false,
+            done: true,
+            progress: progressMsg || '更新完成',
+            percentage: 100
+          }
+          setContainerUpdateAction(containerId, containerName, doneState)
+          setUpdateTasks(prev => {
+            const newState = { ...prev }
+            delete newState[containerId]
+            return newState
+          })
           await refetch()
+          setTimeout(() => {
+            clearContainerUpdateAction(containerId, containerName)
+            refetch()
+          }, 5000)
           console.log('✅ 容器更新完成!')
           return // 确保不再继续执行
         }
@@ -683,15 +789,13 @@ export function Containers() {
         }
 
         // 更新容器操作状态，显示进度
-        setContainerActions(prev => ({
-          ...prev,
-          [containerId]: {
-            action: 'update',
-            loading: true,
-            progress: progressMsg,
-            percentage: percentage
-          }
-        }))
+        setContainerUpdateAction(containerId, containerName, {
+          ...(containerActions[containerId] || {}),
+          action: 'update',
+          loading: true,
+          progress: progressMsg,
+          percentage: percentage
+        })
 
         // 继续轮询
         if (attempts < maxAttempts) {
@@ -733,23 +837,13 @@ export function Containers() {
   const handleRefresh = async () => {
     try {
       setIsRefreshing(true)
-      await refetch()
+      await Promise.allSettled([
+        containerAPI.checkUpdates(),
+        refetch()
+      ])
+      setTimeout(() => refetch(), 3000)
     } finally {
       setTimeout(() => setIsRefreshing(false), 400)
-    }
-  }
-
-  const handleManualCheckUpdates = async () => {
-    try {
-      setIsCheckingUpdates(true)
-      await containerAPI.checkUpdates()
-      setTimeout(async () => {
-        await refetch()
-        setIsCheckingUpdates(false)
-      }, 3000)
-    } catch (error) {
-      console.error('手动检测更新失败:', error)
-      setIsCheckingUpdates(false)
     }
   }
 
@@ -835,18 +929,19 @@ export function Containers() {
   }
 
   const renderTableActionButtons = (container) => {
-    const actionState = containerActions[container.id]
+    const actionState = getContainerActionState(container)
     const isBusy = actionState?.loading
 
-    if (isBusy) {
+    if (isBusy || actionState?.done) {
       return (
-        <div className="inline-flex items-center gap-2 px-2 py-1 text-xs text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30 rounded-md whitespace-nowrap">
-          <RefreshCw className="h-3 w-3 animate-spin" />
+        <div className={cn("inline-flex items-center gap-2 px-2 py-1 text-xs rounded-md whitespace-nowrap", actionState?.done ? "text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30" : "text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30")}>
+          {actionState?.done ? <span className="h-3 w-3 text-center leading-3">✓</span> : <RefreshCw className="h-3 w-3 animate-spin" />}
           <span>
             {actionState.action === 'start' && '启动中'}
             {actionState.action === 'stop' && '停止中'}
             {actionState.action === 'restart' && '重启中'}
-            {actionState.action === 'update' && '更新中'}
+            {actionState.action === 'update' && (actionState?.done ? (actionState.progress || '更新完成') : `更新中${actionState.percentage ? ` ${Math.round(actionState.percentage)}%` : ''}`)}
+            {actionState.action === 'delete' && '删除中'}
           </span>
         </div>
       )
@@ -864,9 +959,14 @@ export function Containers() {
             </button>
           </>
         ) : (
-          <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700" title="启动">
-            启动
-          </button>
+          <>
+            <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700" title="启动">
+              启动
+            </button>
+            <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="px-2 py-1 text-xs rounded-md text-white bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 shadow-sm" title="删除已停止容器">
+              删除
+            </button>
+          </>
         )}
         <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
           "px-2 py-1 text-xs rounded-md border transition-colors",
@@ -978,7 +1078,7 @@ export function Containers() {
                         <div className={cn("h-full rounded-full transition-all duration-500", progressPercent > 0 ? "bg-primary-500" : "bg-gray-300 dark:bg-gray-600")} style={{ width: `${progressPercent}%` }} />
                       </div>
                     </div>
-                    {containerActions[container.id]?.progress && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate max-w-[220px]" title={containerActions[container.id].progress}>{firstWord(containerActions[container.id].progress)}</div>}
+                    {getContainerActionState(container)?.progress && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate max-w-[220px]" title={getContainerActionState(container).progress}>{firstWord(getContainerActionState(container).progress)}</div>}
                   </td>
                 </tr>
               )
@@ -1082,53 +1182,66 @@ export function Containers() {
             </p>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto sm:max-w-[75%]">
-            {viewMode === 'table' ? (
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:max-w-[78%]">
+            {viewMode === 'card' && (
+              <button
+                onClick={() => {
+                  setIsBatchMode(!isBatchMode)
+                  if (isBatchMode) setSelectedContainers([])
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              >
+                <CheckSquare className="h-4 w-4" />
+                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
+              </button>
+            )}
+            {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (
               <>
                 <button
-                  className="px-3 sm:px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition-colors"
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors text-sm font-medium"
                   onClick={toggleSelectAll}
+                  title={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
                 >
-                  {filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
+                  <span>{filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}</span>
                 </button>
                 <button
-                  className={`btn-primary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={topButtonClass('bg-primary-600 hover:bg-primary-700 text-white', selectedContainers.length === 0)}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('start')}
                   title="启动"
                 >
-                  <Play className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">启动</span>
+                  <Play className="h-4 w-4" />
+                  <span>启动</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={topButtonClass('bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/60', selectedContainers.length === 0)}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('stop')}
                   title="停止"
                 >
-                  <Square className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">停止</span>
+                  <Square className="h-4 w-4" />
+                  <span>停止</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={topButtonClass('bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60', selectedContainers.length === 0)}
                   disabled={selectedContainers.length === 0}
                   onClick={() => handleBatchAction('restart')}
                   title="重启"
                 >
-                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">重启</span>
+                  <RotateCcw className="h-4 w-4" />
+                  <span>重启</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 || hasSelectedIgnored ? 'bg-gray-400 dark:bg-gray-600 opacity-70 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
+                  className={topButtonClass('bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 hover:bg-emerald-200 dark:hover:bg-emerald-900/60', selectedContainers.length === 0 || hasSelectedIgnored)}
                   disabled={selectedContainers.length === 0 || hasSelectedIgnored}
                   onClick={() => handleBatchAction('update')}
                   title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}
                 >
-                  <Upload className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">更新</span>
+                  <Upload className="h-4 w-4" />
+                  <span>更新</span>
                 </button>
                 <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : hasSelectedIgnored ? 'bg-amber-600 hover:bg-amber-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
+                  className={topButtonClass(hasSelectedIgnored ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60', selectedContainers.length === 0)}
                   disabled={selectedContainers.length === 0}
                   onClick={async () => {
                     if (hasSelectedIgnored) {
@@ -1139,98 +1252,12 @@ export function Containers() {
                       setSelectedContainers([])
                     }
                   }}
-                  title={hasSelectedIgnored ? '取消忽略' : '批量忽略更新'}
+                  title={hasSelectedIgnored ? '取消忽略' : '忽略更新'}
                 >
-                  <Ban className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">{hasSelectedIgnored ? '取消忽略' : '批量忽略'}</span>
+                  <Ban className="h-4 w-4" />
+                  <span>{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
                 </button>
               </>
-            ) : !isBatchMode ? (
-              <button
-                className="btn-secondary"
-                onClick={() => setIsBatchMode(true)}
-              >
-                批量操作
-              </button>
-            ) : (
-              <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
-                <button
-                  className="px-3 sm:px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-700 text-white font-semibold shadow-sm transition-colors"
-                  onClick={toggleSelectAll}
-                  title={selectedContainers.length === containers.length ? '取消全选' : '全选'}
-                >
-                  <span className="hidden sm:inline">
-                    {selectedContainers.length === containers.length ? '取消全选' : '全选'}
-                  </span>
-                  <span className="sm:hidden text-sm font-semibold">
-                    {selectedContainers.length}/{containers.length}
-                  </span>
-                </button>
-                <button
-                  className={`btn-primary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('start')}
-                  title="启动"
-                >
-                  <Play className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">启动</span>
-                </button>
-                <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-red-600 hover:bg-red-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('stop')}
-                  title="停止"
-                >
-                  <Square className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">停止</span>
-                </button>
-                <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('restart')}
-                  title="重启"
-                >
-                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">重启</span>
-                </button>
-                <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 || hasSelectedIgnored ? 'bg-gray-400 dark:bg-gray-600 opacity-70 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'}`}
-                  disabled={selectedContainers.length === 0 || hasSelectedIgnored}
-                  onClick={() => handleBatchAction('update')}
-                  title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}
-                >
-                  <Upload className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">更新</span>
-                </button>
-                <button
-                  className={`flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 rounded-xl text-white font-semibold shadow-sm transition-colors ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : hasSelectedIgnored ? 'bg-amber-600 hover:bg-amber-700' : 'bg-yellow-600 hover:bg-yellow-700'}`}
-                  disabled={selectedContainers.length === 0}
-                  onClick={async () => {
-                    if (hasSelectedIgnored) {
-                      await unignoreSelected()
-                    } else {
-                      const selected = containers.filter(c => selectedContainers.includes(c.id))
-                      await saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
-                      setSelectedContainers([])
-                      setIsBatchMode(false)
-                    }
-                  }}
-                  title={hasSelectedIgnored ? '取消忽略' : '批量忽略更新'}
-                >
-                  <Ban className="h-4 w-4 flex-shrink-0" />
-                  <span className="hidden sm:inline">{hasSelectedIgnored ? '取消忽略' : '批量忽略'}</span>
-                </button>
-                <button
-                  className="btn-secondary px-3 sm:px-4 py-2 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
-                  onClick={() => {
-                    setSelectedContainers([])
-                    setIsBatchMode(false)
-                  }}
-                >
-                  <span className="hidden sm:inline">取消</span>
-                  <span className="sm:hidden">✕</span>
-                </button>
-              </div>
             )}
 
             <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
@@ -1250,21 +1277,13 @@ export function Containers() {
               </button>
             </div>
             <button
-              className="btn-secondary"
-              onClick={handleManualCheckUpdates}
-              disabled={isCheckingUpdates}
-              title="手动检测容器镜像更新"
-            >
-              <Upload className={cn('h-4 w-4 mr-2', isCheckingUpdates && 'animate-pulse')} />
-              {isCheckingUpdates ? '检测中' : '检测更新'}
-            </button>
-            <button
-              className="btn-primary"
+              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
               onClick={handleRefresh}
               disabled={isRefreshing}
+              title="刷新页面并检测容器更新"
             >
-              <RefreshCw className="h-4 w-4 mr-2" />
-              刷新
+              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+              <span>刷新</span>
             </button>
             <div className={cn('relative', viewMode === 'table' ? 'flex-1 min-w-[220px]' : '')}>
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
@@ -1494,7 +1513,7 @@ export function Containers() {
                             : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
                       )}
                     >
-                      {isBatchMode && (
+                      {(isBatchMode || selectedContainers.length > 0) && (
                         <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
                           <label className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/95 dark:bg-gray-900/90 border border-primary-200 dark:border-primary-700 shadow cursor-pointer">
                             <input
@@ -1507,12 +1526,12 @@ export function Containers() {
                         </div>
                       )}
                       {/* 背景进度条 */}
-                      {containerActions[container.id]?.loading && containerActions[container.id]?.action === 'update' && (
+                      {getContainerActionState(container)?.action === 'update' && (getContainerActionState(container)?.loading || getContainerActionState(container)?.done) && (
                         <div className="absolute inset-0 pointer-events-none rounded-2xl overflow-hidden">
                           <div
-                            className="absolute top-0 left-0 bottom-0 bg-gradient-to-r from-primary-500/30 via-primary-400/30 to-primary-500/30 transition-all duration-500 ease-out"
+                            className={cn("absolute top-0 left-0 bottom-0 transition-all duration-500 ease-out", getContainerActionState(container)?.done ? "bg-gradient-to-r from-green-500/25 via-green-400/25 to-green-500/25" : "bg-gradient-to-r from-primary-500/30 via-primary-400/30 to-primary-500/30")}
                             style={{
-                              width: `${containerActions[container.id].percentage || 0}%`
+                              width: `${getContainerActionState(container).percentage || 0}%`
                             }}
                           >
                             <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent animate-shimmer"
@@ -1628,10 +1647,10 @@ export function Containers() {
 
                           {/* 统一高度的信息行 - 显示运行时间或状态 */}
                           <div className="h-5 mt-1">
-                            {containerActions[container.id]?.loading && containerActions[container.id]?.progress ? (
-                              <p className="text-xs text-blue-600 dark:text-blue-400 truncate flex items-center gap-1">
-                                <RefreshCw className="h-3 w-3 animate-spin flex-shrink-0" />
-                                <span>{containerActions[container.id].progress}</span>
+                            {getContainerActionState(container)?.action === 'update' && (getContainerActionState(container)?.loading || getContainerActionState(container)?.done) && getContainerActionState(container)?.progress ? (
+                              <p className={cn("text-xs truncate flex items-center gap-1", getContainerActionState(container)?.done ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400")}>
+                                {getContainerActionState(container)?.done ? <span className="h-3 w-3 flex-shrink-0 text-center leading-3">✓</span> : <RefreshCw className="h-3 w-3 animate-spin flex-shrink-0" />}
+                                <span>{getContainerActionState(container).progress}</span>
                               </p>
                             ) : container.status === 'running' ? (
                               <div className="text-xs text-gray-500 dark:text-gray-400">
@@ -1649,14 +1668,15 @@ export function Containers() {
                       {/* 操作按钮栏 - 底部水平排列 */}
                       {!isBatchMode && (
                         <div className="flex gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
-                          {containerActions[container.id]?.loading ? (
-                            <div className="flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 bg-primary-50 dark:bg-primary-900/20 rounded-lg border border-primary-200 dark:border-primary-800 whitespace-nowrap">
-                              <RefreshCw className="h-4 w-4 animate-spin text-primary-600 dark:text-primary-400" />
-                              <span className="text-xs font-medium text-primary-600 dark:text-primary-400">
-                                {containerActions[container.id].action === 'start' && '启动中'}
-                                {containerActions[container.id].action === 'stop' && '停止中'}
-                                {containerActions[container.id].action === 'restart' && '重启中'}
-                                {containerActions[container.id].action === 'update' && `更新中${containerActions[container.id].percentage ? ` ${Math.round(containerActions[container.id].percentage)}%` : ''}`}
+                          {getContainerActionState(container)?.loading || getContainerActionState(container)?.done ? (
+                            <div className={cn("flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 rounded-lg border whitespace-nowrap", getContainerActionState(container)?.done ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800")}>
+                              {getContainerActionState(container)?.done ? <span className="h-4 w-4 text-green-600 dark:text-green-400 text-center leading-4">✓</span> : <RefreshCw className="h-4 w-4 animate-spin text-primary-600 dark:text-primary-400" />}
+                              <span className={cn("text-xs font-medium", getContainerActionState(container)?.done ? "text-green-600 dark:text-green-400" : "text-primary-600 dark:text-primary-400")}>
+                                {getContainerActionState(container).action === 'start' && '启动中'}
+                                {getContainerActionState(container).action === 'stop' && '停止中'}
+                                {getContainerActionState(container).action === 'restart' && '重启中'}
+                                {getContainerActionState(container).action === 'update' && (getContainerActionState(container)?.done ? (getContainerActionState(container).progress || '更新完成') : `更新中${getContainerActionState(container).percentage ? ` ${Math.round(getContainerActionState(container).percentage)}%` : ''}`)}
+                                {getContainerActionState(container).action === 'delete' && '删除中'}
                               </span>
                             </div>
                           ) : (
@@ -1681,14 +1701,24 @@ export function Containers() {
                                   </button>
                                 </>
                               ) : (
-                                <button
-                                  onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 hover:border-green-200 dark:hover:border-green-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
-                                  title="启动"
-                                >
-                                  <Play className="h-4 w-4" />
-                                  <span>启动</span>
-                                </button>
+                                <>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }}
+                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 hover:border-green-200 dark:hover:border-green-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    title="启动"
+                                  >
+                                    <Play className="h-4 w-4" />
+                                    <span>启动</span>
+                                  </button>
+                                  <button
+                                    onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }}
+                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-white bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    title="删除已停止容器"
+                                  >
+                                    <X className="h-4 w-4" />
+                                    <span>删除</span>
+                                  </button>
+                                </>
                               )}
 
                               <button

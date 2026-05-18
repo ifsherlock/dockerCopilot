@@ -106,6 +106,7 @@ export const containerAPI = {
   startContainer: (id) => apiClient.post(`/api/container/${id}/start`),
   stopContainer: (id) => apiClient.post(`/api/container/${id}/stop`),
   restartContainer: (id) => apiClient.post(`/api/container/${id}/restart`),
+  deleteContainer: (id) => apiClient.delete(`/api/container/${id}`),
   renameContainer: (id, newName) => {
     return apiClient.post(`/api/container/${id}/rename?newName=${encodeURIComponent(newName)}`)
   },

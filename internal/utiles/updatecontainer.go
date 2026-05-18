@@ -16,6 +16,11 @@ import (
 
 func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string, imageNameAndTag string, delOldContainer bool, taskID string) error {
 	ctx := context.Background()
+	oldImageID := ""
+	if inspected, err := serviceContext.DockerClient.ContainerInspect(ctx, id); err == nil {
+		oldImageID = inspected.Image
+		serviceContext.ClearHubImageUpdate(oldImageID)
+	}
 	serviceContext.UpdateProgress(taskID, svc.TaskProgress{
 		TaskID:     taskID,
 		Percentage: 0,
@@ -167,6 +172,14 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 			serviceContext.UpdateProgress(taskID, oldTaskProgress)
 			return err
 		}
+	}
+	newImageID := ""
+	if inspectedNew, inspectErr := serviceContext.DockerClient.ContainerInspect(context.Background(), containerName); inspectErr == nil {
+		newImageID = inspectedNew.Image
+	}
+	serviceContext.ClearHubImageUpdates(oldImageID, newImageID)
+	if newImageID != "" {
+		serviceContext.SetHubImageUpdate(newImageID, false)
 	}
 	oldTaskProgress.Message = "更新成功"
 	oldTaskProgress.DetailMsg = "更新成功"

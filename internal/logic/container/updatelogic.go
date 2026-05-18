@@ -36,17 +36,6 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 		}()
 		imageNameAndTag := utiles.ResolveContainerUpdateImage(l.svcCtx, req.Id, req.ImageNameAndTag)
 		delOldContainer := os.Getenv("DelOldContainer") != "false"
-		if !utiles.ContainerNeedsUpdate(l.svcCtx, req.Id, imageNameAndTag) {
-			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
-				TaskID:     taskID,
-				Percentage: 100,
-				Name:       req.ContainerName,
-				Message:    "当前容器镜像已是最新",
-				DetailMsg:  "当前容器镜像已是最新，已跳过拉取和重建",
-				IsDone:     true,
-			})
-			return
-		}
 		err := utiles.UpdateContainer(l.svcCtx, req.Id, req.ContainerName, imageNameAndTag, delOldContainer, taskID)
 		if err != nil {
 			l.Errorf("Error in UpdateContainer: %v", err)

@@ -3,6 +3,7 @@ package container
 import (
 	"context"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
+	"strings"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -59,9 +60,6 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		}()
 	}
 	for _, v := range list {
-		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
-			v.Update = cached
-		}
 		var containerInfo Info
 		containerInfo.Id = v.ID
 		containerInfo.Status = v.State
@@ -84,6 +82,17 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 			l.Error("get image name error" + v.ID)
 		}
 		containerInfo.CreateImage = containerInspect.Config.Image
+		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
+			v.Update = cached
+		}
+		if v.Update {
+			createImage := strings.TrimSpace(containerInfo.CreateImage)
+			if createImage != "" && strings.Contains(createImage, ":") && !strings.HasPrefix(createImage, "sha256:") {
+				if !utiles.ContainerNeedsUpdate(l.svcCtx, v.ID, createImage) {
+					v.Update = false
+				}
+			}
+		}
 		t := time.Unix(v.Created, 0)
 		containerInfo.CreateTime = t.Format("2006-01-02 15:04:05")
 		containerInfo.RunningTime = v.Status
