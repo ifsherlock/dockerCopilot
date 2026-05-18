@@ -125,6 +125,110 @@ func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 	return resp, nil
 }
 
+func normalizeImageName(value string) string {
+	v := strings.ToLower(strings.TrimSpace(value))
+	v = strings.TrimPrefix(v, "http://")
+	v = strings.TrimPrefix(v, "https://")
+	for _, prefix := range []string{"registry-1.docker.io/", "docker.io/", "library/"} {
+		v = strings.TrimPrefix(v, prefix)
+	}
+	if v == "" {
+		return ""
+	}
+	slash := strings.LastIndex(v, "/")
+	colon := strings.LastIndex(v, ":")
+	if colon <= slash && !strings.Contains(v, "@") {
+		v += ":latest"
+	}
+	return v
+}
+
+func normalizeList(items []string) []string {
+	seen := make(map[string]struct{}, len(items))
+	out := make([]string, 0, len(items))
+	for _, item := range items {
+		v := normalizeImageName(item)
+		if v == "" {
+			continue
+		}
+		if _, ok := seen[v]; ok {
+			continue
+		}
+		seen[v] = struct{}{}
+		out = append(out, v)
+	}
+	return out
+}
+
+func stringSliceFromInterface(v interface{}) []string {
+	switch t := v.(type) {
+	case []string:
+		return normalizeList(t)
+	case []interface{}:
+		out := make([]string, 0, len(t))
+		for _, item := range t {
+			out = append(out, toString(item))
+		}
+		return normalizeList(out)
+	case string:
+		return splitLinesOrComma(t)
+	default:
+		return []string{}
+	}
+}
+
+func (l *ConfigLogic) GetUpdateBlacklist() (resp *types.Resp, err error) {
+	resp = &types.Resp{}
+	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	if err != nil {
+		resp.Code = 500
+		resp.Msg = err.Error()
+		resp.Data = []string{}
+		return resp, nil
+	}
+	resp.Code = 200
+	resp.Msg = "success"
+	resp.Data = stringSliceFromInterface(cfg.Telegram["update_blacklist"])
+	return resp, nil
+}
+
+func (l *ConfigLogic) SaveUpdateBlacklist(req *types.UpdateBlacklistReq) (resp *types.Resp, err error) {
+	resp = &types.Resp{}
+	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	if err != nil {
+		resp.Code = 500
+		resp.Msg = err.Error()
+		resp.Data = []string{}
+		return resp, nil
+	}
+	list := normalizeList(req.Items)
+	cfg.Telegram["update_blacklist"] = list
+	path := configPath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		resp.Code = 500
+		resp.Msg = err.Error()
+		resp.Data = []string{}
+		return resp, nil
+	}
+	b, err := json.MarshalIndent(cfg, "", "  ")
+	if err != nil {
+		resp.Code = 500
+		resp.Msg = err.Error()
+		resp.Data = []string{}
+		return resp, nil
+	}
+	if err := os.WriteFile(path, b, 0600); err != nil {
+		resp.Code = 500
+		resp.Msg = err.Error()
+		resp.Data = []string{}
+		return resp, nil
+	}
+	resp.Code = 200
+	resp.Msg = "success"
+	resp.Data = list
+	return resp, nil
+}
+
 func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
 	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
@@ -136,12 +240,15 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	}
 
 	chatIDs := splitLinesOrComma(req.ChatIds)
-	blacklist := splitLinesOrComma(req.UpdateBlacklist)
 	cfg.Telegram["bot_token"] = req.BotToken
 	cfg.Telegram["chat_ids"] = chatIDs
 	cfg.Telegram["update_check_cron"] = req.UpdateCheckCron
 	cfg.Telegram["notify_on_update"] = req.NotifyOnUpdate
-	cfg.Telegram["update_blacklist"] = blacklist
+	if strings.TrimSpace(req.UpdateBlacklist) != "" {
+		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
+	} else if _, ok := cfg.Telegram["update_blacklist"]; !ok {
+		cfg.Telegram["update_blacklist"] = []string{}
+	}
 	cfg.Telegram["auto_clean_images"] = req.AutoCleanImages
 	cfg.Telegram["clean_images_cron"] = req.CleanImagesCron
 	cfg.Telegram["auto_update_containers"] = req.AutoUpdateContainers

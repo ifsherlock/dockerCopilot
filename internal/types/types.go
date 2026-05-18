@@ -86,6 +86,10 @@ type VerifyJwtReq struct {
 	Jwt string `form:"jwt,optional"`
 }
 
+type UpdateBlacklistReq struct {
+	Items []string `json:"items"`
+}
+
 type VersionMsgResp struct {
 	Version   string `json:"version"`
 	BuildDate string `json:"build_date"`
@@ -100,26 +104,26 @@ type GetNewImageReq struct {
 }
 
 type BotConfigReq struct {
-	BotToken                 string `json:"botToken"`
-	ChatIds                  string `json:"chatIds"`
-	UpdateCheckCron          string `json:"updateCheckCron"`
-	NotifyOnUpdate           bool   `json:"notifyOnUpdate"`
-	UpdateBlacklist          string `json:"updateBlacklist"`
-	AutoCleanImages          bool   `json:"autoCleanImages"`
-	CleanImagesCron          string `json:"cleanImagesCron"`
-	AutoUpdateContainers     bool   `json:"autoUpdateContainers"`
-	UpdateContainersCron     string `json:"updateContainersCron"`
-	ProxyType                string `json:"proxyType"`
-	ProxyHost                string `json:"proxyHost"`
-	ProxyPort                int    `json:"proxyPort"`
-	ProxyUsername            string `json:"proxyUsername"`
-	ProxyPassword            string `json:"proxyPassword"`
-	DefaultInstance          string `json:"defaultInstance"`
-	Instances                string `json:"instances"`
-	AutoBackupJson           bool   `json:"autoBackupJson"`
-	BackupJsonCron           string `json:"backupJsonCron"`
-	AutoBackupCompose        bool   `json:"autoBackupCompose"`
-	BackupComposeCron        string `json:"backupComposeCron"`
-	ImageAccelerators        string `json:"imageAccelerators"`
-	DefaultImageAccelerator  string `json:"defaultImageAccelerator"`
+	BotToken                string `json:"botToken"`
+	ChatIds                 string `json:"chatIds"`
+	UpdateCheckCron         string `json:"updateCheckCron"`
+	NotifyOnUpdate          bool   `json:"notifyOnUpdate"`
+	UpdateBlacklist         string `json:"updateBlacklist"`
+	AutoCleanImages         bool   `json:"autoCleanImages"`
+	CleanImagesCron         string `json:"cleanImagesCron"`
+	AutoUpdateContainers    bool   `json:"autoUpdateContainers"`
+	UpdateContainersCron    string `json:"updateContainersCron"`
+	ProxyType               string `json:"proxyType"`
+	ProxyHost               string `json:"proxyHost"`
+	ProxyPort               int    `json:"proxyPort"`
+	ProxyUsername           string `json:"proxyUsername"`
+	ProxyPassword           string `json:"proxyPassword"`
+	DefaultInstance         string `json:"defaultInstance"`
+	Instances               string `json:"instances"`
+	AutoBackupJson          bool   `json:"autoBackupJson"`
+	BackupJsonCron          string `json:"backupJsonCron"`
+	AutoBackupCompose       bool   `json:"autoBackupCompose"`
+	BackupComposeCron       string `json:"backupComposeCron"`
+	ImageAccelerators       string `json:"imageAccelerators"`
+	DefaultImageAccelerator string `json:"defaultImageAccelerator"`
 }

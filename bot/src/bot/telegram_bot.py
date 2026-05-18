@@ -1,5 +1,6 @@
 """Telegram Bot主逻辑（使用 pyTelegramBotAPI 异步版本）"""
 import asyncio
+import hashlib
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
@@ -468,12 +469,19 @@ class TelegramBot:
         elif action == "switch_instance":
             await self.switch_instance(chat_id, message_id, param)
         elif action == "image":
-            await self.send_image_detail(chat_id, message_id, param)
+            await self.send_image_detail(chat_id, message_id, self._resolve_image_callback_key(chat_id, param))
         elif action == "img_page":
             page = int(param) if param else 0
             await self.send_images_list(chat_id, message_id, page)
         elif action == "del_image":
-            await self.delete_image_action(chat_id, message_id, param)
+            await self.delete_image_action(chat_id, message_id, self._resolve_image_callback_key(chat_id, param))
+        elif action == "confirm_del_image":
+            await self.confirm_delete_image(chat_id, message_id, self._resolve_image_callback_key(chat_id, param))
+        elif action == "do_del_image":
+            del_parts = param.split(':', 1)
+            image_key = del_parts[0] if del_parts else ''
+            force = len(del_parts) > 1 and del_parts[1].lower() == 'true'
+            await self.delete_image_action(chat_id, message_id, self._resolve_image_callback_key(chat_id, image_key), force=force)
         elif action == "back_images":
             page = int(param) if param else 0
             await self.send_images_list(chat_id, message_id, page)
@@ -1288,7 +1296,7 @@ class TelegramBot:
                 try:
                     containers = client.get_containers()
                     # 筛选可更新且不在黑名单中的容器
-                    updatable = [c for c in containers if c.has_update and c.name not in self.update_blacklist]
+                    updatable = [c for c in containers if c.has_update and not self._is_update_blacklisted(c)]
                     if updatable:
                         all_updates[instance_name] = updatable
                         total_count += len(updatable)
@@ -1373,7 +1381,7 @@ class TelegramBot:
                 try:
                     containers = client.get_containers()
                     # 筛选可更新且不在黑名单中的容器
-                    updatable = [c for c in containers if c.has_update and c.name not in self.update_blacklist]
+                    updatable = [c for c in containers if c.has_update and not self._is_update_blacklisted(c)]
                     if updatable:
                         all_updates[instance_name] = updatable
                 except Exception as e:
@@ -1731,6 +1739,25 @@ class TelegramBot:
             logger.error(f"发送可更新容器列表失败: {e}")
             await self.bot.send_message(chat_id, f"❌ 获取可更新容器列表失败: {e}")
 
+
+    def _image_callback_key(self, chat_id: str, image_id: str) -> str:
+        image_id = str(image_id or '')
+        if not image_id:
+            return ''
+        digest = hashlib.sha1(image_id.encode('utf-8')).hexdigest()[:16]
+        if not hasattr(self, 'image_callback_cache'):
+            self.image_callback_cache = {}
+        self.image_callback_cache[f"{chat_id}:{digest}"] = image_id
+        return digest
+
+    def _resolve_image_callback_key(self, chat_id: str, key: str) -> str:
+        key = str(key or '')
+        if not key:
+            return ''
+        if key.startswith('sha256:') or len(key) > 24:
+            return key
+        return getattr(self, 'image_callback_cache', {}).get(f"{chat_id}:{key}", key)
+
     async def send_images_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
         """发送镜像列表（支持分页）"""
         try:
@@ -1788,9 +1815,10 @@ class TelegramBot:
                 status_icon = "✅" if in_used else "🗑"
                 button_text = f"{status_icon} {display_tag} ({size_str})"
 
+                image_key = self._image_callback_key(chat_id, img.get('id', ''))
                 markup.add(InlineKeyboardButton(
                     text=button_text,
-                    callback_data=f"image:{img.get('id', '')[:12]}"
+                    callback_data=f"image:{image_key}"
                 ))
 
             # 添加分页按钮
@@ -1871,13 +1899,13 @@ class TelegramBot:
                 # 正在使用的镜像，显示警告
                 markup.add(InlineKeyboardButton(
                     '⚠️ 强制删除（使用中）',
-                    callback_data=f'confirm_del_image:{image_id_full}'
+                    callback_data=f'confirm_del_image:{self._image_callback_key(chat_id, image_id_full)}'
                 ))
             else:
                 # 未使用的镜像，可安全删除
                 markup.add(InlineKeyboardButton(
                     '🗑 删除镜像',
-                    callback_data=f'confirm_del_image:{image_id_full}'
+                    callback_data=f'confirm_del_image:{self._image_callback_key(chat_id, image_id_full)}'
                 ))
 
             markup.add(
@@ -1942,9 +1970,9 @@ class TelegramBot:
             markup.add(
                 InlineKeyboardButton(
                     '✅ 确认删除',
-                    callback_data=f'do_del_image:{image_id}:{force_param}'
+                    callback_data=f'do_del_image:{self._image_callback_key(chat_id, image_id)}:{force_param}'
                 ),
-                InlineKeyboardButton('❌ 取消', callback_data=f'image:{image_id[:12]}')
+                InlineKeyboardButton('❌ 取消', callback_data=f'image:{self._image_callback_key(chat_id, image_id)}')
             )
 
             await self.bot.edit_message_text(
@@ -3179,7 +3207,7 @@ class TelegramBot:
                         for container in containers:
                             if container.has_update:
                                 # 检查是否在黑名单中（不区分实例）
-                                if container.name not in self.update_blacklist:
+                                if not self._is_update_blacklisted(container):
                                     updatable_containers.append(container)
                                 else:
                                     logger.debug(f"容器 [{instance_name}:{container.name}] 在黑名单中，跳过更新提醒")
@@ -3405,6 +3433,43 @@ class TelegramBot:
             except Exception as e:
                 logger.error(f"❌ 发送镜像清理通知失败 [{chat_id}]: {e}")
 
+
+    def _normalize_image_name(self, value: str) -> str:
+        value = (value or '').strip().lower()
+        for prefix in ('http://', 'https://'):
+            if value.startswith(prefix):
+                value = value[len(prefix):]
+        for prefix in ('registry-1.docker.io/', 'docker.io/', 'library/'):
+            if value.startswith(prefix):
+                value = value[len(prefix):]
+        return value
+
+    def _canonical_image_name(self, value: str) -> str:
+        value = self._normalize_image_name(value)
+        if not value:
+            return ''
+        slash = value.rfind('/')
+        colon = value.rfind(':')
+        if colon <= slash and '@' not in value:
+            value = f'{value}:latest'
+        return value
+
+    def _blacklist_candidates(self, container) -> list:
+        candidates = []
+        for value in (getattr(container, 'image', ''), getattr(container, 'name', '')):
+            candidate = self._canonical_image_name(value) or self._normalize_image_name(value)
+            if candidate and candidate not in candidates:
+                candidates.append(candidate)
+        return candidates
+
+    def _is_update_blacklisted(self, container) -> bool:
+        candidates = self._blacklist_candidates(container)
+        for item in self.update_blacklist:
+            normalized = self._canonical_image_name(item) or self._normalize_image_name(item)
+            if normalized and any(candidate == normalized or candidate.startswith(f'{normalized}:') or normalized.startswith(f'{candidate}:') for candidate in candidates):
+                return True
+        return False
+
     async def _auto_update_containers_loop(self):
         """容器自动更新循环（定时更新可更新的容器）"""
         try:
@@ -3447,8 +3512,8 @@ class TelegramBot:
                                 continue
 
                             # 检查是否在黑名单中（不区分实例）
-                            if container.name in self.update_blacklist:
-                                logger.info(f"  ⏭ 跳过黑名单容器: {container.name}")
+                            if self._is_update_blacklisted(container):
+                                logger.info(f"  ⏭ 跳过黑名单容器/镜像: {container.name} ({container.image})")
                                 continue
 
                             to_update.append(container)

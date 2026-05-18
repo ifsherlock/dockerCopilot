@@ -162,6 +162,8 @@ export const botAPI = {
     ...config,
     proxyPort: config.proxyPort ? Number(config.proxyPort) : 0,
   }),
+  getUpdateBlacklist: () => apiClient.get('/api/bot/update-blacklist'),
+  saveUpdateBlacklist: (items) => apiClient.post('/api/bot/update-blacklist', { items }),
 }
 
 // GitHub API - 用于检查前端更新

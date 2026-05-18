@@ -177,51 +177,59 @@ export function Containers() {
     localStorage.setItem('docker_copilot_containers_view_mode', viewMode)
   }, [viewMode])
 
-  useEffect(() => {
-    const loadUpdateBlacklist = async () => {
-      try {
-        const res = await botAPI.getConfig()
-        const list = res.data?.data?.telegram?.update_blacklist || []
-        setUpdateBlacklist(Array.isArray(list) ? list : [])
-      } catch (err) {
-        console.error('读取更新黑名单失败:', err)
-      }
+  const normalizeImageName = (value) => String(value || '')
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/^registry-1\.docker\.io\//, '')
+    .replace(/^docker\.io\//, '')
+    .replace(/^library\//, '')
+    .toLowerCase()
+
+  const canonicalImageName = (value) => {
+    let v = normalizeImageName(value)
+    if (!v) return ''
+    const slash = v.lastIndexOf('/')
+    const colon = v.lastIndexOf(':')
+    if (colon <= slash && !v.includes('@')) v = `${v}:latest`
+    return v
+  }
+
+  const getBlacklistCandidates = (container) => {
+    const imageCandidates = [container?.usingImage, container?.createImage]
+      .map(canonicalImageName)
+      .filter(Boolean)
+    const nameCandidates = [container?.name].map(normalizeImageName).filter(Boolean)
+    return Array.from(new Set([...imageCandidates, ...nameCandidates]))
+  }
+  const getBlacklistKey = (container) => canonicalImageName(container?.usingImage || container?.createImage) || normalizeImageName(container?.name)
+  const matchesBlacklistItem = (container, item) => {
+    const normalizedItem = canonicalImageName(item)
+    if (!normalizedItem) return false
+    return getBlacklistCandidates(container).some(candidate => candidate === normalizedItem || candidate.startsWith(`${normalizedItem}:`) || normalizedItem.startsWith(`${candidate}:`))
+  }
+
+  const loadUpdateBlacklist = async () => {
+    try {
+      const res = await botAPI.getUpdateBlacklist()
+      const list = res.data?.data || []
+      setUpdateBlacklist(Array.isArray(list) ? list : [])
+    } catch (err) {
+      console.error('读取更新黑名单失败:', err)
     }
+  }
+
+  useEffect(() => {
     loadUpdateBlacklist()
   }, [])
 
   const saveUpdateBlacklist = async (nextList) => {
-    const normalized = Array.from(new Set(nextList.map(item => String(item || '').trim()).filter(Boolean)))
+    const normalized = Array.from(new Set(nextList.map(item => canonicalImageName(item) || normalizeImageName(item)).filter(Boolean)))
     const previous = updateBlacklist
     setUpdateBlacklist(normalized)
     try {
-      const res = await botAPI.getConfig()
-      const data = res.data?.data || {}
-      const telegram = data.telegram || {}
-      const proxy = telegram.proxy || {}
-      const instances = Array.isArray(data.dockercopilot?.instances) ? JSON.stringify(data.dockercopilot.instances) : ''
-      await botAPI.saveConfig({
-        botToken: telegram.bot_token || '',
-        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
-        updateCheckCron: telegram.update_check_cron || '0 18 * * *',
-        notifyOnUpdate: telegram.notify_on_update ?? true,
-        updateBlacklist: normalized.join('\n'),
-        autoCleanImages: telegram.auto_clean_images ?? false,
-        cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
-        autoUpdateContainers: telegram.auto_update_containers ?? false,
-        updateContainersCron: telegram.update_containers_cron || '0 */6 * * *',
-        proxyType: proxy.type || 'none',
-        proxyHost: proxy.host || '',
-        proxyPort: proxy.port || 0,
-        proxyUsername: proxy.username || '',
-        proxyPassword: proxy.password || '',
-        defaultInstance: data.dockercopilot?.default_instance || '',
-        instances,
-        autoBackupJson: telegram.auto_backup_json ?? false,
-        backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
-        autoBackupCompose: telegram.auto_backup_compose ?? false,
-        backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
-      })
+      const res = await botAPI.saveUpdateBlacklist(normalized)
+      const saved = res.data?.data || normalized
+      setUpdateBlacklist(Array.isArray(saved) ? saved : normalized)
       await queryClient.invalidateQueries(['containers'])
     } catch (err) {
       setUpdateBlacklist(previous)
@@ -235,18 +243,6 @@ export function Containers() {
         type: 'danger'
       })
     }
-  }
-
-  const getBlacklistCandidates = (container) => [
-    container?.usingImage,
-    container?.createImage,
-    container?.name,
-  ].map(value => String(value || '').trim()).filter(Boolean)
-  const getBlacklistKey = (container) => getBlacklistCandidates(container)[0] || ''
-  const matchesBlacklistItem = (container, item) => {
-    const normalizedItem = String(item || '').trim()
-    if (!normalizedItem) return false
-    return getBlacklistCandidates(container).some(candidate => candidate === normalizedItem || candidate.includes(normalizedItem))
   }
   const isUpdateIgnored = (container) => updateBlacklist.some(item => matchesBlacklistItem(container, item))
   const ignoreUpdate = async (container) => saveUpdateBlacklist([...updateBlacklist, ...getBlacklistCandidates(container)])

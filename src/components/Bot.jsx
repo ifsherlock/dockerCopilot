@@ -100,6 +100,9 @@ export function Bot() {
       }
     }
     loadConfig()
+    const onFocus = () => loadConfig()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
   }, [])
 
   const handleChange = (field, value) => {
@@ -143,13 +146,31 @@ export function Bot() {
     .map(item => item.trim())
     .filter(Boolean)
 
+  const normalizeImageName = (value) => String(value || '')
+    .trim()
+    .replace(/^https?:\/\//, '')
+    .replace(/^registry-1\.docker\.io\//, '')
+    .replace(/^docker\.io\//, '')
+    .replace(/^library\//, '')
+    .toLowerCase()
+
+  const canonicalImageName = (value) => {
+    let v = normalizeImageName(value)
+    if (!v) return ''
+    const slash = v.lastIndexOf('/')
+    const colon = v.lastIndexOf(':')
+    if (colon <= slash && !v.includes('@')) v = `${v}:latest`
+    return v
+  }
+
   const setSelectedBlacklist = async (items) => {
-    const next = Array.from(new Set(items.filter(Boolean)))
-    const nextConfig = { ...config, updateBlacklist: next.join('\n') }
-    setConfig(nextConfig)
+    const next = Array.from(new Set(items.map(item => canonicalImageName(item) || normalizeImageName(item)).filter(Boolean)))
+    setConfig(prev => ({ ...prev, updateBlacklist: next.join('\n') }))
     try {
-      const res = await botAPI.saveConfig(nextConfig)
+      const res = await botAPI.saveUpdateBlacklist(next)
       if (res.data?.code >= 200 && res.data?.code < 300) {
+        const saved = Array.isArray(res.data?.data) ? res.data.data : next
+        setConfig(prev => ({ ...prev, updateBlacklist: saved.join('\n') }))
         setMessage('更新黑名单已保存。')
       } else {
         setMessage(`黑名单保存失败：${res.data?.msg || '未知错误'}`)
@@ -159,7 +180,7 @@ export function Bot() {
     }
   }
 
-  const getBlacklistKey = (container) => container?.usingImage || container?.createImage || container?.name
+  const getBlacklistKey = (container) => canonicalImageName(container?.usingImage || container?.createImage) || normalizeImageName(container?.name)
   const filteredBlacklistContainers = containers.filter(container => {
     const keyword = blacklistSearch.trim().toLowerCase()
     if (!keyword) return true
@@ -588,7 +609,7 @@ export function Bot() {
               <div className="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">没有匹配的容器</div>
             ) : filteredBlacklistContainers.map(container => {
               const key = getBlacklistKey(container)
-              const checked = selectedBlacklist.includes(key)
+              const checked = selectedBlacklist.some(item => canonicalImageName(item) === key || normalizeImageName(item) === key)
               return (
                 <label key={container.id || key} className="flex items-center gap-3 p-3 hover:bg-white dark:hover:bg-gray-800 cursor-pointer">
                   <input

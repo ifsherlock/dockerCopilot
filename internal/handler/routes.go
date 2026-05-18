@@ -131,6 +131,16 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Path:    "/bot/config",
 				Handler: bot.SaveConfigHandler(serverCtx),
 			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/bot/update-blacklist",
+				Handler: bot.GetBlacklistHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/bot/update-blacklist",
+				Handler: bot.SaveBlacklistHandler(serverCtx),
+			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api"),
