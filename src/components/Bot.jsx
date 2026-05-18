@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useCallback, useEffect, useState } from 'react'
 import {
   Bot as BotIcon,
   Save,
@@ -52,6 +52,52 @@ export function Bot() {
   const [blacklistSearch, setBlacklistSearch] = useState('')
   const [showInstanceSettings, setShowInstanceSettings] = useState(false)
   const [blacklistInstance, setBlacklistInstance] = useState('local')
+  const [dirty, setDirty] = useState(false)
+
+  const loadConfig = useCallback(async ({ silent = false } = {}) => {
+    try {
+      if (!silent) setLoading(true)
+      const res = await botAPI.getConfig()
+      const data = res.data?.data || {}
+      const telegram = data.telegram || {}
+      const proxy = telegram.proxy || {}
+      const dockercopilot = data.dockercopilot || {}
+      const instances = Array.isArray(dockercopilot.instances) && dockercopilot.instances.length > 0
+        ? dockercopilot.instances
+        : [{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
+      const defaultInstance = dockercopilot.default_instance || instances[0]?.name || 'local'
+      setBlacklistInstance(defaultInstance)
+      setConfig(prev => ({
+        ...prev,
+        botToken: telegram.bot_token || '',
+        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
+        updateCheckCron: telegram.update_check_cron || prev.updateCheckCron,
+        notifyOnUpdate: telegram.notify_on_update ?? true,
+        updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
+        autoCleanImages: telegram.auto_clean_images ?? false,
+        cleanImagesCron: telegram.clean_images_cron || prev.cleanImagesCron,
+        autoUpdateContainers: telegram.auto_update_containers ?? false,
+        updateContainersCron: telegram.update_containers_cron || prev.updateContainersCron,
+        proxyType: proxy.type || 'none',
+        proxyHost: proxy.host || '',
+        proxyPort: proxy.port ? String(proxy.port) : '',
+        proxyUsername: proxy.username || '',
+        proxyPassword: proxy.password || '',
+        defaultInstance,
+        instances: JSON.stringify(instances, null, 2),
+        autoBackupJson: telegram.auto_backup_json ?? false,
+        backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
+        autoBackupCompose: telegram.auto_backup_compose ?? false,
+        backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
+        backupMaxFiles: telegram.backup_max_files || 20,
+      }))
+      setDirty(false)
+    } catch (error) {
+      setMessage(`读取配置失败：${error.response?.data?.msg || error.message}`)
+    } finally {
+      if (!silent) setLoading(false)
+    }
+  }, [])
 
   useEffect(() => {
     const loadContainers = async () => {
@@ -65,57 +111,11 @@ export function Bot() {
       }
     }
     loadContainers()
-
-    const loadConfig = async () => {
-      try {
-        setLoading(true)
-        const res = await botAPI.getConfig()
-        const data = res.data?.data || {}
-        const telegram = data.telegram || {}
-        const proxy = telegram.proxy || {}
-        const dockercopilot = data.dockercopilot || {}
-        const instances = Array.isArray(dockercopilot.instances) && dockercopilot.instances.length > 0
-          ? dockercopilot.instances
-          : [{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
-        const defaultInstance = dockercopilot.default_instance || instances[0]?.name || 'local'
-        setBlacklistInstance(defaultInstance)
-        setConfig(prev => ({
-          ...prev,
-          botToken: telegram.bot_token || '',
-          chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
-          updateCheckCron: telegram.update_check_cron || prev.updateCheckCron,
-          notifyOnUpdate: telegram.notify_on_update ?? true,
-          updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
-          autoCleanImages: telegram.auto_clean_images ?? false,
-          cleanImagesCron: telegram.clean_images_cron || prev.cleanImagesCron,
-          autoUpdateContainers: telegram.auto_update_containers ?? false,
-          updateContainersCron: telegram.update_containers_cron || prev.updateContainersCron,
-          proxyType: proxy.type || 'none',
-          proxyHost: proxy.host || '',
-          proxyPort: proxy.port ? String(proxy.port) : '',
-          proxyUsername: proxy.username || '',
-          proxyPassword: proxy.password || '',
-          defaultInstance,
-          instances: JSON.stringify(instances, null, 2),
-          autoBackupJson: telegram.auto_backup_json ?? false,
-          backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
-          autoBackupCompose: telegram.auto_backup_compose ?? false,
-          backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
-          backupMaxFiles: telegram.backup_max_files || 20,
-        }))
-      } catch (error) {
-        setMessage(`读取配置失败：${error.response?.data?.msg || error.message}`)
-      } finally {
-        setLoading(false)
-      }
-    }
     loadConfig()
-    const onFocus = () => loadConfig()
-    window.addEventListener('focus', onFocus)
-    return () => window.removeEventListener('focus', onFocus)
-  }, [])
+  }, [loadConfig])
 
   const handleChange = (field, value) => {
+    setDirty(true)
     setConfig(prev => ({ ...prev, [field]: value }))
   }
 
@@ -181,6 +181,7 @@ export function Bot() {
       if (res.data?.code >= 200 && res.data?.code < 300) {
         const saved = Array.isArray(res.data?.data) ? res.data.data : next
         setConfig(prev => ({ ...prev, updateBlacklist: saved.join('\n') }))
+        setDirty(true)
         setMessage('更新黑名单已保存。')
       } else {
         setMessage(`黑名单保存失败：${res.data?.msg || '未知错误'}`)
@@ -299,6 +300,7 @@ export function Bot() {
       setConfig(cleanConfig)
       const res = await botAPI.saveConfig(cleanConfig)
       if (res.data?.code >= 200 && res.data?.code < 300) {
+        setDirty(false)
         setMessage('配置已保存。Bot 会在容器重启后加载新配置。')
       } else {
         setMessage(`保存失败：${res.data?.msg || '未知错误'}`)
