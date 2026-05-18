@@ -1,4 +1,4 @@
-import React, { useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import {
   Play,
   Square,
@@ -11,9 +11,11 @@ import {
   X,
   Info,
   LayoutList,
-  LayoutGrid
+  LayoutGrid,
+  Ban,
+  Undo2
 } from 'lucide-react'
-import { containerAPI, progressAPI, imageAPI } from '../api/client.js'
+import { containerAPI, progressAPI, imageAPI, botAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -67,6 +69,18 @@ function formatRunningTime(runningTime) {
   return result.trim()
 }
 
+function compactText(value, max = 12) {
+  const text = String(value || '')
+  if (!text) return '-'
+  return text.length > max ? `${text.slice(0, max)}…` : text
+}
+
+function firstWord(value) {
+  const text = String(value || '').trim()
+  if (!text) return ''
+  return text.split(/\s+/)[0]
+}
+
 export function Containers() {
   const queryClient = useQueryClient()
   const [selectedContainer, setSelectedContainer] = useState(null)
@@ -79,6 +93,7 @@ export function Containers() {
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [viewMode, setViewMode] = useState('card') // 'card' | 'table'
+  const [updateBlacklist, setUpdateBlacklist] = useState([])
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -146,6 +161,61 @@ export function Containers() {
     // 即使有初始数据，也立即在后台刷新
     refetchOnMount: true,
   })
+
+  useEffect(() => {
+    const loadUpdateBlacklist = async () => {
+      try {
+        const res = await botAPI.getConfig()
+        const list = res.data?.data?.telegram?.update_blacklist || []
+        setUpdateBlacklist(Array.isArray(list) ? list : [])
+      } catch (err) {
+        console.error('读取更新黑名单失败:', err)
+      }
+    }
+    loadUpdateBlacklist()
+  }, [])
+
+  const saveUpdateBlacklist = async (nextList) => {
+    const normalized = Array.from(new Set(nextList.filter(Boolean)))
+    setUpdateBlacklist(normalized)
+    try {
+      const res = await botAPI.getConfig()
+      const telegram = res.data?.data?.telegram || {}
+      const proxy = telegram.proxy || {}
+      await botAPI.saveConfig({
+        botToken: telegram.bot_token || '',
+        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
+        updateCheckCron: telegram.update_check_cron || '0 18 * * *',
+        notifyOnUpdate: telegram.notify_on_update ?? true,
+        updateBlacklist: normalized.join('\n'),
+        autoCleanImages: telegram.auto_clean_images ?? false,
+        cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
+        autoUpdateContainers: telegram.auto_update_containers ?? false,
+        updateContainersCron: telegram.update_containers_cron || '0 */6 * * *',
+        proxyType: proxy.type || 'none',
+        proxyHost: proxy.host || '',
+        proxyPort: proxy.port || 0,
+        proxyUsername: proxy.username || '',
+        proxyPassword: proxy.password || '',
+      })
+    } catch (err) {
+      console.error('保存更新黑名单失败:', err)
+      setConfirmModal({
+        isOpen: true,
+        title: '保存失败',
+        message: err.response?.data?.msg || err.message || '更新黑名单保存失败',
+        onConfirm: () => setConfirmModal({ isOpen: false }),
+        onCancel: null,
+        type: 'danger'
+      })
+    }
+  }
+
+  const getBlacklistKey = (container) => container?.usingImage || container?.createImage || container?.name
+  const isUpdateIgnored = (container) => updateBlacklist.includes(getBlacklistKey(container))
+  const ignoreUpdate = (container) => saveUpdateBlacklist([...updateBlacklist, getBlacklistKey(container)])
+  const unignoreUpdate = (container) => saveUpdateBlacklist(updateBlacklist.filter(item => item !== getBlacklistKey(container)))
+  const displayedHaveUpdate = (container) => container.haveUpdate && !isUpdateIgnored(container)
 
   const handleContainerAction = async (containerId, action) => {
     try {
@@ -635,7 +705,8 @@ export function Containers() {
     if (!filterStatus) return true
     if (filterStatus === 'running') return container.status && container.status.toLowerCase() === 'running'
     if (filterStatus === 'stopped') return container.status && container.status.toLowerCase() !== 'running'
-    if (filterStatus === 'update') return container.haveUpdate
+    if (filterStatus === 'update') return displayedHaveUpdate(container)
+    if (filterStatus === 'ignored') return isUpdateIgnored(container)
     return true
   })
 
@@ -707,14 +778,19 @@ export function Containers() {
             启动
           </button>
         )}
-        <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} className={cn(
-          "px-2 py-1 text-xs rounded-md border",
-          container.haveUpdate
+        <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
+          "px-2 py-1 text-xs rounded-md border disabled:opacity-40 disabled:cursor-not-allowed",
+          displayedHaveUpdate(container)
             ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
             : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-        )} title="更新">
+        )} title={isUpdateIgnored(container) ? '已忽略更新' : '更新'}>
           更新
         </button>
+        {isUpdateIgnored(container) ? (
+          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-green-600 dark:text-green-400 border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20" title="取消忽略更新">取消忽略</button>
+        ) : container.haveUpdate && (
+          <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700" title="忽略更新">忽略</button>
+        )}
       </div>
     )
   }
@@ -738,7 +814,7 @@ export function Containers() {
                   className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                 />
               </th>
-              {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '进度', '操作'].map((title) => (
+              {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '操作', '进度'].map((title) => (
                 <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
                   {title}
                 </th>
@@ -752,7 +828,8 @@ export function Containers() {
               return (
                 <tr key={container.id} onClick={() => setSelectedContainer(container)} className={cn(
                   "hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer",
-                  isSelected && "bg-primary-50 dark:bg-primary-900/20"
+                  isSelected && "bg-primary-50 dark:bg-primary-900/20",
+                  isUpdateIgnored(container) && "opacity-55 grayscale"
                 )}>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                     <input type="checkbox" checked={isSelected} onChange={() => toggleContainerSelection(container.id)} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
@@ -763,7 +840,8 @@ export function Containers() {
                       <div className="min-w-0">
                         <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-2">
                           {container.name}
-                          {container.haveUpdate && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">NEW</span>}
+                          {displayedHaveUpdate(container) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">NEW</span>}
+                          {isUpdateIgnored(container) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">忽略</span>}
                         </div>
                         <div className="text-xs text-gray-500 dark:text-gray-400 truncate max-w-[260px]">{container.id?.slice(0, 12)}</div>
                       </div>
@@ -778,17 +856,17 @@ export function Containers() {
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 max-w-[280px] truncate" title={container.usingImage}>{container.usingImage}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.status === 'running' ? formatRunningTime(container.runningTime) : container.runningTime || '-'}</td>
-                  <td className="px-4 py-3 min-w-[150px]">
+                  <td className="px-3 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
+                    {renderTableActionButtons(container)}
+                  </td>
+                  <td className="px-4 py-3 min-w-[240px]">
                     <div className="flex items-center gap-2">
-                      <span className="w-10 text-xs font-semibold text-gray-700 dark:text-gray-300 text-right">{progressPercent}%</span>
-                      <div className="h-2 w-24 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
+                      <span className="w-9 text-xs font-semibold text-gray-700 dark:text-gray-300 text-right">{progressPercent}%</span>
+                      <div className="h-2.5 w-40 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
                         <div className={cn("h-full rounded-full transition-all duration-500", progressPercent > 0 ? "bg-primary-500" : "bg-gray-300 dark:bg-gray-600")} style={{ width: `${progressPercent}%` }} />
                       </div>
                     </div>
-                    {containerActions[container.id]?.progress && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate max-w-[150px]">{containerActions[container.id].progress}</div>}
-                  </td>
-                  <td className="px-4 py-3 whitespace-nowrap" onClick={(e) => e.stopPropagation()}>
-                    {renderTableActionButtons(container)}
+                    {containerActions[container.id]?.progress && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate max-w-[220px]" title={containerActions[container.id].progress}>{firstWord(containerActions[container.id].progress)}</div>}
                   </td>
                 </tr>
               )
@@ -801,7 +879,7 @@ export function Containers() {
 
   if (isLoading) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map(i => (
             <div key={i} className="card p-6">
@@ -820,7 +898,7 @@ export function Containers() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+    <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
       <style>{`
         @keyframes shimmer {
           0% { background-position: -200% 0; }
@@ -981,7 +1059,7 @@ export function Containers() {
 
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
-        <div className="grid grid-cols-4 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           {/* 总容器数 */}
           <button
             onClick={() => setFilterStatus(null)}
@@ -1044,9 +1122,26 @@ export function Containers() {
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
               <div className="text-2xl sm:text-3xl font-bold text-yellow-600 dark:text-yellow-400 transition-transform duration-300 group-hover:scale-110">
-                {containers.filter(c => c.haveUpdate).length}
+                {containers.filter(c => displayedHaveUpdate(c)).length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">有更新</div>
+            </div>
+          </button>
+
+          {/* 更新黑名单 */}
+          <button
+            onClick={() => setFilterStatus('ignored')}
+            className={cn(
+              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
+              filterStatus === 'ignored' ? "bg-gray-100 dark:bg-gray-700/50" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
+            )}
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-gray-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <div className="relative">
+              <div className="text-2xl sm:text-3xl font-bold text-gray-600 dark:text-gray-300 transition-transform duration-300 group-hover:scale-110">
+                {containers.filter(c => isUpdateIgnored(c)).length}
+              </div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">更新黑名单</div>
             </div>
           </button>
         </div>
@@ -1065,6 +1160,7 @@ export function Containers() {
                       {filterStatus === 'running' && '运行中容器 '}
                       {filterStatus === 'stopped' && '已停止容器 '}
                       {filterStatus === 'update' && '有更新容器 '}
+                      {filterStatus === 'ignored' && '更新黑名单 '}
                     </>
                   )}
                   {!filterStatus && selectedContainers.length > 0 && (
@@ -1096,7 +1192,8 @@ export function Containers() {
                           if (!filterStatus) return true
                           if (filterStatus === 'running') return container.status && container.status.toLowerCase() === 'running'
                           if (filterStatus === 'stopped') return container.status && container.status.toLowerCase() !== 'running'
-                          if (filterStatus === 'update') return container.haveUpdate
+                          if (filterStatus === 'update') return displayedHaveUpdate(container)
+                          if (filterStatus === 'ignored') return isUpdateIgnored(container)
                           return true
                         })
                         setSelectedContainers(filteredContainers.map(c => c.id))
@@ -1106,6 +1203,22 @@ export function Containers() {
                     >
                       全选结果
                     </button>
+                    {filterStatus === 'update' && (
+                      <button
+                        onClick={() => saveUpdateBlacklist([...updateBlacklist, ...filteredContainers.map(getBlacklistKey)])}
+                        className="px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 rounded transition-colors"
+                      >
+                        忽略全部
+                      </button>
+                    )}
+                    {filterStatus === 'ignored' && (
+                      <button
+                        onClick={() => saveUpdateBlacklist([])}
+                        className="px-2 py-0.5 text-xs font-medium text-green-700 dark:text-green-300 hover:text-green-900 dark:hover:text-green-100 bg-green-100 dark:bg-green-800/50 rounded transition-colors"
+                      >
+                        取消全部忽略
+                      </button>
+                    )}
                   </>
                 )}
               </div>
@@ -1123,7 +1236,7 @@ export function Containers() {
 
         {containers.length > 0 ? (
           viewMode === 'table' ? renderTableView() : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
             {filteredContainers.map((container) => {
                 const isSelected = selectedContainers.includes(container.id)
                 return (
@@ -1143,7 +1256,9 @@ export function Containers() {
                         "card relative overflow-hidden transition-all duration-200 hover:shadow-lg border rounded-2xl p-4 cursor-pointer active:scale-98",
                         isSelected
                           ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-md"
-                          : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
+                          : isUpdateIgnored(container)
+                            ? "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-60 grayscale"
+                            : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
                       )}
                     >
                       {/* 背景进度条 */}
@@ -1165,7 +1280,7 @@ export function Containers() {
                       )}
 
                       {/* NEW (有更新时显示) */}
-                      {container.haveUpdate && (
+                      {displayedHaveUpdate(container) && (
                         <div className="absolute -top-[2px] -right-[2px] w-[80px] h-[80px] pointer-events-none overflow-hidden z-20 rounded-tr-2xl">
                           <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
                             <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-gradient-to-r from-yellow-400 to-yellow-500 dark:from-yellow-500 dark:to-yellow-600 shadow-sm flex items-center justify-center">
@@ -1174,6 +1289,16 @@ export function Containers() {
                                 {/* 流光效果 */}
                                 <div className="absolute top-0 left-0 animate-flow-light"></div>
                               </span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
+                      {isUpdateIgnored(container) && (
+                        <div className="absolute -top-[2px] -right-[2px] w-[86px] h-[86px] pointer-events-none overflow-hidden z-20 rounded-tr-2xl">
+                          <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
+                            <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gradient-to-r from-gray-400 to-gray-500 dark:from-gray-600 dark:to-gray-700 shadow-sm flex items-center justify-center">
+                              <span className="relative text-[10px] font-bold text-white tracking-widest w-full text-center">忽略</span>
                             </div>
                           </div>
                         </div>
@@ -1322,17 +1447,37 @@ export function Containers() {
 
                               <button
                                 onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }}
+                                disabled={isUpdateIgnored(container)}
                                 className={cn(
-                                  "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 bg-white dark:bg-gray-800 border rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap",
-                                  container.haveUpdate
+                                  "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 bg-white dark:bg-gray-800 border rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap disabled:opacity-40 disabled:cursor-not-allowed",
+                                  displayedHaveUpdate(container)
                                     ? "text-yellow-600 dark:text-yellow-400 border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
                                     : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-200 dark:hover:border-purple-800"
                                 )}
-                                title="更新"
+                                title={isUpdateIgnored(container) ? '已忽略更新' : '更新'}
                               >
                                 <Upload className="h-4 w-4" />
                                 <span>更新</span>
                               </button>
+                              {isUpdateIgnored(container) ? (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                  title="取消忽略更新"
+                                >
+                                  <Undo2 className="h-4 w-4" />
+                                  <span>取消</span>
+                                </button>
+                              ) : container.haveUpdate && (
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }}
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                  title="忽略更新"
+                                >
+                                  <Ban className="h-4 w-4" />
+                                  <span>忽略</span>
+                                </button>
+                              )}
                             </>
                           )}
                         </div>

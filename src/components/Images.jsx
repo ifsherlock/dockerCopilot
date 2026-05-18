@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, BrushCleaning, X, AlertCircle, CheckCircle } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, BrushCleaning, X, AlertCircle, CheckCircle, List, LayoutGrid } from 'lucide-react'
 import { imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -32,6 +32,7 @@ export function Images() {
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [pruneModal, setPruneModal] = useState({ isOpen: false, type: null, images: [] })
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
+  const [viewMode, setViewMode] = useState('card')
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -161,9 +162,21 @@ export function Images() {
     return 'text-red-600 dark:text-red-400'
   }
 
+
+  const filteredImages = images.filter((image) => {
+    if (!filterStatus) return true
+    if (filterStatus === 'used') return image.inUsed
+    if (filterStatus === 'unused') return !image.inUsed
+    if (filterStatus === 'dangling') return image.tag === 'None' || image.tag === '<none>'
+    return true
+  })
+
+  const shortImageId = (id) => (id || '').replace(/^sha256:/, '').slice(0, 12)
+  const dockerHubUrl = (name) => name && name !== 'None' ? `https://hub.docker.com/r/${name}` : '#'
+
   if (isLoading && images.length === 0) {
     return (
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 py-4">
+      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
         <div className="animate-pulse space-y-4">
           <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-32"></div>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -177,7 +190,7 @@ export function Images() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto">
+    <div className="max-w-[1600px] mx-auto">
       {/* 页面头部 */}
       <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4">
         <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
@@ -208,6 +221,22 @@ export function Images() {
               <BrushCleaning className="h-4 w-4" />
               <span>未使用</span>
             </button>
+            <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+              <button
+                onClick={() => setViewMode('card')}
+                className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                title="卡片视图"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                title="表格视图"
+              >
+                <List className="h-4 w-4" />
+              </button>
+            </div>
             <button
               onClick={fetchImages}
               disabled={isLoading}
@@ -394,16 +423,63 @@ export function Images() {
             <h3 className="text-lg font-medium text-gray-900 dark:text-white mb-1">暂无镜像</h3>
             <p className="text-gray-500 dark:text-gray-400">您还没有任何Docker镜像</p>
           </div>
+        ) : viewMode === 'table' ? (
+          <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+                <thead className="bg-gray-50 dark:bg-gray-900/60">
+                  <tr>
+                    {['镜像名称', '状态', 'Tag', '大小', '创建时间', '镜像ID', '详情链接', '操作'].map((title) => (
+                      <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{title}</th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
+                  {filteredImages.map((image) => (
+                    <tr key={image.id} className="hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors">
+                      <td className="px-4 py-3 min-w-[260px]">
+                        <div className="flex items-center gap-3">
+                          <div className="h-9 w-9 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                            <SafeImage
+                              src={getImageLogo(image.name, customIcons)}
+                              alt={image.name}
+                              className="h-9 w-9 object-cover"
+                              fallback={<HardDrive className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
+                            />
+                          </div>
+                          <span className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px]" title={image.name}>{image.name}</span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <span className={cn('inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium', image.inUsed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>
+                          <span className={cn('h-2 w-2 rounded-full', image.inUsed ? 'bg-green-500' : 'bg-gray-400')} />
+                          {image.inUsed ? '使用中' : '未使用'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>{image.tag}</td>
+                      <td className={cn('px-4 py-3 text-sm font-semibold whitespace-nowrap', getSizeColor(image.size))}>{formatImageSize(image.size)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{image.createTime || '-'}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap" title={image.id}>{shortImageId(image.id)}</td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {dockerHubUrl(image.name) !== '#' ? (
+                          <a href={dockerHubUrl(image.name)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400 hover:underline">
+                            详情 <Link className="h-3.5 w-3.5" />
+                          </a>
+                        ) : <span className="text-sm text-gray-400">-</span>}
+                      </td>
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <button onClick={() => setDeleteModal({ isOpen: true, image, force: false })} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
+                        {image.inUsed && <button onClick={() => setDeleteModal({ isOpen: true, image, force: true })} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700">强制</button>}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
         ) : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {images
-              .filter((image) => {
-                if (!filterStatus) return true
-                if (filterStatus === 'used') return image.inUsed
-                if (filterStatus === 'unused') return !image.inUsed
-                if (filterStatus === 'dangling') return image.tag === 'None' || image.tag === '<none>'
-                return true
-              })
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+            {filteredImages
               .map((image) => (
                 <div key={image.id} className="group card p-4 rounded-2xl hover:shadow-lg transition-all">
                   {/* 头部：图标、名字、状态指示器和大小 */}
