@@ -23,6 +23,8 @@ function SafeImage({ src, alt, className, fallback }) {
   )
 }
 
+const MIN_REFRESH_VISIBLE_MS = 500
+
 export function Images() {
   const [images, setImages] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -73,7 +75,7 @@ export function Images() {
     }
   })
 
-  const fetchImages = async () => {
+  const fetchImages = async ({ keepRefreshing = false } = {}) => {
     try {
       setIsLoading(true)
       setError(null)
@@ -93,7 +95,20 @@ export function Images() {
       setImages([])
     } finally {
       setIsLoading(false)
-      setIsRefreshing(false)
+      if (!keepRefreshing) {
+        setIsRefreshing(false)
+      }
+    }
+  }
+
+  const handleRefresh = async () => {
+    const startedAt = Date.now()
+    try {
+      setIsRefreshing(true)
+      await fetchImages({ keepRefreshing: true })
+    } finally {
+      const remaining = Math.max(0, MIN_REFRESH_VISIBLE_MS - (Date.now() - startedAt))
+      setTimeout(() => setIsRefreshing(false), remaining)
     }
   }
 
@@ -403,8 +418,8 @@ export function Images() {
               </button>
             </div>
             <button
-              onClick={() => { setIsRefreshing(true); fetchImages() }}
-              disabled={isLoading}
+              onClick={handleRefresh}
+              disabled={isLoading || isRefreshing}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
             >
               <RefreshCw className="h-4 w-4" />

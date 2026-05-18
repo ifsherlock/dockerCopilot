@@ -13,9 +13,12 @@ import {
 import { containerAPI, botAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 
+const MIN_REFRESH_VISIBLE_MS = 500
+
 export function Backups() {
   const [backups, setBackups] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [isBackingUp, setIsBackingUp] = useState(false)
   const [isDeleting, setIsDeleting] = useState({})
   const [error, setError] = useState(null)
@@ -41,7 +44,7 @@ export function Backups() {
   })
   const [isSavingSchedule, setIsSavingSchedule] = useState(false)
 
-  const fetchBackups = async () => {
+  const fetchBackups = async ({ keepRefreshing = false } = {}) => {
     try {
       setIsLoading(true)
       setError(null)
@@ -58,6 +61,20 @@ export function Backups() {
       setBackups([])
     } finally {
       setIsLoading(false)
+      if (!keepRefreshing) {
+        setIsRefreshing(false)
+      }
+    }
+  }
+
+  const handleRefresh = async () => {
+    const startedAt = Date.now()
+    try {
+      setIsRefreshing(true)
+      await fetchBackups({ keepRefreshing: true })
+    } finally {
+      const remaining = Math.max(0, MIN_REFRESH_VISIBLE_MS - (Date.now() - startedAt))
+      setTimeout(() => setIsRefreshing(false), remaining)
     }
   }
 
@@ -471,16 +488,26 @@ export function Backups() {
               <span className="text-sm font-medium">JSON</span>
             </button>
             <button
-              onClick={fetchBackups}
-              disabled={isLoading}
+              onClick={handleRefresh}
+              disabled={isLoading || isRefreshing}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className={`h-4 w-4 ${(isLoading || isRefreshing) ? 'animate-spin' : ''}`} />
               <span className="text-sm font-medium">刷新</span>
             </button>
           </div>
         </div>
       </div>
+
+      {isRefreshing && (
+        <div className="mx-2 sm:mx-6 my-3 rounded-3xl border border-primary-200/70 dark:border-primary-800/70 bg-primary-50/80 dark:bg-primary-950/30 p-8 shadow-inner overflow-hidden relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/5 to-transparent animate-pulse"></div>
+          <div className="relative flex items-center justify-center gap-3 text-primary-700 dark:text-primary-300 font-medium">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span>正在刷新备份列表和文件状态...</span>
+          </div>
+        </div>
+      )}
 
       <div className="px-2 sm:px-6 pb-2">
         <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4 sm:p-5">
