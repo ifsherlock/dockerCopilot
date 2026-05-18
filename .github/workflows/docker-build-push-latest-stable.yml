@@ -2,11 +2,6 @@ name: docker-build-push-latest-stable
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - latest
-    paths:
-      - version
 
 jobs:
   build-frontend:

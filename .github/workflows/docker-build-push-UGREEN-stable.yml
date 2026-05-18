@@ -2,11 +2,6 @@ name: docker-build-push-UGREEN-stable
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - latest
-    paths:
-      - ugreen_version
 
 jobs:
   build-frontend:

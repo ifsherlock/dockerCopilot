@@ -2,11 +2,6 @@ name: UGREEN
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - latest
-    paths:
-      - ugreen_version
 
 jobs:
   build-frontend:

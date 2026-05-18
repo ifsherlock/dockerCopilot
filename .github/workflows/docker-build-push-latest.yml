@@ -2,9 +2,6 @@ name: docker-build-push-latest-dev
 
 on:
   workflow_dispatch:
-  push:
-    branches:
-      - latest-dev
 
 jobs:
   build-frontend:
