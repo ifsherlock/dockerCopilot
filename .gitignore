@@ -30,3 +30,8 @@ __pycache__/
 /db.sqlite3
 /front/
 /logs/
+.DS_Store
+node_modules/
+dist/
+front/
+*.pyc

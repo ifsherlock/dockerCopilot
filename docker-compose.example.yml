@@ -1,0 +1,38 @@
+services:
+  dockercopilot:
+    image: your-dockerhub-username/dockercopilot:v2.1.3
+    container_name: dockercopilot
+    restart: always
+    ports:
+      - "12712:12712"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Shanghai
+      - secretKey=your_secret_key_here
+
+      # ===== Telegram Bot 配置（可选；设置 TELEGRAM_BOT_TOKEN 后自动启动 Bot）=====
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_IDS=
+      - TELEGRAM_POLLING_INTERVAL=1
+      - TELEGRAM_UPDATE_CHECK_CRON=0 18 * * *
+      - TELEGRAM_NOTIFY_ON_UPDATE=true
+      - TELEGRAM_UPDATE_BLACKLIST=postgresql,redis,mysql
+      - TELEGRAM_AUTO_CLEAN_IMAGES=false
+      - TELEGRAM_CLEAN_IMAGES_CRON=3 2 * * *
+      - TELEGRAM_AUTO_UPDATE_CONTAINERS=false
+      - TELEGRAM_UPDATE_CONTAINERS_CRON=0 */6 * * *
+
+      # ===== Telegram Bot 代理配置（可选）=====
+      # TELEGRAM_PROXY_TYPE 支持：none / socks5 / http
+      - TELEGRAM_PROXY_TYPE=none
+      - TELEGRAM_PROXY_HOST=
+      - TELEGRAM_PROXY_PORT=
+      - TELEGRAM_PROXY_USERNAME=
+      - TELEGRAM_PROXY_PASSWORD=
+
+      # ===== Bot 管理 Docker Copilot 实例 =====
+      # 格式：实例名::API地址::secretKey，多实例用 | 分隔
+      - DOCKERCOPILOT_API_URLS=local::http://127.0.0.1:12712::your_secret_key_here

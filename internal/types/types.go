@@ -93,3 +93,20 @@ type VersionReq struct {
 type GetNewImageReq struct {
 	ImageNameAndTag string `json:"image_name_and_tag"`
 }
+
+type BotConfigReq struct {
+	BotToken             string `json:"botToken"`
+	ChatIds              string `json:"chatIds"`
+	UpdateCheckCron      string `json:"updateCheckCron"`
+	NotifyOnUpdate       bool   `json:"notifyOnUpdate"`
+	UpdateBlacklist      string `json:"updateBlacklist"`
+	AutoCleanImages      bool   `json:"autoCleanImages"`
+	CleanImagesCron      string `json:"cleanImagesCron"`
+	AutoUpdateContainers bool   `json:"autoUpdateContainers"`
+	UpdateContainersCron string `json:"updateContainersCron"`
+	ProxyType            string `json:"proxyType"`
+	ProxyHost            string `json:"proxyHost"`
+	ProxyPort            int    `json:"proxyPort"`
+	ProxyUsername        string `json:"proxyUsername"`
+	ProxyPassword        string `json:"proxyPassword"`
+}
