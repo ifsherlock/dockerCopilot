@@ -10,6 +10,7 @@ import {
   Package,
   X,
   Info,
+  Search,
   LayoutList,
   LayoutGrid,
   Ban,
@@ -94,6 +95,7 @@ export function Containers() {
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [viewMode, setViewMode] = useState('card') // 'card' | 'table'
   const [updateBlacklist, setUpdateBlacklist] = useState([])
+  const [searchKeyword, setSearchKeyword] = useState('')
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -702,6 +704,17 @@ export function Containers() {
   }
 
   const filteredContainers = containers.filter((container) => {
+    const keyword = searchKeyword.trim().toLowerCase()
+    const matchesKeyword = !keyword || [
+      container.name,
+      container.status,
+      container.usingImage,
+      container.createImage,
+      container.createTime,
+      container.runningTime,
+      getBlacklistKey(container)
+    ].some(value => String(value || '').toLowerCase().includes(keyword))
+    if (!matchesKeyword) return false
     if (!filterStatus) return true
     if (filterStatus === 'running') return container.status && container.status.toLowerCase() === 'running'
     if (filterStatus === 'stopped') return container.status && container.status.toLowerCase() !== 'running'
@@ -787,8 +800,8 @@ export function Containers() {
           更新
         </button>
         {isUpdateIgnored(container) ? (
-          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-green-600 dark:text-green-400 border-gray-200 dark:border-gray-700 hover:bg-green-50 dark:hover:bg-green-900/20" title="取消忽略更新">取消忽略</button>
-        ) : container.haveUpdate && (
+          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 font-semibold" title="取消忽略更新">取消忽略</button>
+        ) : (
           <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700" title="忽略更新">忽略</button>
         )}
       </div>
@@ -970,7 +983,17 @@ export function Containers() {
 
         {/* 批量操作按钮区域 */}
         {!isBatchMode ? (
-          <div className="flex items-center space-x-3">
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:gap-3">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="搜索容器/镜像/状态"
+                className="w-52 sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
             <button
               className="btn-secondary"
               onClick={() => setIsBatchMode(true)}
@@ -985,13 +1008,22 @@ export function Containers() {
               <RefreshCw className="h-4 w-4 mr-2" />
               刷新
             </button>
-            <button
-              className="btn-secondary p-2"
-              onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
-              title={viewMode === 'card' ? '切换到表格视图' : '切换到卡片视图'}
-            >
-              {viewMode === 'card' ? <LayoutList className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
-            </button>
+            <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
+              <button
+                onClick={() => setViewMode('card')}
+                className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                title="卡片视图"
+              >
+                <LayoutGrid className="h-4 w-4" />
+              </button>
+              <button
+                onClick={() => setViewMode('table')}
+                className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                title="表格视图"
+              >
+                <LayoutList className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         ) : (
           <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
@@ -1203,7 +1235,7 @@ export function Containers() {
                     >
                       全选结果
                     </button>
-                    {filterStatus === 'update' && (
+                    {(filterStatus === 'update' || filterStatus === null) && (
                       <button
                         onClick={() => saveUpdateBlacklist([...updateBlacklist, ...filteredContainers.map(getBlacklistKey)])}
                         className="px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 rounded transition-colors"
@@ -1462,13 +1494,13 @@ export function Containers() {
                               {isUpdateIgnored(container) ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-300 dark:border-red-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
                                   title="取消忽略更新"
                                 >
                                   <Undo2 className="h-4 w-4" />
                                   <span>取消</span>
                                 </button>
-                              ) : container.haveUpdate && (
+                              ) : (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }}
                                   className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"

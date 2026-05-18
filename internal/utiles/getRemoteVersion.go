@@ -15,7 +15,12 @@ func GetRemoteVersion() (remoteVersion string, err error) {
 	if githubProxy != "" {
 		githubProxy = strings.TrimRight(githubProxy, "/") + "/"
 	}
-	versionURL := githubProxy + "https://raw.githubusercontent.com/onlyLTY/dockerCopilot/UGREEN/version"
+	versionURL := os.Getenv("remoteVersionURL")
+	if versionURL == "" {
+		versionURL = githubProxy + "https://raw.githubusercontent.com/ifsherlock/dockerCopilot/latest/version"
+	} else if githubProxy != "" && strings.HasPrefix(versionURL, "https://") {
+		versionURL = githubProxy + versionURL
+	}
 	remoteVersion, err = fetchVersionFromURL(versionURL)
 	if err != nil {
 		return "0.0.0", err
@@ -26,13 +31,13 @@ func GetRemoteVersion() (remoteVersion string, err error) {
 		logx.Infof("飞牛版本，无需在线更新")
 		return localVersion, nil
 	}
-	if localVersion == remoteVersion {
+	if normalizeVersion(localVersion) == normalizeVersion(remoteVersion) {
 		logx.Info("版本一致:", localVersion)
-		return remoteVersion, nil
-	} else {
-		logx.Infof("版本不一致! 本地: %s, 远程: %s\n", localVersion, remoteVersion)
-		return remoteVersion, nil
+		return localVersion, nil
 	}
+
+	logx.Infof("版本不一致! 本地: %s, 远程: %s\n", localVersion, remoteVersion)
+	return remoteVersion, nil
 
 }
 
@@ -60,4 +65,11 @@ func fetchVersionFromURL(url string) (string, error) {
 	}
 
 	return strings.TrimSpace(string(versionData)), nil
+}
+
+func normalizeVersion(version string) string {
+	version = strings.TrimSpace(version)
+	version = strings.TrimPrefix(version, "v")
+	version = strings.TrimPrefix(version, "V")
+	return version
 }

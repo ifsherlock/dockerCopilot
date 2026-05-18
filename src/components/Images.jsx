@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, BrushCleaning, X, AlertCircle, CheckCircle, List, LayoutGrid } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, BrushCleaning, X, AlertCircle, CheckCircle, List, LayoutGrid, Search } from 'lucide-react'
 import { imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -33,6 +33,7 @@ export function Images() {
   const [pruneModal, setPruneModal] = useState({ isOpen: false, type: null, images: [] })
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
   const [viewMode, setViewMode] = useState('card')
+  const [searchKeyword, setSearchKeyword] = useState('')
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -164,6 +165,9 @@ export function Images() {
 
 
   const filteredImages = images.filter((image) => {
+    const keyword = searchKeyword.trim().toLowerCase()
+    const matchesKeyword = !keyword || [image.name, image.tag, image.id, image.size, image.createTime, image.inUsed ? '使用中' : '未使用'].some(value => String(value || '').toLowerCase().includes(keyword))
+    if (!matchesKeyword) return false
     if (!filterStatus) return true
     if (filterStatus === 'used') return image.inUsed
     if (filterStatus === 'unused') return !image.inUsed
@@ -198,7 +202,17 @@ export function Images() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">镜像管理</h2>
             <p className="text-gray-600 dark:text-gray-400 mt-1">查看和管理Docker镜像</p>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="搜索镜像/Tag/ID"
+                className="w-52 sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
             <button
               onClick={() => {
                 const imagesToDelete = images.filter(img => img.tag === 'None' || img.tag === '<none>')

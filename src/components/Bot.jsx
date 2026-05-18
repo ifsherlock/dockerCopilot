@@ -9,10 +9,12 @@ import {
   Ban,
   Globe,
   Eye,
-  EyeOff
+  EyeOff,
+  Search,
+  X
 } from 'lucide-react'
 import { cn } from '../utils/cn.js'
-import { botAPI } from '../api/client.js'
+import { botAPI, containerAPI } from '../api/client.js'
 
 export function Bot() {
   const [config, setConfig] = useState({
@@ -36,8 +38,22 @@ export function Bot() {
   const [saving, setSaving] = useState(false)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState('')
+  const [containers, setContainers] = useState([])
+  const [blacklistSearch, setBlacklistSearch] = useState('')
 
   useEffect(() => {
+    const loadContainers = async () => {
+      try {
+        const res = await containerAPI.getContainers()
+        if (res.data?.code === 200 || res.data?.code === 0) {
+          setContainers(res.data?.data || [])
+        }
+      } catch (error) {
+        console.error('读取容器列表失败:', error)
+      }
+    }
+    loadContainers()
+
     const loadConfig = async () => {
       try {
         setLoading(true)
@@ -74,6 +90,23 @@ export function Bot() {
   const handleChange = (field, value) => {
     setConfig(prev => ({ ...prev, [field]: value }))
   }
+
+  const selectedBlacklist = config.updateBlacklist
+    .split(/[\n,;]+/)
+    .map(item => item.trim())
+    .filter(Boolean)
+
+  const setSelectedBlacklist = (items) => {
+    const next = Array.from(new Set(items.filter(Boolean)))
+    handleChange('updateBlacklist', next.join('\n'))
+  }
+
+  const getBlacklistKey = (container) => container?.usingImage || container?.createImage || container?.name
+  const filteredBlacklistContainers = containers.filter(container => {
+    const keyword = blacklistSearch.trim().toLowerCase()
+    if (!keyword) return true
+    return [container.name, container.usingImage, container.createImage, container.status].some(value => String(value || '').toLowerCase().includes(keyword))
+  })
 
   const handleSave = async () => {
     try {
@@ -396,16 +429,62 @@ export function Bot() {
           更新黑名单
         </h2>
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-3">
-          黑名单中的容器不会收到更新通知，也不会被自动更新
+          黑名单与容器页“忽略更新”同步保存。建议选择镜像名作为黑名单项，这样容器改名后仍然有效。
         </p>
-        <div>
-          <textarea
-            value={config.updateBlacklist}
-            onChange={(e) => handleChange('updateBlacklist', e.target.value)}
-            placeholder="每行一个容器名，例如：&#10;postgresql&#10;redis&#10;mysql"
-            rows={5}
-            className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent font-mono text-sm resize-none"
-          />
+        <div className="space-y-3">
+          <div className="relative">
+            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+            <input
+              type="text"
+              value={blacklistSearch}
+              onChange={(e) => setBlacklistSearch(e.target.value)}
+              placeholder="搜索容器名 / 镜像名 / 状态"
+              className="w-full pl-9 pr-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent text-sm"
+            />
+          </div>
+
+          <div className="max-h-72 overflow-y-auto rounded-lg border border-gray-200 dark:border-gray-700 divide-y divide-gray-100 dark:divide-gray-700 bg-gray-50 dark:bg-gray-900/30">
+            {filteredBlacklistContainers.length === 0 ? (
+              <div className="p-4 text-sm text-gray-500 dark:text-gray-400 text-center">没有匹配的容器</div>
+            ) : filteredBlacklistContainers.map(container => {
+              const key = getBlacklistKey(container)
+              const checked = selectedBlacklist.includes(key)
+              return (
+                <label key={container.id || key} className="flex items-center gap-3 p-3 hover:bg-white dark:hover:bg-gray-800 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={(e) => {
+                      setSelectedBlacklist(e.target.checked
+                        ? [...selectedBlacklist, key]
+                        : selectedBlacklist.filter(item => item !== key)
+                      )
+                    }}
+                    className="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <div className="min-w-0 flex-1">
+                    <div className="text-sm font-medium text-gray-900 dark:text-white truncate">{container.name}</div>
+                    <div className="text-xs text-gray-500 dark:text-gray-400 truncate" title={key}>{key}</div>
+                  </div>
+                  <span className={cn('text-xs px-2 py-1 rounded-full', container.status === 'running' ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>{container.status === 'running' ? '运行中' : '已停止'}</span>
+                </label>
+              )
+            })}
+          </div>
+
+          {selectedBlacklist.length > 0 && (
+            <div className="flex flex-wrap gap-2">
+              {selectedBlacklist.map(item => (
+                <span key={item} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-red-50 dark:bg-red-900/30 border border-red-200 dark:border-red-800 text-xs text-red-700 dark:text-red-300">
+                  <span className="max-w-[260px] truncate" title={item}>{item}</span>
+                  <button onClick={() => setSelectedBlacklist(selectedBlacklist.filter(x => x !== item))} className="hover:text-red-900 dark:hover:text-red-100">
+                    <X className="h-3 w-3" />
+                  </button>
+                </span>
+              ))}
+              <button onClick={() => setSelectedBlacklist([])} className="text-xs px-2 py-1 rounded-full border border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-700">清空</button>
+            </div>
+          )}
         </div>
       </div>
     </div>
