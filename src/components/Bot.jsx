@@ -143,9 +143,20 @@ export function Bot() {
     .map(item => item.trim())
     .filter(Boolean)
 
-  const setSelectedBlacklist = (items) => {
+  const setSelectedBlacklist = async (items) => {
     const next = Array.from(new Set(items.filter(Boolean)))
-    handleChange('updateBlacklist', next.join('\n'))
+    const nextConfig = { ...config, updateBlacklist: next.join('\n') }
+    setConfig(nextConfig)
+    try {
+      const res = await botAPI.saveConfig(nextConfig)
+      if (res.data?.code >= 200 && res.data?.code < 300) {
+        setMessage('更新黑名单已保存。')
+      } else {
+        setMessage(`黑名单保存失败：${res.data?.msg || '未知错误'}`)
+      }
+    } catch (error) {
+      setMessage(`黑名单保存失败：${error.response?.data?.msg || error.message}`)
+    }
   }
 
   const getBlacklistKey = (container) => container?.usingImage || container?.createImage || container?.name

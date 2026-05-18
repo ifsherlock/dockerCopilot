@@ -10,7 +10,7 @@ import {
   Save,
   X
 } from 'lucide-react'
-import { containerAPI } from '../api/client.js'
+import { containerAPI, botAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 
 export function Backups() {
@@ -33,6 +33,13 @@ export function Backups() {
 
   // 成功弹窗状态
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
+  const [backupConfig, setBackupConfig] = useState({
+    autoBackupJson: false,
+    backupJsonCron: '0 1 * * *',
+    autoBackupCompose: false,
+    backupComposeCron: '30 1 * * *',
+  })
+  const [isSavingSchedule, setIsSavingSchedule] = useState(false)
 
   const fetchBackups = async () => {
     try {
@@ -56,6 +63,24 @@ export function Backups() {
 
   useEffect(() => {
     fetchBackups()
+  }, [])
+
+  useEffect(() => {
+    const loadBackupConfig = async () => {
+      try {
+        const res = await botAPI.getConfig()
+        const telegram = res.data?.data?.telegram || {}
+        setBackupConfig({
+          autoBackupJson: telegram.auto_backup_json ?? false,
+          backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
+          autoBackupCompose: telegram.auto_backup_compose ?? false,
+          backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
+        })
+      } catch (err) {
+        console.error('读取备份定时配置失败:', err)
+      }
+    }
+    loadBackupConfig()
   }, [])
 
   const handleBackup = async () => {
@@ -270,6 +295,50 @@ export function Backups() {
     })
   }
 
+  const handleBackupScheduleChange = (key, value) => {
+    setBackupConfig(prev => ({ ...prev, [key]: value }))
+  }
+
+  const handleSaveBackupSchedule = async () => {
+    try {
+      setIsSavingSchedule(true)
+      setError(null)
+      const res = await botAPI.getConfig()
+      const data = res.data?.data || {}
+      const telegram = data.telegram || {}
+      const proxy = telegram.proxy || {}
+      const instances = Array.isArray(data.dockercopilot?.instances) ? JSON.stringify(data.dockercopilot.instances) : ''
+      const response = await botAPI.saveConfig({
+        botToken: telegram.bot_token || '',
+        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
+        updateCheckCron: telegram.update_check_cron || '0 18 * * *',
+        notifyOnUpdate: telegram.notify_on_update ?? true,
+        updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
+        autoCleanImages: telegram.auto_clean_images ?? false,
+        cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
+        autoUpdateContainers: telegram.auto_update_containers ?? false,
+        updateContainersCron: telegram.update_containers_cron || '0 */6 * * *',
+        proxyType: proxy.type || 'none',
+        proxyHost: proxy.host || '',
+        proxyPort: proxy.port || 0,
+        proxyUsername: proxy.username || '',
+        proxyPassword: proxy.password || '',
+        defaultInstance: data.dockercopilot?.default_instance || '',
+        instances,
+        autoBackupJson: backupConfig.autoBackupJson,
+        backupJsonCron: backupConfig.backupJsonCron,
+        autoBackupCompose: backupConfig.autoBackupCompose,
+        backupComposeCron: backupConfig.backupComposeCron,
+      })
+      setSuccessModal({ isOpen: true, message: response.data?.msg || '定时备份配置保存成功' })
+      setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
+    } catch (err) {
+      setError(err.response?.data?.msg || err.message || '保存定时备份配置失败')
+    } finally {
+      setIsSavingSchedule(false)
+    }
+  }
+
   const getFileType = (filename) => {
     if (filename.endsWith('.json')) return 'JSON'
     if (filename.endsWith('.yaml') || filename.endsWith('.yml')) return 'YAML'
@@ -382,7 +451,7 @@ export function Backups() {
         <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white mb-1">备份管理</h2>
-            <p className="text-gray-600 dark:text-gray-400">创建、恢复和删除容器备份</p>
+            <p className="text-gray-600 dark:text-gray-400">创建、恢复、删除与定时备份</p>
           </div>
           <div className="flex items-center gap-2">
             <button
@@ -409,6 +478,79 @@ export function Backups() {
               <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
               <span className="text-sm font-medium">刷新</span>
             </button>
+          </div>
+        </div>
+      </div>
+
+      <div className="px-2 sm:px-6 pb-2">
+        <div className="rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm p-4 sm:p-5">
+          <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-4 mb-4">
+            <div>
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white">定时备份</h3>
+              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">使用 Cron 表达式定时生成 JSON / YAML 备份，保存后立即生效。</p>
+            </div>
+            <button
+              onClick={handleSaveBackupSchedule}
+              disabled={isSavingSchedule}
+              className="flex items-center justify-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50"
+            >
+              <Save className={`h-4 w-4 ${isSavingSchedule ? 'animate-spin' : ''}`} />
+              <span className="text-sm font-medium">保存定时配置</span>
+            </button>
+          </div>
+
+          <div className="grid grid-cols-1 xl:grid-cols-2 gap-4">
+            <div className="rounded-2xl border border-blue-200 dark:border-blue-800 bg-blue-50/70 dark:bg-blue-900/10 p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <div className="font-semibold text-gray-900 dark:text-white">JSON 备份</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">默认输出容器配置 JSON</div>
+                </div>
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={backupConfig.autoBackupJson}
+                    onChange={(e) => handleBackupScheduleChange('autoBackupJson', e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">启用</span>
+                </label>
+              </div>
+              <input
+                type="text"
+                value={backupConfig.backupJsonCron}
+                onChange={(e) => handleBackupScheduleChange('backupJsonCron', e.target.value)}
+                placeholder="例如：0 1 * * *"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Cron 示例：每天 01:00 → <span className="font-mono">0 1 * * *</span></p>
+            </div>
+
+            <div className="rounded-2xl border border-purple-200 dark:border-purple-800 bg-purple-50/70 dark:bg-purple-900/10 p-4">
+              <div className="flex items-center justify-between gap-3 mb-3">
+                <div>
+                  <div className="font-semibold text-gray-900 dark:text-white">YAML / Compose 备份</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">导出为 Compose / YAML 结构</div>
+                </div>
+                <label className="inline-flex items-center gap-2 cursor-pointer select-none">
+                  <input
+                    type="checkbox"
+                    checked={backupConfig.autoBackupCompose}
+                    onChange={(e) => handleBackupScheduleChange('autoBackupCompose', e.target.checked)}
+                    className="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+                  />
+                  <span className="text-sm font-medium text-gray-700 dark:text-gray-300">启用</span>
+                </label>
+              </div>
+              <input
+                type="text"
+                value={backupConfig.backupComposeCron}
+                onChange={(e) => handleBackupScheduleChange('backupComposeCron', e.target.value)}
+                placeholder="例如：30 1 * * *"
+                className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-2">Cron 示例：每天 01:30 → <span className="font-mono">30 1 * * *</span></p>
+            </div>
           </div>
         </div>
       </div>

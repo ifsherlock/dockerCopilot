@@ -62,16 +62,22 @@ func defaultConfig(secretKey string) runtimeConfig {
 			},
 		},
 		Telegram: map[string]interface{}{
-			"bot_token":              "",
-			"chat_ids":               []string{},
-			"polling_interval":       1,
-			"update_check_cron":      "0 18 * * *",
-			"notify_on_update":       true,
-			"update_blacklist":       []string{},
-			"auto_clean_images":      false,
-			"clean_images_cron":      "3 2 * * *",
-			"auto_update_containers": false,
-			"update_containers_cron": "0 */6 * * *",
+			"bot_token":                 "",
+			"chat_ids":                  []string{},
+			"polling_interval":          1,
+			"update_check_cron":         "0 18 * * *",
+			"notify_on_update":          true,
+			"update_blacklist":          []string{},
+			"auto_clean_images":         false,
+			"clean_images_cron":         "3 2 * * *",
+			"auto_update_containers":    false,
+			"update_containers_cron":    "0 */6 * * *",
+			"auto_backup_json":          false,
+			"backup_json_cron":          "0 1 * * *",
+			"auto_backup_compose":       false,
+			"backup_compose_cron":       "30 1 * * *",
+			"image_accelerators":        []string{"docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"},
+			"default_image_accelerator": "docker.1ms.run",
 			"proxy": map[string]interface{}{
 				"type":     "none",
 				"host":     "",
@@ -140,6 +146,12 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["clean_images_cron"] = req.CleanImagesCron
 	cfg.Telegram["auto_update_containers"] = req.AutoUpdateContainers
 	cfg.Telegram["update_containers_cron"] = req.UpdateContainersCron
+	cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
+	cfg.Telegram["backup_json_cron"] = req.BackupJsonCron
+	cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
+	cfg.Telegram["backup_compose_cron"] = req.BackupComposeCron
+	cfg.Telegram["image_accelerators"] = splitLinesOrComma(req.ImageAccelerators)
+	cfg.Telegram["default_image_accelerator"] = strings.TrimSpace(req.DefaultImageAccelerator)
 	cfg.Telegram["proxy"] = map[string]interface{}{
 		"type":     req.ProxyType,
 		"host":     req.ProxyHost,
@@ -202,6 +214,12 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
+	if err := l.svcCtx.ReloadBackupSchedulers(); err != nil {
+		resp.Code = 500
+		resp.Msg = "配置已保存，但重载定时备份失败: " + err.Error()
+		resp.Data = cfg
+		return resp, nil
+	}
 	resp.Code = 200
 	resp.Msg = "success"
 	resp.Data = cfg
@@ -218,7 +236,6 @@ func splitLinesOrComma(s string) []string {
 	}
 	return out
 }
-
 
 func toString(v interface{}) string {
 	switch t := v.(type) {
@@ -238,14 +255,8 @@ func toInt(v interface{}, fallback int) int {
 	case float64:
 		return int(t)
 	case json.Number:
-		i, err := t.Int64()
-		if err == nil {
-			return int(i)
-		}
-	case string:
-		var i int
-		if _, err := fmt.Sscanf(t, "%d", &i); err == nil && i > 0 {
-			return i
+		if n, err := t.Int64(); err == nil {
+			return int(n)
 		}
 	}
 	return fallback

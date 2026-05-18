@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, List, LayoutGrid, Search, CheckSquare } from 'lucide-react'
-import { imageAPI } from '../api/client.js'
+import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus } from 'lucide-react'
+import { imageAPI, botAPI, progressAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
 
@@ -26,16 +26,21 @@ function SafeImage({ src, alt, className, fallback }) {
 export function Images() {
   const [images, setImages] = useState([])
   const [isLoading, setIsLoading] = useState(true)
+  const [isRefreshing, setIsRefreshing] = useState(false)
   const [error, setError] = useState(null)
   const [success, setSuccess] = useState(null)
   const [deleteModal, setDeleteModal] = useState({ isOpen: false, image: null })
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [pruneModal, setPruneModal] = useState({ isOpen: false, type: null, images: [] })
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
-  const [viewMode, setViewMode] = useState('card')
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('docker_copilot_images_view_mode') || 'card')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedImages, setSelectedImages] = useState([])
   const [isBatchMode, setIsBatchMode] = useState(false)
+  const [acceleratorModal, setAcceleratorModal] = useState({ isOpen: false, imageName: '', taskId: '', logs: '', selectedSource: '' })
+  const [accelerators, setAccelerators] = useState([])
+  const [newAccelerator, setNewAccelerator] = useState('')
+  const [defaultAccelerator, setDefaultAccelerator] = useState('')
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -88,11 +93,34 @@ export function Images() {
       setImages([])
     } finally {
       setIsLoading(false)
+      setIsRefreshing(false)
     }
   }
 
   useEffect(() => {
+    localStorage.setItem('docker_copilot_images_view_mode', viewMode)
+  }, [viewMode])
+
+  useEffect(() => {
     fetchImages()
+  }, [])
+
+  useEffect(() => {
+    const loadAccelerators = async () => {
+      try {
+        const res = await botAPI.getConfig()
+        const telegram = res.data?.data?.telegram || {}
+        const list = Array.isArray(telegram.image_accelerators) ? telegram.image_accelerators : []
+        const fallback = ['docker.1ms.run', 'docker.xuanyuan.me', 'dockerproxy.com']
+        const finalList = Array.from(new Set([...(list.length ? list : fallback)].map(v => String(v || '').trim()).filter(Boolean)))
+        setAccelerators(finalList)
+        setDefaultAccelerator(String(telegram.default_image_accelerator || finalList[0] || ''))
+      } catch (e) {
+        setAccelerators(['docker.1ms.run', 'docker.xuanyuan.me', 'dockerproxy.com'])
+        setDefaultAccelerator('docker.1ms.run')
+      }
+    }
+    loadAccelerators()
   }, [])
 
   const handleDeleteImage = async (imageId, force = false) => {
@@ -120,7 +148,7 @@ export function Images() {
     const ids = filteredImages.map(img => img.id)
     const allSelected = ids.length > 0 && ids.every(id => selectedImages.includes(id))
     setSelectedImages(allSelected ? selectedImages.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedImages, ...ids])))
-    setIsBatchMode(!allSelected)
+    setIsBatchMode(!allSelected && ids.length > 0)
   }
 
   const openBatchDelete = () => {
@@ -208,6 +236,90 @@ export function Images() {
   }
 
 
+  const persistAccelerators = async (nextList, nextDefault = defaultAccelerator) => {
+    const clean = Array.from(new Set(nextList.map(v => String(v || '').trim()).filter(Boolean)))
+    setAccelerators(clean)
+    setDefaultAccelerator(nextDefault || clean[0] || '')
+    try {
+      const res = await botAPI.getConfig()
+      const data = res.data?.data || {}
+      const telegram = data.telegram || {}
+      const dockercopilot = data.dockercopilot || {}
+      await botAPI.saveConfig({
+        botToken: telegram.bot_token || '',
+        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join('\n') : '',
+        updateCheckCron: telegram.update_check_cron || '0 18 * * *',
+        notifyOnUpdate: telegram.notify_on_update !== false,
+        updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
+        autoCleanImages: !!telegram.auto_clean_images,
+        cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
+        autoUpdateContainers: !!telegram.auto_update_containers,
+        updateContainersCron: telegram.update_containers_cron || '0 */6 * * *',
+        proxyType: telegram.proxy?.type || 'none',
+        proxyHost: telegram.proxy?.host || '',
+        proxyPort: telegram.proxy?.port || 0,
+        proxyUsername: telegram.proxy?.username || '',
+        proxyPassword: telegram.proxy?.password || '',
+        defaultInstance: dockercopilot.default_instance || 'local',
+        instances: JSON.stringify(dockercopilot.instances || []),
+        autoBackupJson: !!telegram.auto_backup_json,
+        backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
+        autoBackupCompose: !!telegram.auto_backup_compose,
+        backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
+        imageAccelerators: clean.join('\n'),
+        defaultImageAccelerator: nextDefault || clean[0] || '',
+      })
+    } catch (e) {
+      setError(e.response?.data?.msg || e.message || '保存加速源失败')
+    }
+  }
+
+  const addAccelerator = async () => {
+    const value = newAccelerator.trim().replace(/^https?:\/\//, '').replace(/\/+$/, '')
+    if (!value) return
+    const next = Array.from(new Set([...accelerators, value]))
+    setNewAccelerator('')
+    await persistAccelerators(next, defaultAccelerator || value)
+  }
+
+  const openAcceleratorModal = (imageName = '') => {
+    setAcceleratorModal({ isOpen: true, imageName, taskId: '', logs: '', selectedSource: defaultAccelerator || accelerators[0] || '' })
+  }
+
+  const startAcceleratedPull = async () => {
+    const imageName = acceleratorModal.imageName.trim()
+    if (!imageName) {
+      setError('镜像名不能为空')
+      return
+    }
+    const source = acceleratorModal.selectedSource || defaultAccelerator || accelerators[0] || ''
+    const res = await imageAPI.pullImage(imageName, source, imageName)
+    const taskId = res.data?.data?.taskID
+    setAcceleratorModal(prev => ({ ...prev, taskId, logs: `开始加速拉取: ${source ? `${source}/` : ''}${imageName}\n` }))
+    if (taskId) pollPullProgress(taskId)
+  }
+
+  const pollPullProgress = (taskId) => {
+    let attempts = 0
+    const poll = async () => {
+      attempts++
+      try {
+        const res = await progressAPI.getProgress(taskId)
+        const data = res.data?.data || {}
+        const logs = Array.isArray(data.logs) ? data.logs.join('\n') : (data.detailMsg || data.message || '')
+        setAcceleratorModal(prev => ({ ...prev, logs }))
+        if (data.isDone || attempts > 180) {
+          await fetchImages()
+          return
+        }
+        setTimeout(poll, 1500)
+      } catch (e) {
+        setAcceleratorModal(prev => ({ ...prev, logs: `${prev.logs}\n查询进度失败: ${e.message}` }))
+      }
+    }
+    poll()
+  }
+
   const filteredImages = images.filter((image) => {
     const keyword = searchKeyword.trim().toLowerCase()
     const matchesKeyword = !keyword || [image.name, image.tag, image.id, image.size, image.createTime, image.inUsed ? '使用中' : '未使用'].some(value => String(value || '').toLowerCase().includes(keyword))
@@ -246,24 +358,19 @@ export function Images() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">镜像管理</h2>
             <p className="text-gray-600 dark:text-gray-400 mt-1">查看和管理Docker镜像</p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="搜索镜像/Tag/ID"
-                className="w-52 sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            <button
-              onClick={() => setIsBatchMode(!isBatchMode)}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
-            >
-              <CheckSquare className="h-4 w-4" />
-              <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
-            </button>
+          <div className="flex flex-wrap items-center justify-end gap-2 sm:max-w-[78%]">
+            {(viewMode === 'card' || isBatchMode || selectedImages.length > 0) && (
+              <button
+                onClick={() => {
+                  setIsBatchMode(!isBatchMode)
+                  if (isBatchMode) setSelectedImages([])
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              >
+                <CheckSquare className="h-4 w-4" />
+                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
+              </button>
+            )}
             <button
               onClick={toggleSelectAllImages}
               disabled={isLoading || filteredImages.length === 0}
@@ -292,17 +399,27 @@ export function Images() {
                 className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
                 title="表格视图"
               >
-                <List className="h-4 w-4" />
+                <LayoutList className="h-4 w-4" />
               </button>
             </div>
             <button
-              onClick={fetchImages}
+              onClick={() => { setIsRefreshing(true); fetchImages() }}
               disabled={isLoading}
               className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
             >
-              <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+              <RefreshCw className="h-4 w-4" />
               <span>刷新</span>
             </button>
+            <div className="relative">
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="搜索镜像/Tag/ID"
+                className="w-48 sm:w-60 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
           </div>
         </div>
       </div>
@@ -378,14 +495,24 @@ export function Images() {
         </div>
       )}
 
+      {isRefreshing && images.length > 0 && (
+        <div className="mx-2 sm:mx-6 my-3 rounded-3xl border border-primary-200/70 dark:border-primary-800/70 bg-primary-50/80 dark:bg-primary-950/30 p-8 shadow-inner overflow-hidden relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/5 to-transparent animate-pulse"></div>
+          <div className="relative flex items-center justify-center gap-3 text-primary-700 dark:text-primary-300 font-medium">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span>正在刷新镜像数据、状态和列表元素...</span>
+          </div>
+        </div>
+      )}
+
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
-        <div className="grid grid-cols-4 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="grid grid-cols-2 sm:grid-cols-5 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 min-h-[116px]">
           {/* 总镜像数 */}
           <button
             onClick={() => setFilterStatus(null)}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === null ? "bg-primary-50 dark:bg-primary-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -402,7 +529,7 @@ export function Images() {
           <button
             onClick={() => setFilterStatus('used')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === 'used' ? "bg-green-50 dark:bg-green-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -419,7 +546,7 @@ export function Images() {
           <button
             onClick={() => setFilterStatus('unused')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === 'unused' ? "bg-yellow-50 dark:bg-yellow-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -436,7 +563,7 @@ export function Images() {
           <button
             onClick={() => setFilterStatus('dangling')}
             className={cn(
-              "p-3 sm:p-5 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center",
+              "p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group border-r border-gray-200 dark:border-gray-700 flex flex-col items-center justify-center",
               filterStatus === 'dangling' ? "bg-orange-50 dark:bg-orange-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
@@ -446,6 +573,18 @@ export function Images() {
                 {images.filter(img => img.tag === 'None' || img.tag === '<none>').length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">无Tag</div>
+            </div>
+          </button>
+
+          {/* 加速源配置 */}
+          <button
+            onClick={() => setAcceleratorModal({ isOpen: true, imageName: '', taskId: '', logs: '', selectedSource: defaultAccelerator || accelerators[0] || '' })}
+            className="p-4 sm:p-6 text-center transition-all duration-300 relative overflow-hidden group flex flex-col items-center justify-center hover:bg-gray-50 dark:hover:bg-gray-700/50"
+          >
+            <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
+            <div className="relative flex flex-col items-center">
+              <Zap className="h-7 w-7 text-sky-600 dark:text-sky-400 mb-2 transition-transform duration-300 group-hover:scale-110" />
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">加速源配置</div>
             </div>
           </button>
         </div>
@@ -495,24 +634,28 @@ export function Images() {
               <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
                 <thead className="bg-gray-50 dark:bg-gray-900/60">
                   <tr>
-                    <th className="w-12 px-4 py-3 text-left">
-                      <input
-                        type="checkbox"
-                        checked={filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))}
-                        onChange={toggleSelectAllImages}
-                        className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
-                      />
+                    <th className="w-14 px-4 py-3 text-left">
+                      <label className="inline-flex items-center justify-center w-8 h-8 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))}
+                          onChange={toggleSelectAllImages}
+                          className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                        />
+                      </label>
                     </th>
-                    {['镜像名称', '状态', 'Tag', '大小', '创建时间', '镜像ID', '详情链接', '操作'].map((title) => (
+                    {['镜像名称', '状态', 'Tag', '大小', '创建时间', '镜像ID', '加速', '操作'].map((title) => (
                       <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">{title}</th>
                     ))}
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
                   {filteredImages.map((image) => (
-                    <tr key={image.id} onClick={() => isBatchMode && toggleImageSelection(image.id)} className={cn("hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors", selectedImages.includes(image.id) && "bg-primary-50 dark:bg-primary-900/20")}>
+                    <tr key={image.id} onClick={() => toggleImageSelection(image.id)} className={cn("hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer", selectedImages.includes(image.id) && "bg-primary-50 dark:bg-primary-900/20")}>
                       <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                        <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                        <label className="inline-flex items-center justify-center w-8 h-8 cursor-pointer">
+                          <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                        </label>
                       </td>
                       <td className="px-4 py-3 min-w-[260px]">
                         <div className="flex items-center gap-3">
@@ -538,15 +681,13 @@ export function Images() {
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{image.createTime || '-'}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap" title={image.id}>{shortImageId(image.id)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        {dockerHubUrl(image.name) !== '#' ? (
-                          <a href={dockerHubUrl(image.name)} target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 text-sm text-primary-600 dark:text-primary-400 hover:underline">
-                            详情 <Link className="h-3.5 w-3.5" />
-                          </a>
-                        ) : <span className="text-sm text-gray-400">-</span>}
+                        <button onClick={(e) => { e.stopPropagation(); openAcceleratorModal(image.name) }} className="inline-flex items-center gap-1 text-sm text-sky-600 dark:text-sky-400 hover:underline">
+                          加速 <Zap className="h-3.5 w-3.5" />
+                        </button>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
-                        {image.inUsed && <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700">强制</button>}
+                        {image.inUsed && <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 whitespace-nowrap min-w-[64px]">强制删除</button>}
                       </td>
                     </tr>
                   ))}
@@ -597,17 +738,15 @@ export function Images() {
                       </p>
                     </div>
 
-                    {/* 官网跳转按钮 - 始终显示 */}
+                    {/* 加速按钮 */}
                     <div className="flex gap-1">
-                      <a
-                        href={`https://hub.docker.com/r/${image.name}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="p-1.5 text-gray-400 hover:text-primary-600 dark:hover:text-primary-400 rounded transition-colors active:scale-95"
-                        title="在Docker Hub查看"
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openAcceleratorModal(image.name) }}
+                        className="p-1.5 text-sky-500 hover:text-sky-600 dark:hover:text-sky-400 rounded transition-colors active:scale-95"
+                        title="加速拉取镜像"
                       >
-                        <Link className="h-4 w-4" />
-                      </a>
+                        <Zap className="h-4 w-4" />
+                      </button>
                     </div>
                   </div>
 
@@ -724,6 +863,54 @@ export function Images() {
                   '确认删除'
                 )}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {acceleratorModal.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-sky-400 via-blue-500 to-cyan-500"></div>
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <div className="h-11 w-11 rounded-2xl bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center"><Zap className="h-6 w-6 text-sky-600 dark:text-sky-300" /></div>
+                <div>
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">加速拉取镜像</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400">选择加速源后拉取镜像，并实时输出日志</p>
+                </div>
+              </div>
+              <button onClick={() => setAcceleratorModal({ isOpen: false, imageName: '', taskId: '', logs: '', selectedSource: '' })} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">镜像名</label>
+                  <input value={acceleratorModal.imageName} onChange={(e) => setAcceleratorModal(prev => ({ ...prev, imageName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="例如 library/nginx:latest" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">镜像源</label>
+                  <select value={acceleratorModal.selectedSource} onChange={(e) => { setAcceleratorModal(prev => ({ ...prev, selectedSource: e.target.value })); persistAccelerators(accelerators, e.target.value) }} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm">
+                    {accelerators.map(src => <option key={src} value={src}>{src}</option>)}
+                  </select>
+                </div>
+              </div>
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/40">
+                <div className="flex gap-2">
+                  <input value={newAccelerator} onChange={(e) => setNewAccelerator(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAccelerator() }} className="flex-1 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="输入加速源，回车保存" />
+                  <button onClick={addAccelerator} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 flex items-center gap-1"><Plus className="h-4 w-4" />添加</button>
+                </div>
+                <div className="flex flex-wrap gap-2 mt-3">
+                  {accelerators.map(src => <button key={src} onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: src }))} className={cn("px-2 py-1 text-xs rounded-lg border", acceleratorModal.selectedSource === src ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>{src}</button>)}
+                </div>
+              </div>
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2"><Logs className="h-4 w-4" />日志输出</label>
+                  <button onClick={startAcceleratedPull} className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-500 text-white text-sm font-semibold hover:from-sky-600 hover:to-blue-600">开始加速拉取</button>
+                </div>
+                <pre className="h-56 overflow-auto rounded-2xl bg-gray-950 text-green-300 text-xs p-4 whitespace-pre-wrap">{acceleratorModal.logs || '等待开始拉取...'}</pre>
+              </div>
             </div>
           </div>
         </div>

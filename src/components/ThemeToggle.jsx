@@ -3,7 +3,7 @@ import { Moon, Sun, Monitor } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { cn } from '../utils/cn'
 
-export function ThemeToggle({ collapsed = false }) {
+export function ThemeToggle({ collapsed = false, embedded = false }) {
   const { theme, setTheme } = useTheme()
 
   // 获取当前实际应用的主题（当theme为system时，返回系统实际主题）
@@ -44,7 +44,10 @@ export function ThemeToggle({ collapsed = false }) {
   }
 
   return (
-    <div className="flex items-center space-x-1 bg-gray-100 dark:bg-gray-800 rounded-lg p-1">
+    <div className={cn(
+      "flex items-center space-x-1 rounded-lg p-1",
+      embedded ? "bg-transparent p-0" : "bg-gray-100 dark:bg-gray-800"
+    )}>
       {themes.map(({ value, label, icon: Icon }) => (
         <button
           key={value}

@@ -101,9 +101,10 @@ export function Containers() {
   const [updateTasks, setUpdateTasks] = useState({}) // 跟踪更新任务
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
-  const [viewMode, setViewMode] = useState('card') // 'card' | 'table'
+  const [viewMode, setViewMode] = useState(() => localStorage.getItem('docker_copilot_containers_view_mode') || 'card') // 'card' | 'table'
   const [updateBlacklist, setUpdateBlacklist] = useState([])
   const [searchKeyword, setSearchKeyword] = useState('')
+  const [isRefreshing, setIsRefreshing] = useState(false)
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -173,6 +174,10 @@ export function Containers() {
   })
 
   useEffect(() => {
+    localStorage.setItem('docker_copilot_containers_view_mode', viewMode)
+  }, [viewMode])
+
+  useEffect(() => {
     const loadUpdateBlacklist = async () => {
       try {
         const res = await botAPI.getConfig()
@@ -186,12 +191,15 @@ export function Containers() {
   }, [])
 
   const saveUpdateBlacklist = async (nextList) => {
-    const normalized = Array.from(new Set(nextList.filter(Boolean)))
+    const normalized = Array.from(new Set(nextList.map(item => String(item || '').trim()).filter(Boolean)))
+    const previous = updateBlacklist
     setUpdateBlacklist(normalized)
     try {
       const res = await botAPI.getConfig()
-      const telegram = res.data?.data?.telegram || {}
+      const data = res.data?.data || {}
+      const telegram = data.telegram || {}
       const proxy = telegram.proxy || {}
+      const instances = Array.isArray(data.dockercopilot?.instances) ? JSON.stringify(data.dockercopilot.instances) : ''
       await botAPI.saveConfig({
         botToken: telegram.bot_token || '',
         chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
@@ -207,8 +215,16 @@ export function Containers() {
         proxyPort: proxy.port || 0,
         proxyUsername: proxy.username || '',
         proxyPassword: proxy.password || '',
+        defaultInstance: data.dockercopilot?.default_instance || '',
+        instances,
+        autoBackupJson: telegram.auto_backup_json ?? false,
+        backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
+        autoBackupCompose: telegram.auto_backup_compose ?? false,
+        backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
       })
+      await queryClient.invalidateQueries(['containers'])
     } catch (err) {
+      setUpdateBlacklist(previous)
       console.error('保存更新黑名单失败:', err)
       setConfirmModal({
         isOpen: true,
@@ -233,8 +249,8 @@ export function Containers() {
     return getBlacklistCandidates(container).some(candidate => candidate === normalizedItem || candidate.includes(normalizedItem))
   }
   const isUpdateIgnored = (container) => updateBlacklist.some(item => matchesBlacklistItem(container, item))
-  const ignoreUpdate = (container) => saveUpdateBlacklist([...updateBlacklist, getBlacklistKey(container)])
-  const unignoreUpdate = (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
+  const ignoreUpdate = async (container) => saveUpdateBlacklist([...updateBlacklist, ...getBlacklistCandidates(container)])
+  const unignoreUpdate = async (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
   const displayedHaveUpdate = (container) => container.haveUpdate && !isUpdateIgnored(container)
 
   const handleContainerAction = async (containerId, action) => {
@@ -690,10 +706,17 @@ export function Containers() {
 
   // 全选/取消全选
   const toggleSelectAll = () => {
-    if (selectedContainers.length === containers.length) {
-      setSelectedContainers([])
-    } else {
-      setSelectedContainers(containers.map(container => container.id))
+    const ids = filteredContainers.map(container => container.id)
+    const allSelected = ids.length > 0 && ids.every(id => selectedContainers.includes(id))
+    setSelectedContainers(allSelected ? selectedContainers.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedContainers, ...ids])))
+  }
+
+  const handleRefresh = async () => {
+    try {
+      setIsRefreshing(true)
+      await refetch()
+    } finally {
+      setTimeout(() => setIsRefreshing(false), 400)
     }
   }
 
@@ -818,9 +841,9 @@ export function Containers() {
           更新
         </button>
         {isUpdateIgnored(container) ? (
-          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-red-700 dark:text-red-300 border-red-300 dark:border-red-700 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 font-semibold" title="取消忽略更新">取消忽略</button>
+          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/30 hover:bg-yellow-100 dark:hover:bg-yellow-900/50 font-semibold" title="取消忽略更新">取消忽略</button>
         ) : (
-          <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-gray-600 dark:text-gray-400 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700" title="忽略更新">忽略</button>
+          <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20" title="忽略更新">忽略</button>
         )}
       </div>
     )
@@ -832,18 +855,20 @@ export function Containers() {
         <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900/60">
             <tr>
-              <th className="w-12 px-4 py-3 text-left">
-                <input
-                  type="checkbox"
-                  checked={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id))}
-                  onChange={() => {
-                    const ids = filteredContainers.map(c => c.id)
-                    const allSelected = ids.length > 0 && ids.every(id => selectedContainers.includes(id))
-                    setSelectedContainers(allSelected ? selectedContainers.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedContainers, ...ids])))
-                    setIsBatchMode(!allSelected)
-                  }}
-                  className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
-                />
+              <th className="w-14 px-4 py-3 text-left">
+                <label className="inline-flex items-center justify-center w-8 h-8 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id))}
+                    onChange={() => {
+                      const ids = filteredContainers.map(c => c.id)
+                      const allSelected = ids.length > 0 && ids.every(id => selectedContainers.includes(id))
+                      setSelectedContainers(allSelected ? selectedContainers.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedContainers, ...ids])))
+                      setIsBatchMode(true)
+                    }}
+                    className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                  />
+                </label>
               </th>
               {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '操作', '进度'].map((title) => (
                 <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
@@ -857,13 +882,15 @@ export function Containers() {
               const isSelected = selectedContainers.includes(container.id)
               const progressPercent = getUpdateProgressPercent(container.id)
               return (
-                <tr key={container.id} onClick={() => setSelectedContainer(container)} className={cn(
+                <tr key={container.id} onClick={() => toggleContainerSelection(container.id)} className={cn(
                   "hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer",
                   isSelected && "bg-primary-50 dark:bg-primary-900/20",
                   isUpdateIgnored(container) && "opacity-55 grayscale"
                 )}>
                   <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
-                    <input type="checkbox" checked={isSelected} onChange={() => toggleContainerSelection(container.id)} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                    <label className="inline-flex items-center justify-center w-8 h-8 cursor-pointer">
+                      <input type="checkbox" checked={isSelected} onChange={() => toggleContainerSelection(container.id)} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                    </label>
                   </td>
                   <td className="px-4 py-3 min-w-[220px]">
                     <div className="flex items-center gap-3">
@@ -884,7 +911,11 @@ export function Containers() {
                       {container.status === 'running' ? '运行中' : '已停止'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 max-w-[280px] truncate" title={container.usingImage}>{container.usingImage}</td>
+                  <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={container.usingImage}>
+                    <button onClick={(e) => { e.stopPropagation(); toggleContainerSelection(container.id) }} className="truncate text-primary-600 dark:text-primary-400 hover:underline font-medium text-left">
+                      {container.usingImage}
+                    </button>
+                  </td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
                     {container.status === 'running' ? (
@@ -919,6 +950,7 @@ export function Containers() {
       </div>
     </div>
   )
+
 
   if (isLoading) {
     return (
@@ -1004,7 +1036,7 @@ export function Containers() {
 
       {/* 页面标题和操作 */}
       <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center space-y-4 sm:space-y-0">
+        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
           <div>
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">容器管理</h2>
             <p className="text-gray-600 dark:text-gray-400 mt-1">
@@ -1012,25 +1044,148 @@ export function Containers() {
             </p>
           </div>
 
-          {/* 批量操作按钮区域 */}
-          {!isBatchMode ? (
-            <div className="flex flex-wrap items-center justify-end gap-2">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="搜索容器/镜像/状态"
-                className="w-52 sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-            <button
-              className="btn-secondary"
-              onClick={() => setIsBatchMode(true)}
-            >
-              批量操作
-            </button>
+          <div className="flex flex-wrap items-center justify-end gap-2 w-full sm:w-auto sm:max-w-[75%]">
+            {viewMode === 'table' ? (
+              <>
+                <button
+                  className="btn-secondary px-3 sm:px-4 py-2"
+                  onClick={toggleSelectAll}
+                >
+                  {filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
+                </button>
+                <button
+                  className={`btn-primary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('start')}
+                  title="启动"
+                >
+                  <Play className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">启动</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('stop')}
+                  title="停止"
+                >
+                  <Square className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">停止</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('restart')}
+                  title="重启"
+                >
+                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">重启</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('update')}
+                  title="更新"
+                >
+                  <Upload className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">更新</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => {
+                    const selected = containers.filter(c => selectedContainers.includes(c.id))
+                    saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
+                    setSelectedContainers([])
+                  }}
+                  title="批量忽略更新"
+                >
+                  <Ban className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">批量忽略</span>
+                </button>
+              </>
+            ) : !isBatchMode ? (
+              <button
+                className="btn-secondary"
+                onClick={() => setIsBatchMode(true)}
+              >
+                批量操作
+              </button>
+            ) : (
+              <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
+                <button
+                  className="btn-secondary px-3 sm:px-4 py-2"
+                  onClick={toggleSelectAll}
+                  title={selectedContainers.length === containers.length ? '取消全选' : '全选'}
+                >
+                  <span className="hidden sm:inline">
+                    {selectedContainers.length === containers.length ? '取消全选' : '全选'}
+                  </span>
+                  <span className="sm:hidden text-sm font-semibold">
+                    {selectedContainers.length}/{containers.length}
+                  </span>
+                </button>
+                <button
+                  className={`btn-primary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('start')}
+                  title="启动"
+                >
+                  <Play className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">启动</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('stop')}
+                  title="停止"
+                >
+                  <Square className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">停止</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('restart')}
+                  title="重启"
+                >
+                  <RotateCcw className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">重启</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchAction('update')}
+                  title="更新"
+                >
+                  <Upload className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">更新</span>
+                </button>
+                <button
+                  className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => {
+                    const selected = containers.filter(c => selectedContainers.includes(c.id))
+                    saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
+                    setSelectedContainers([])
+                    setIsBatchMode(false)
+                  }}
+                  title="批量忽略更新"
+                >
+                  <Ban className="h-4 w-4 flex-shrink-0" />
+                  <span className="hidden sm:inline">批量忽略</span>
+                </button>
+                <button
+                  className="btn-secondary px-3 sm:px-4 py-2 text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
+                  onClick={() => {
+                    setSelectedContainers([])
+                    setIsBatchMode(false)
+                  }}
+                >
+                  <span className="hidden sm:inline">取消</span>
+                  <span className="sm:hidden">✕</span>
+                </button>
+              </div>
+            )}
 
             <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
               <button
@@ -1050,90 +1205,35 @@ export function Containers() {
             </div>
             <button
               className="btn-primary"
-              onClick={() => refetch()}
+              onClick={handleRefresh}
+              disabled={isRefreshing}
             >
               <RefreshCw className="h-4 w-4 mr-2" />
               刷新
             </button>
+            <div className={cn('relative', viewMode === 'table' ? 'flex-1 min-w-[220px]' : '')}>
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+              <input
+                type="text"
+                value={searchKeyword}
+                onChange={(e) => setSearchKeyword(e.target.value)}
+                placeholder="搜索容器/镜像/状态"
+                className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+              />
+            </div>
           </div>
-        ) : (
-          <div className="flex flex-wrap gap-2 sm:gap-3 w-full sm:w-auto">
-            <button
-              className="btn-secondary px-3 sm:px-4 py-2"
-              onClick={toggleSelectAll}
-              title={selectedContainers.length === containers.length ? '取消全选' : '全选'}
-            >
-              <span className="hidden sm:inline">
-                {selectedContainers.length === containers.length ? '取消全选' : '全选'}
-              </span>
-              <span className="sm:hidden text-sm font-semibold">
-                {selectedContainers.length}/{containers.length}
-              </span>
-            </button>
-            <button
-              className={`btn-primary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={selectedContainers.length === 0}
-              onClick={() => handleBatchAction('start')}
-              title="启动"
-            >
-              <Play className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">启动</span>
-            </button>
-            <button
-              className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={selectedContainers.length === 0}
-              onClick={() => handleBatchAction('stop')}
-              title="停止"
-            >
-              <Square className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">停止</span>
-            </button>
-            <button
-              className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={selectedContainers.length === 0}
-              onClick={() => handleBatchAction('restart')}
-              title="重启"
-            >
-              <RotateCcw className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">重启</span>
-            </button>
-            <button
-              className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={selectedContainers.length === 0}
-              onClick={() => handleBatchAction('update')}
-              title="更新"
-            >
-              <Upload className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">更新</span>
-            </button>
-            <button
-              className={`btn-secondary flex items-center justify-center px-3 sm:px-4 py-2 gap-1 sm:gap-2 ${selectedContainers.length === 0 ? 'opacity-50 cursor-not-allowed' : ''}`}
-              disabled={selectedContainers.length === 0}
-              onClick={() => {
-                const selected = containers.filter(c => selectedContainers.includes(c.id))
-                saveUpdateBlacklist([...updateBlacklist, ...selected.map(getBlacklistKey)])
-                setSelectedContainers([])
-                setIsBatchMode(false)
-              }}
-              title="批量忽略更新"
-            >
-              <Ban className="h-4 w-4 flex-shrink-0" />
-              <span className="hidden sm:inline">批量忽略</span>
-            </button>
-            <button
-              className="btn-danger px-3 sm:px-4 py-2"
-              onClick={() => {
-                setSelectedContainers([])
-                setIsBatchMode(false)
-              }}
-            >
-              <span className="hidden sm:inline">取消</span>
-              <span className="sm:hidden">✕</span>
-            </button>
-          </div>
-          )}
         </div>
       </div>
+
+      {isRefreshing && containers.length > 0 && (
+        <div className="mx-2 sm:mx-6 my-3 rounded-3xl border border-primary-200/70 dark:border-primary-800/70 bg-primary-50/80 dark:bg-primary-950/30 p-8 shadow-inner overflow-hidden relative">
+          <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/5 to-transparent animate-pulse"></div>
+          <div className="relative flex items-center justify-center gap-3 text-primary-700 dark:text-primary-300 font-medium">
+            <RefreshCw className="h-5 w-5 animate-spin" />
+            <span>正在刷新容器状态、镜像信息和列表元素...</span>
+          </div>
+        </div>
+      )}
 
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
@@ -1339,6 +1439,18 @@ export function Containers() {
                             : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
                       )}
                     >
+                      {isBatchMode && (
+                        <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
+                          <label className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/95 dark:bg-gray-900/90 border border-primary-200 dark:border-primary-700 shadow cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleContainerSelection(container.id)}
+                              className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
+                            />
+                          </label>
+                        </div>
+                      )}
                       {/* 背景进度条 */}
                       {containerActions[container.id]?.loading && containerActions[container.id]?.action === 'update' && (
                         <div className="absolute inset-0 pointer-events-none rounded-2xl overflow-hidden">
@@ -1540,7 +1652,7 @@ export function Containers() {
                               {isUpdateIgnored(container) ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/30 hover:bg-red-100 dark:hover:bg-red-900/50 border border-red-300 dark:border-red-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/30 hover:bg-yellow-100 dark:hover:bg-yellow-900/50 border border-yellow-300 dark:border-yellow-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
                                   title="取消忽略更新"
                                 >
                                   <Undo2 className="h-4 w-4" />
@@ -1586,6 +1698,9 @@ export function Containers() {
             onRename={handleRenameContainer}
             onUpdate={handleUpdateContainer}
             onAction={handleContainerAction}
+            isUpdateIgnored={isUpdateIgnored}
+            onIgnore={ignoreUpdate}
+            onUnignore={unignoreUpdate}
           />
         )
       }
@@ -1594,7 +1709,7 @@ export function Containers() {
 }
 
 // 容器详情弹窗组件
-function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction }) {
+function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction, isUpdateIgnored, onIgnore, onUnignore }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(container.name)
   const [imageNameAndTag, setImageNameAndTag] = useState(container.usingImage)

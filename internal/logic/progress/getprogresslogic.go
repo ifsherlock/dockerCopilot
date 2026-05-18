@@ -42,6 +42,7 @@ func (l *GetProgressLogic) GetProgress(req *types.GetProgressReq) (resp *types.R
 		"name":       progress.Name,
 		"detailMsg":  progress.DetailMsg,
 		"isDone":     progress.IsDone,
+		"logs":       progress.Logs,
 	}
 	return resp, nil
 }

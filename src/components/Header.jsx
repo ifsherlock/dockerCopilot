@@ -61,6 +61,11 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     checkForUpdates
   } = useVersionCheck()
 
+  const displayVersion = (value) => {
+    const raw = String(value || '2.1.3').trim()
+    return raw.startsWith('v') ? raw : `v${raw}`
+  }
+
   // 智能判断是否可以手动切换侧边栏
   const canToggleSidebar = windowWidth >= 1024
   const isTabletSize = windowWidth >= 768 && windowWidth < 1024
@@ -119,7 +124,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
             />
             <div className="flex items-center gap-1">
               <span className="text-sm font-semibold text-gray-900 dark:text-white">Docker Copilot</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{backendVersion || 'v1.0'}</span>
+              <span className="text-xs text-gray-500 dark:text-gray-400">{displayVersion(backendVersion)}</span>
             </div>
           </button>
 
@@ -254,25 +259,33 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
 
             {/* 操作按钮 */}
             <div className={cn(
-              "flex items-center gap-2 mb-4",
+              "flex items-stretch gap-2 mb-4",
               isCollapsed ? "flex-col" : "justify-between"
             )}>
-              <ThemeToggle collapsed={isCollapsed} />
-              <button
-                onClick={onLogout}
-                className={cn(
-                  "flex items-center justify-center gap-2 transition-all duration-200 group active:scale-95",
-                  isCollapsed
-                    ? "p-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg w-full"
-                    : "px-3 py-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex-1"
-                )}
-                title={isCollapsed ? "退出登录" : ""}
-              >
-                <LogOut className="h-4 w-4 flex-shrink-0 group-hover:rotate-12 transition-transform duration-300" />
-                {!isCollapsed && (
-                  <span className="text-xs sm:text-sm font-medium">退出</span>
-                )}
-              </button>
+              {isCollapsed ? (
+                <>
+                  <ThemeToggle collapsed={isCollapsed} />
+                  <button
+                    onClick={onLogout}
+                    className="flex items-center justify-center gap-2 transition-all duration-200 group active:scale-95 p-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg w-full"
+                    title="退出登录"
+                  >
+                    <LogOut className="h-4 w-4 flex-shrink-0 group-hover:rotate-12 transition-transform duration-300" />
+                  </button>
+                </>
+              ) : (
+                <div className="flex items-stretch gap-2 w-full rounded-xl bg-gray-100 dark:bg-gray-800 p-1">
+                  <ThemeToggle collapsed={false} embedded />
+                  <button
+                    onClick={onLogout}
+                    className="flex items-center justify-center gap-2 px-3 py-2.5 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg flex-1 min-w-0 transition-all duration-200 group active:scale-95"
+                    title="退出登录"
+                  >
+                    <LogOut className="h-4 w-4 flex-shrink-0 group-hover:rotate-12 transition-transform duration-300" />
+                    <span className="text-xs sm:text-sm font-medium whitespace-nowrap">退出</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             {/* 版本信息部分 */}
@@ -281,7 +294,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
               <div className="space-y-2">
                 {/* 状态指示 */}
                 <div className="flex justify-center">
-                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 group hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-all duration-200 cursor-help" title={`在线 - ${backendVersion || 'v1.0'}`}>
+                  <span className="inline-flex items-center justify-center w-8 h-8 rounded-lg bg-emerald-100 dark:bg-emerald-900/30 group hover:bg-emerald-200 dark:hover:bg-emerald-900/50 transition-all duration-200 cursor-help" title={`在线 - ${displayVersion(backendVersion)}`}>
                     <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
                   </span>
                 </div>
@@ -322,7 +335,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                     <div className="flex items-center justify-between gap-3">
                       <span className="text-xs font-medium text-gray-600 dark:text-gray-400">后端版本</span>
                       <span className="text-lg font-bold bg-gradient-to-r from-primary-600 to-purple-600 dark:from-primary-400 dark:to-purple-400 bg-clip-text text-transparent">
-                        {backendVersion || 'v1.0'}
+                        {displayVersion(backendVersion)}
                       </span>
                     </div>
 

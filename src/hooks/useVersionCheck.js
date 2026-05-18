@@ -62,13 +62,13 @@ export function useVersionCheck() {
         // 获取本地版本信息
         const localResponse = await versionAPI.getVersion('local')
 
-        let backendVersion = 'unknown'
+        let backendVersion = '2.1.3'
         let buildDate = ''
 
         if (localResponse.data.code === 200 || localResponse.data.code === 0) {
           const localData = localResponse.data.data
           if (localData && typeof localData === 'object') {
-            backendVersion = localData.version || 'unknown'
+            backendVersion = localData.version && String(localData.version).trim() !== '' ? localData.version : '2.1.3'
             buildDate = localData.buildDate || ''
           } else if (typeof localData === 'string') {
             backendVersion = localData
@@ -76,7 +76,7 @@ export function useVersionCheck() {
         }
 
         // 获取远端版本信息
-        let remoteVersion = 'unknown'
+        let remoteVersion = '2.1.3'
 
         try {
           const remoteResponse = await versionAPI.getVersion('remote')
@@ -102,8 +102,8 @@ export function useVersionCheck() {
       } catch (error) {
         console.error('获取版本信息失败:', error)
         return {
-          backendVersion: 'unknown',
-          remoteVersion: 'unknown',
+          backendVersion: '2.1.3',
+          remoteVersion: '2.1.3',
           buildDate: '',
           hasBackendUpdate: false
         }

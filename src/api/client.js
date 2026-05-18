@@ -131,6 +131,12 @@ export const imageAPI = {
   getImages: () => apiClient.get('/api/images'),
   getIcons: () => apiClient.get('/api/icons'),
   deleteImage: (id, force = false) => apiClient.delete(`/api/image/${id}?force=${force}`),
+  pullImage: (imageName, source, displayName) => apiClient.post('/api/image/pull', {
+    imageName,
+    source,
+    displayName,
+  }),
+  getLogs: () => apiClient.get('/api/logs'),
   uploadIcon: (file, imageName, containerName) => {
     const formData = new FormData()
     formData.append('file', file)
@@ -148,7 +154,6 @@ export const imageAPI = {
 export const progressAPI = {
   getProgress: (taskid) => apiClient.get(`/api/progress/${taskid}`),
 }
-
 
 // Telegram Bot 配置 API
 export const botAPI = {

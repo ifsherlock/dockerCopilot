@@ -144,9 +144,19 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: image.RemoveHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPost,
+				Path:    "/image/pull",
+				Handler: image.PullHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
 				Path:    "/images",
 				Handler: image.ImagesListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/logs",
+				Handler: image.LogsHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
