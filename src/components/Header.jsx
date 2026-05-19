@@ -64,6 +64,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     updateProgress,
     isReconnectChecking,
     postUpdateNeedsRefresh,
+    uploadProgramUpdate,
     updateBackend,
     forceUpdateBackend,
     checkForUpdates
