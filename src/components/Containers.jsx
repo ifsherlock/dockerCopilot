@@ -590,8 +590,9 @@ export function Containers() {
           message: '这是当前正在运行的 DockerCopilot 容器。普通容器重建流程会先停止自身，导致更新中断，所以这里会改走程序自身更新流程。执行后当前页面可能会短暂断开，请稍后刷新重连。',
           onConfirm: async () => {
             setConfirmModal({ isOpen: false })
-            setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在更新 DockerCopilot...', percentage: 15 })
+            setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在检查远端版本...', percentage: 10 })
             try {
+              setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在下载并准备新的 DockerCopilot 二进制...', percentage: 35 })
               const response = await versionAPI.updateProgram()
               if (response.data.code === 200 || response.data.code === 0) {
                 if (response.data.data?.updated === false || response.data.msg === '当前已是最新版本') {
@@ -605,7 +606,10 @@ export function Containers() {
                   }, 2500)
                   return
                 }
-                setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '已提交自更新，稍后重连', percentage: 100 })
+                setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '新版本已就绪，正在等待进程重启接管...', percentage: 90 })
+                setTimeout(() => {
+                  setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '已提交自更新，稍后重连', percentage: 100 })
+                }, 800)
                 setTimeout(() => {
                   window.location.reload()
                 }, 12000)

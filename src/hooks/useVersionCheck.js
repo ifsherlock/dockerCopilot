@@ -62,21 +62,21 @@ export function useVersionCheck() {
         // 获取本地版本信息
         const localResponse = await versionAPI.getVersion('local')
 
-        let backendVersion = '2.1.3'
+        let backendVersion = ''
         let buildDate = ''
 
         if (localResponse.data.code === 200 || localResponse.data.code === 0) {
           const localData = localResponse.data.data
           if (localData && typeof localData === 'object') {
-            backendVersion = localData.version && String(localData.version).trim() !== '' ? localData.version : '2.1.3'
+            backendVersion = localData.version && String(localData.version).trim() !== '' ? String(localData.version).trim() : ''
             buildDate = localData.buildDate || ''
           } else if (typeof localData === 'string') {
-            backendVersion = localData
+            backendVersion = localData.trim()
           }
         }
 
         // 获取远端版本信息
-        let remoteVersion = '2.1.3'
+        let remoteVersion = ''
 
         try {
           const remoteResponse = await versionAPI.getVersion('remote')
@@ -84,9 +84,9 @@ export function useVersionCheck() {
           if (remoteResponse.data.code === 200 || remoteResponse.data.code === 0) {
             const remoteData = remoteResponse.data.data
             if (remoteData && typeof remoteData === 'object') {
-              remoteVersion = remoteData.remoteVersion || remoteVersion
+              remoteVersion = remoteData.remoteVersion ? String(remoteData.remoteVersion).trim() : remoteVersion
             } else if (typeof remoteData === 'string') {
-              remoteVersion = remoteData
+              remoteVersion = remoteData.trim()
             }
           }
         } catch (error) {
@@ -102,8 +102,8 @@ export function useVersionCheck() {
       } catch (error) {
         console.error('获取版本信息失败:', error)
         return {
-          backendVersion: '2.1.3',
-          remoteVersion: '2.1.3',
+          backendVersion: '',
+          remoteVersion: '',
           buildDate: '',
           hasBackendUpdate: false
         }
@@ -117,15 +117,19 @@ export function useVersionCheck() {
   // 更新后端
   const updateBackend = useCallback(async () => {
     try {
-      await versionAPI.updateProgram()
+      const response = await versionAPI.updateProgram()
+      if (response.data?.data?.updated === false || response.data?.msg === '当前已是最新版本') {
+        alert('当前已是最新版本')
+        return
+      }
       setShowUpdatePrompt(true)
-      // 3秒后自动刷新
+      // 自更新链路会下载二进制并等待进程退出重启，给它更宽松的重启窗口
       setTimeout(() => {
         window.location.reload()
-      }, 3000)
+      }, 12000)
     } catch (error) {
       console.error('后端更新失败:', error)
-      alert('后端更新失败，请手动重启应用')
+      alert(error.response?.data?.msg || error.message || '后端更新失败，请手动重启应用')
     }
   }, [])
 
