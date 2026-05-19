@@ -11,6 +11,6 @@ type Config struct {
 }
 
 var (
-	Version   = "2.1.4"
+	Version   = "2.1.5"
 	BuildDate string
 )
