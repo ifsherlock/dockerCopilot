@@ -594,6 +594,17 @@ export function Containers() {
             try {
               const response = await versionAPI.updateProgram()
               if (response.data.code === 200 || response.data.code === 0) {
+                if (response.data.data?.updated === false || response.data.msg === '当前已是最新版本') {
+                  setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '当前已是最新版本', percentage: 100 })
+                  setTimeout(() => {
+                    setContainerActions(prev => {
+                      const newState = { ...prev }
+                      delete newState[containerId]
+                      return newState
+                    })
+                  }, 2500)
+                  return
+                }
                 setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '已提交自更新，稍后重连', percentage: 100 })
                 setTimeout(() => {
                   window.location.reload()
