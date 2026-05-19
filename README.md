@@ -48,25 +48,17 @@ DockerCopilot 是一个主打便捷的 Docker 容器管理工具，支持通过 
   - 批量操作按钮增强
   - 镜像大小颜色提示
 
-## 镜像
 
-GHCR：
-
-```text
-ghcr.io/ifsherlock/dockercopilot:latest
-ghcr.io/ifsherlock/dockercopilot:v2.1.6
-ghcr.io/ifsherlock/dockercopilot-bot:latest
-ghcr.io/ifsherlock/dockercopilot-bot:2.1.6
-```
 
 DockerHub：
 
 ```text
 jaysherlock/dockercopilot:latest
 jaysherlock/dockercopilot:v2.1.6
+
+
 jaysherlock/dockercopilot-bot:latest
-jaysherlock/dockercopilot-bot:2.1.6
-```
+
 
 ## 主程序 docker-compose.yaml
 
@@ -83,7 +75,7 @@ nano docker-compose.yaml
 ```yaml
 services:
   dockercopilot:
-    image: ghcr.io/ifsherlock/dockercopilot:latest
+    image: ifsherlock/dockercopilot:latest
     container_name: dockercopilot
     restart: always
     privileged: true
