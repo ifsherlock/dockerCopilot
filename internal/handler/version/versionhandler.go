@@ -20,9 +20,11 @@ func VersionHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 		l := version.NewVersionLogic(r.Context(), svcCtx)
 		resp, err := l.Version(&req)
 		if err != nil {
-			httpx.WriteJson(w, resp.Code, resp)
-		} else {
-			httpx.WriteJson(w, resp.Code, resp)
+			httpx.ErrorCtx(r.Context(), w, err)
+			return
 		}
+		// resp.Code is a business code. Keep the HTTP status code valid so
+		// application-level codes such as 50001 do not panic net/http.
+		httpx.WriteJson(w, http.StatusOK, resp)
 	}
 }

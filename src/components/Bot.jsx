@@ -25,6 +25,7 @@ export function Bot() {
     chatIds: '',
     updateCheckCron: '0 18 * * *',
     notifyOnUpdate: true,
+    interactiveEnabled: true,
     updateBlacklist: '',
     autoCleanImages: false,
     cleanImagesCron: '3 2 * * *',
@@ -35,6 +36,7 @@ export function Bot() {
     proxyPort: '',
     proxyUsername: '',
     proxyPassword: '',
+    multiInstanceEnabled: false,
     defaultInstance: 'local',
     instances: JSON.stringify([{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]),
     autoBackupJson: false,
@@ -67,12 +69,14 @@ export function Bot() {
         : [{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
       const defaultInstance = dockercopilot.default_instance || instances[0]?.name || 'local'
       setBlacklistInstance(defaultInstance)
+      setShowInstanceSettings(Boolean(dockercopilot.multi_instance_enabled))
       setConfig(prev => ({
         ...prev,
         botToken: telegram.bot_token || '',
         chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join(',') : '',
         updateCheckCron: telegram.update_check_cron || prev.updateCheckCron,
         notifyOnUpdate: telegram.notify_on_update ?? true,
+        interactiveEnabled: telegram.interactive_enabled ?? true,
         updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
         autoCleanImages: telegram.auto_clean_images ?? false,
         cleanImagesCron: telegram.clean_images_cron || prev.cleanImagesCron,
@@ -83,6 +87,7 @@ export function Bot() {
         proxyPort: proxy.port ? String(proxy.port) : '',
         proxyUsername: proxy.username || '',
         proxyPassword: proxy.password || '',
+        multiInstanceEnabled: dockercopilot.multi_instance_enabled ?? false,
         defaultInstance,
         instances: JSON.stringify(instances, null, 2),
         autoBackupJson: telegram.auto_backup_json ?? false,
@@ -129,6 +134,8 @@ export function Bot() {
   })()
 
   const updateInstance = (index, field, value) => {
+    const isLocal = String(parsedInstances[index]?.name || '').toLowerCase() === 'local'
+    if (isLocal && (field === 'name' || field === 'api_url')) return
     const next = parsedInstances.map((inst, i) => i === index ? { ...inst, [field]: field === 'timeout' ? Number(value || 0) : value } : inst)
     handleChange('instances', JSON.stringify(next, null, 2))
     if (field === 'name' && config.defaultInstance === parsedInstances[index]?.name) {
@@ -142,6 +149,8 @@ export function Bot() {
   }
 
   const removeInstance = (index) => {
+    const name = String(parsedInstances[index]?.name || '').toLowerCase()
+    if (name === 'local') return
     const next = parsedInstances.filter((_, i) => i !== index)
     handleChange('instances', JSON.stringify(next, null, 2))
     if (!next.some(inst => inst.name === config.defaultInstance)) {
@@ -293,6 +302,7 @@ export function Bot() {
       setMessage('')
       const cleanConfig = {
         ...config,
+        multiInstanceEnabled: showInstanceSettings,
         updateCheckCron: normalizeCronExpression(config.updateCheckCron),
         cleanImagesCron: normalizeCronExpression(config.cleanImagesCron),
         updateContainersCron: normalizeCronExpression(config.updateContainersCron),
@@ -300,8 +310,8 @@ export function Bot() {
       setConfig(cleanConfig)
       const res = await botAPI.saveConfig(cleanConfig)
       if (res.data?.code >= 200 && res.data?.code < 300) {
-        setDirty(false)
         setMessage('配置已保存。Bot 会在容器重启后加载新配置。')
+        await loadConfig({ silent: true })
       } else {
         setMessage(`保存失败：${res.data?.msg || '未知错误'}`)
       }
@@ -386,6 +396,30 @@ export function Bot() {
               className="w-full px-4 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-gray-50 dark:bg-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary-500 focus:border-transparent"
             />
           </div>
+        </div>
+      </div>
+
+      {/* 交互开关 */}
+      <div className="bg-white dark:bg-gray-800 rounded-xl border border-gray-200 dark:border-gray-700 p-6">
+        <div className="flex items-center justify-between gap-4">
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white flex items-center gap-2">
+              <BotIcon className="h-5 w-5 text-emerald-500" />
+              Bot 交互功能
+            </h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">
+              关闭后仅保留 /start、/help、/version 等安全说明命令，容器/镜像/更新/配置类交互会被 Bot 拒绝。
+            </p>
+          </div>
+          <button
+            onClick={() => handleChange('interactiveEnabled', !config.interactiveEnabled)}
+            className={cn(
+              "relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0",
+              config.interactiveEnabled ? "bg-primary-600" : "bg-gray-300 dark:bg-gray-600"
+            )}
+          >
+            <span className={cn("inline-block h-4 w-4 transform rounded-full bg-white transition-transform", config.interactiveEnabled ? "translate-x-6" : "translate-x-1")} />
+          </button>
         </div>
       </div>
 
@@ -512,7 +546,7 @@ export function Bot() {
             </p>
           </div>
           <button
-            onClick={() => setShowInstanceSettings(!showInstanceSettings)}
+            onClick={() => { setShowInstanceSettings(!showInstanceSettings); setDirty(true) }}
             className={cn(
               "relative inline-flex h-6 w-11 items-center rounded-full transition-colors flex-shrink-0",
               showInstanceSettings ? "bg-primary-600" : "bg-gray-300 dark:bg-gray-600"
@@ -541,11 +575,22 @@ export function Bot() {
                   <div className="grid grid-cols-1 md:grid-cols-4 gap-3">
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">实例名</label>
-                      <input value={inst.name || ''} onChange={(e) => updateInstance(index, 'name', e.target.value)} className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                      <input
+                        value={inst.name || ''}
+                        onChange={(e) => updateInstance(index, 'name', e.target.value)}
+                        disabled={String(inst.name || '').toLowerCase() === 'local'}
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
                     </div>
                     <div className="md:col-span-2">
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">API 地址</label>
-                      <input value={inst.api_url || ''} onChange={(e) => updateInstance(index, 'api_url', e.target.value)} placeholder="http://host:12712" className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
+                      <input
+                        value={inst.api_url || ''}
+                        onChange={(e) => updateInstance(index, 'api_url', e.target.value)}
+                        disabled={String(inst.name || '').toLowerCase() === 'local'}
+                        placeholder="http://host:12712"
+                        className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white disabled:opacity-60 disabled:cursor-not-allowed"
+                      />
                     </div>
                     <div>
                       <label className="block text-xs text-gray-500 dark:text-gray-400 mb-1">超时秒数</label>
@@ -556,7 +601,11 @@ export function Bot() {
                       <input type="password" value={inst.secret_key || ''} onChange={(e) => updateInstance(index, 'secret_key', e.target.value)} placeholder="secretKey" className="w-full px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-700 text-sm text-gray-900 dark:text-white" />
                     </div>
                     <div className="flex items-end">
-                      <button onClick={() => removeInstance(index)} disabled={parsedInstances.length <= 1} className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 text-sm">
+                      <button
+                        onClick={() => removeInstance(index)}
+                        disabled={parsedInstances.length <= 1 || String(inst.name || '').toLowerCase() === 'local'}
+                        className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-lg border border-red-200 dark:border-red-800 text-red-600 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50 text-sm"
+                      >
                         <Trash2 className="h-4 w-4" /> 删除
                       </button>
                     </div>
@@ -568,7 +617,7 @@ export function Bot() {
               <Plus className="h-4 w-4" /> 添加实例
             </button>
             <p className="text-xs text-amber-600 dark:text-amber-300">
-              注意：主容器内的本机实例可以和“容器页更新黑名单”联动；外部实例只能给 Bot 使用，无法自动同步外部实例自己的容器黑名单。
+              注意：主容器内的本机实例 local 受保护（名称/API不可改、不可删除）；外部实例仅供 Bot 使用，无法自动同步外部实例自己的容器黑名单。
             </p>
           </div>
         )}

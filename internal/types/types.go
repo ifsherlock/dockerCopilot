@@ -108,6 +108,7 @@ type BotConfigReq struct {
 	ChatIds                 string `json:"chatIds,optional"`
 	UpdateCheckCron         string `json:"updateCheckCron,optional"`
 	NotifyOnUpdate          bool   `json:"notifyOnUpdate,optional"`
+	InteractiveEnabled      bool   `json:"interactiveEnabled,optional"`
 	UpdateBlacklist         string `json:"updateBlacklist,optional"`
 	AutoCleanImages         bool   `json:"autoCleanImages,optional"`
 	CleanImagesCron         string `json:"cleanImagesCron,optional"`
@@ -119,6 +120,7 @@ type BotConfigReq struct {
 	ProxyUsername           string `json:"proxyUsername,optional"`
 	ProxyPassword           string `json:"proxyPassword,optional"`
 	DefaultInstance         string `json:"defaultInstance,optional"`
+	MultiInstanceEnabled    bool   `json:"multiInstanceEnabled,optional"`
 	Instances               string `json:"instances,optional"`
 	AutoBackupJson          bool   `json:"autoBackupJson,optional"`
 	BackupJsonCron          string `json:"backupJsonCron,optional"`

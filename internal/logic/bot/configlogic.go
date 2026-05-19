@@ -52,7 +52,8 @@ func defaultConfig(secretKey string) runtimeConfig {
 	return runtimeConfig{
 		Version: "1.0",
 		Dockercopilot: map[string]interface{}{
-			"default_instance": "local",
+			"multi_instance_enabled": false,
+			"default_instance":       "local",
 			"instances": []map[string]interface{}{
 				{
 					"name":       "local",
@@ -66,6 +67,7 @@ func defaultConfig(secretKey string) runtimeConfig {
 			"bot_token":                 "",
 			"chat_ids":                  []string{},
 			"polling_interval":          1,
+			"interactive_enabled":       true,
 			"update_check_cron":         "0 18 * * *",
 			"notify_on_update":          true,
 			"update_blacklist":          []string{},
@@ -381,6 +383,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["chat_ids"] = chatIDs
 	cfg.Telegram["update_check_cron"] = updateCheckCron
 	cfg.Telegram["notify_on_update"] = req.NotifyOnUpdate
+	cfg.Telegram["interactive_enabled"] = req.InteractiveEnabled
 	if strings.TrimSpace(req.UpdateBlacklist) != "" {
 		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
 	} else if _, ok := cfg.Telegram["update_blacklist"]; !ok {
@@ -425,6 +428,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	if strings.TrimSpace(req.DefaultInstance) != "" {
 		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
 	}
+	cfg.Dockercopilot["multi_instance_enabled"] = req.MultiInstanceEnabled
 	if strings.TrimSpace(req.Instances) != "" {
 		var instances []map[string]interface{}
 		if err := json.Unmarshal([]byte(req.Instances), &instances); err != nil {
@@ -442,6 +446,13 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 			}
 			secretKey := toString(inst["secret_key"])
 			timeout := toInt(inst["timeout"], 30)
+			if timeout <= 0 {
+				timeout = 30
+			}
+			if strings.EqualFold(name, "local") {
+				name = "local"
+				apiURL = "http://127.0.0.1:12712"
+			}
 			cleaned = append(cleaned, map[string]interface{}{
 				"name":       name,
 				"api_url":    apiURL,
@@ -449,12 +460,52 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 				"timeout":    timeout,
 			})
 		}
-		if len(cleaned) > 0 {
-			cfg.Dockercopilot["instances"] = cleaned
-			if strings.TrimSpace(req.DefaultInstance) == "" {
-				cfg.Dockercopilot["default_instance"] = cleaned[0]["name"]
+		if len(cleaned) == 0 {
+			cleaned = []map[string]interface{}{
+				{
+					"name":       "local",
+					"api_url":    "http://127.0.0.1:12712",
+					"secret_key": l.svcCtx.Config.Auth.AccessSecret,
+					"timeout":    30,
+				},
 			}
 		}
+		hasLocal := false
+		for _, inst := range cleaned {
+			if strings.EqualFold(strings.TrimSpace(toString(inst["name"])), "local") {
+				hasLocal = true
+				break
+			}
+		}
+		if !hasLocal {
+			cleaned = append([]map[string]interface{}{
+				{
+					"name":       "local",
+					"api_url":    "http://127.0.0.1:12712",
+					"secret_key": l.svcCtx.Config.Auth.AccessSecret,
+					"timeout":    30,
+				},
+			}, cleaned...)
+		}
+		cfg.Dockercopilot["instances"] = cleaned
+		defaultName := strings.TrimSpace(req.DefaultInstance)
+		if defaultName == "" {
+			defaultName = toString(cfg.Dockercopilot["default_instance"])
+		}
+		if defaultName == "" {
+			defaultName = "local"
+		}
+		defaultExists := false
+		for _, inst := range cleaned {
+			if toString(inst["name"]) == defaultName {
+				defaultExists = true
+				break
+			}
+		}
+		if !defaultExists {
+			defaultName = "local"
+		}
+		cfg.Dockercopilot["default_instance"] = defaultName
 	}
 
 	path := configPath()

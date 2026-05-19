@@ -60,6 +60,10 @@ class TelegramConfig:
     polling_interval: int = 1
     update_check_cron: str = "*/10 * * * *"  # 容器更新检测cron表达式（默认每10分钟，5位：分 时 日 月 星期）
     notify_on_update: bool = True      # 是否发送更新通知
+    interactive_enabled: bool = True   # 是否允许交互命令
+    startup_discard_backlog: bool = True
+    startup_cooldown_seconds: int = 5
+    dedupe_window_seconds: int = 3
     update_blacklist: List[str] = field(default_factory=list)  # 更新黑名单（这些容器不发送更新通知，也不会被自动更新，不区分实例）
     auto_clean_images: bool = False    # 是否启用自动清理镜像（启用后自动发送清理通知）
     clean_images_cron: str = "0 2 * * *"  # 镜像清理cron表达式（默认每天凌晨2点，5位：分 时 日 月 星期）
@@ -197,6 +201,10 @@ def load_config(config_path: str = None) -> Config:
         polling_interval=int(os.getenv('TELEGRAM_POLLING_INTERVAL', telegram_data.get('polling_interval', 1))),
         update_check_cron=get_config_value('TELEGRAM_UPDATE_CHECK_CRON', 'update_check_cron', '*/10 * * * *'),
         notify_on_update=os.getenv('TELEGRAM_NOTIFY_ON_UPDATE', str(telegram_data.get('notify_on_update', True))).lower() in ('true', '1', 'yes'),
+        interactive_enabled=os.getenv('TELEGRAM_INTERACTIVE_ENABLED', str(telegram_data.get('interactive_enabled', True))).lower() in ('true', '1', 'yes'),
+        startup_discard_backlog=os.getenv('TELEGRAM_STARTUP_DISCARD_BACKLOG', str(telegram_data.get('startup_discard_backlog', True))).lower() in ('true', '1', 'yes'),
+        startup_cooldown_seconds=int(os.getenv('TELEGRAM_STARTUP_COOLDOWN_SECONDS', telegram_data.get('startup_cooldown_seconds', 5)) or 5),
+        dedupe_window_seconds=int(os.getenv('TELEGRAM_DEDUPE_WINDOW_SECONDS', telegram_data.get('dedupe_window_seconds', 3)) or 3),
         update_blacklist=update_blacklist,
         auto_clean_images=os.getenv('TELEGRAM_AUTO_CLEAN_IMAGES', str(telegram_data.get('auto_clean_images', False))).lower() in ('true', '1', 'yes'),
         clean_images_cron=get_config_value('TELEGRAM_CLEAN_IMAGES_CRON', 'clean_images_cron', '0 2 * * *'),

@@ -207,6 +207,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: version.UpdateProgramHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodPost,
+				Path:    "/program/upload",
+				Handler: version.UploadProgramHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodGet,
 				Path:    "/version",
 				Handler: version.VersionHandler(serverCtx),

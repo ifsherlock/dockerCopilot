@@ -1,9 +1,10 @@
-"""Telegram Bot主逻辑（使用 pyTelegramBotAPI 异步版本）"""
+"""Telegram Bot主逻辑(使用 pyTelegramBotAPI 异步版本)"""
 import asyncio
 import hashlib
 import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
+from functools import wraps
 from croniter import croniter
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
@@ -15,7 +16,7 @@ logger = logging.getLogger(__name__)
 
 
 class TelegramBot:
-    """Telegram Bot（使用异步pyTelegramBotAPI库）"""
+    """Telegram Bot(使用异步pyTelegramBotAPI库)"""
 
     def __init__(self, token: str, docker_clients: Dict[str, DockerCopilotClient],
                  default_instance: Optional[str] = None,
@@ -26,7 +27,11 @@ class TelegramBot:
                  auto_clean_images: bool = False,
                  clean_images_cron: str = "0 2 * * *",
                  auto_update_containers: bool = False,
-                 update_containers_cron: str = "0 3 * * 0"):
+                 update_containers_cron: str = "0 3 * * 0",
+                 interactive_enabled: bool = True,
+                 startup_discard_backlog: bool = True,
+                 startup_cooldown_seconds: int = 5,
+                 dedupe_window_seconds: int = 3):
         """初始化Bot"""
         self.bot = AsyncTeleBot(token)
         self.docker_clients = docker_clients
@@ -34,20 +39,20 @@ class TelegramBot:
         # 初始化实例管理器
         self.instance_manager = InstanceManager(self.docker_clients, default_instance)
 
-        # 用户状态管理（用于重命名等需要输入的操作）
+        # 用户状态管理(用于重命名等需要输入的操作)
         self.user_states: Dict[str, Dict[str, Any]] = {}
 
         # 更新检测配置
         self.update_check_cron = update_check_cron
         self.notify_on_update = notify_on_update
         self.notify_chat_ids = notify_chat_ids or []
-        self.update_blacklist = update_blacklist or []  # 统一的更新黑名单（用于更新通知和自动更新）
+        self.update_blacklist = update_blacklist or []  # 统一的更新黑名单(用于更新通知和自动更新)
 
-        # 镜像清理配置（启用后自动发送清理通知）
+        # 镜像清理配置(启用后自动发送清理通知)
         self.auto_clean_images = auto_clean_images
         self.clean_images_cron = clean_images_cron
 
-        # 容器自动更新配置（启用后自动发送更新通知）
+        # 容器自动更新配置(启用后自动发送更新通知)
         self.auto_update_containers = auto_update_containers
         self.update_containers_cron = update_containers_cron
 
@@ -56,11 +61,19 @@ class TelegramBot:
         self.clean_images_task = None
         self.auto_update_task = None
 
+        # 交互与防重放控制
+        self.interactive_enabled = bool(interactive_enabled)
+        self.startup_discard_backlog = bool(startup_discard_backlog)
+        self.startup_cooldown_seconds = max(0, int(startup_cooldown_seconds))
+        self.dedupe_window_seconds = max(0, int(dedupe_window_seconds))
+        self.started_at = datetime.now()
+        self.recent_command_fingerprints: Dict[str, datetime] = {}
+
         # 初始化运行时配置管理器
         from .config_runtime import RuntimeConfigManager
         self.runtime_config = RuntimeConfigManager()
 
-        # 首次运行时，如果config.json是新创建的，用当前配置初始化它
+        # 首次运行时,如果config.json是新创建的,用当前配置初始化它
         self._sync_runtime_config_on_first_run()
 
         # 注册所有处理器
@@ -69,7 +82,7 @@ class TelegramBot:
         # 设置Bot命令菜单
         asyncio.run(self._setup_bot_commands())
 
-        logger.info(f"✅ Telegram Bot 初始化完成（管理 {len(docker_clients)} 个Docker Copilot实例）")
+        logger.info(f"✅ Telegram Bot 初始化完成(管理 {len(docker_clients)} 个Docker Copilot实例)")
 
     async def _setup_bot_commands(self):
         """设置Bot命令菜单"""
@@ -98,6 +111,75 @@ class TelegramBot:
         except Exception as e:
             logger.warning(f"⚠️ 设置Bot命令菜单失败: {e}")
 
+    def _command_fp(self, chat_id: str, text: str) -> str:
+        raw = f"{chat_id}:{(text or '').strip().lower()}"
+        return hashlib.sha1(raw.encode('utf-8')).hexdigest()
+
+    def _is_in_startup_cooldown(self) -> bool:
+        return (datetime.now() - self.started_at).total_seconds() < self.startup_cooldown_seconds
+
+    def _is_duplicate_command(self, chat_id: str, text: str) -> bool:
+        if self.dedupe_window_seconds <= 0:
+            return False
+        fp = self._command_fp(chat_id, text)
+        now = datetime.now()
+        last = self.recent_command_fingerprints.get(fp)
+        self.recent_command_fingerprints[fp] = now
+        if not last:
+            return False
+        return (now - last).total_seconds() <= self.dedupe_window_seconds
+
+    def _is_interactive_command(self, text: str) -> bool:
+        cmd = (text or '').strip().split(' ')[0].lower()
+        # /start、/help、/version 保持可用，便于查看状态和重新开启指引；
+        # 容器/镜像/备份/设置/程序更新等会访问或修改实例的命令受交互开关控制。
+        return cmd in {
+            '/containers', '/updates', '/images', '/clean_images', '/backup', '/backups',
+            '/instances', '/manage_instances', '/manage', '/settings', '/reload',
+            '/update_program', '/status'
+        }
+
+    def _is_interactive_callback(self, callback_data: str) -> bool:
+        action = (callback_data or '').split(':', 1)[0]
+        safe_actions = {'noop', 'cancel', 'back_main'}
+        return action not in safe_actions
+
+    async def _guard_message(self, message: Message) -> bool:
+        chat_id = str(message.chat.id)
+        text = message.text or ''
+        if self._is_in_startup_cooldown():
+            await self.bot.send_message(chat_id, "⏳ Bot 刚启动，正在恢复中，请稍后重试")
+            return False
+        if self._is_duplicate_command(chat_id, text):
+            await self.bot.send_message(chat_id, "⚠️ 检测到短时间重复命令，已忽略")
+            return False
+        if (not self.interactive_enabled) and self._is_interactive_command(text):
+            await self.bot.send_message(chat_id, "⛔ 交互功能已关闭，请在配置页开启后再试")
+            return False
+        return True
+
+    def _guarded(self, func):
+        @wraps(func)
+        async def wrapper(message: Message, *args, **kwargs):
+            if not await self._guard_message(message):
+                return
+            return await func(message, *args, **kwargs)
+        return wrapper
+
+    async def _discard_backlog_once(self):
+        if not self.startup_discard_backlog:
+            return
+        try:
+            updates = await self.bot.get_updates(timeout=1, limit=100)
+            if not updates:
+                return
+            last_id = max([u.update_id for u in updates if hasattr(u, 'update_id')], default=None)
+            if last_id is not None:
+                await self.bot.get_updates(offset=last_id + 1, timeout=1, limit=1)
+                logger.info(f"✅ 已丢弃启动前 backlog,offset -> {last_id + 1}")
+        except Exception as e:
+            logger.warning(f"⚠️ 丢弃 backlog 失败(忽略继续): {e}")
+
     def _register_handlers(self):
         """注册所有消息和回调处理器"""
 
@@ -111,77 +193,87 @@ class TelegramBot:
             await self.handle_help_command(message)
 
         @self.bot.message_handler(commands=['containers'])
+        @self._guarded
         async def handle_containers(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'containers')
             else:
                 await self.send_containers_list(chat_id)
 
         @self.bot.message_handler(commands=['updates'])
+        @self._guarded
         async def handle_updates(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'updates')
             else:
                 await self.send_updates_list(chat_id)
 
         @self.bot.message_handler(commands=['status'])
+        @self._guarded
         async def handle_status(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'status')
             else:
                 await self.send_status(chat_id)
 
         @self.bot.message_handler(commands=['images'])
+        @self._guarded
         async def handle_images(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'images')
             else:
                 await self.send_images_list(chat_id)
 
         @self.bot.message_handler(commands=['clean_images'])
+        @self._guarded
         async def handle_clean_images(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'clean_images')
             else:
                 await self.clean_unused_images(chat_id)
 
         @self.bot.message_handler(commands=['backup'])
+        @self._guarded
         async def handle_backup(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'backup')
             else:
                 await self.create_backup(chat_id)
 
         @self.bot.message_handler(commands=['backups'])
+        @self._guarded
         async def handle_backups(message: Message):
             chat_id = str(message.chat.id)
-            # 如果有多个实例，先让用户选择
+            # 如果有多个实例,先让用户选择
             if len(self.docker_clients) > 1:
                 await self.send_instance_selector(chat_id, 'backups')
             else:
                 await self.send_backups_list(chat_id)
 
         @self.bot.message_handler(commands=['instances'])
+        @self._guarded
         async def handle_instances(message: Message):
             await self.send_instances_list(str(message.chat.id))
 
         @self.bot.message_handler(commands=['manage_instances', 'manage'])
+        @self._guarded
         async def handle_manage(message: Message):
             await self.send_manage_instances(str(message.chat.id))
 
         @self.bot.message_handler(commands=['reload'])
+        @self._guarded
         async def handle_reload(message: Message):
             await self.reload_instances(str(message.chat.id))
 
@@ -193,6 +285,7 @@ class TelegramBot:
             )
 
         @self.bot.message_handler(commands=['settings'])
+        @self._guarded
         async def handle_settings(message: Message):
             await self.send_settings_menu(str(message.chat.id))
 
@@ -201,6 +294,7 @@ class TelegramBot:
             await self.send_version_info(str(message.chat.id))
 
         @self.bot.message_handler(commands=['update_program'])
+        @self._guarded
         async def handle_update_program(message: Message):
             await self.update_program(str(message.chat.id))
 
@@ -209,11 +303,14 @@ class TelegramBot:
         async def handle_callback(call: CallbackQuery):
             await self._handle_callback_query(call)
 
-        # 普通文本消息处理器（用于配置流程和重命名等输入）
+        # 普通文本消息处理器(用于配置流程和重命名等输入)
         @self.bot.message_handler(func=lambda message: True)
         async def handle_text(message: Message):
             chat_id = str(message.chat.id)
             text = message.text or ''
+
+            if not await self._guard_message(message):
+                return
 
             # 检查用户是否处于等待输入状态
             if chat_id in self.user_states:
@@ -268,7 +365,7 @@ class TelegramBot:
         return self.instance_manager.get_current_instance(chat_id)
 
     async def send_containers_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
-        """发送容器列表（支持分页，每行3个）"""
+        """发送容器列表(支持分页,每行3个)"""
         try:
             logger.info(f"📋 开始发送容器列表: chat_id={chat_id}, message_id={message_id}, page={page}")
             docker_client = self.get_docker_client(chat_id)
@@ -280,7 +377,7 @@ class TelegramBot:
                 return
 
             # 分页设置
-            items_per_page = 9  # 每页9个容器（3行x3列）
+            items_per_page = 9  # 每页9个容器(3行x3列)
             total_pages = (len(containers) + items_per_page - 1) // items_per_page
 
             # 确保页码有效
@@ -300,7 +397,7 @@ class TelegramBot:
                 message += f"\n🔄 可更新: {update_count} 个"
             message += "\n\n"
 
-            # 构建键盘（每行3个按钮）
+            # 构建键盘(每行3个按钮)
             markup = InlineKeyboardMarkup()
             row = []
 
@@ -313,9 +410,9 @@ class TelegramBot:
                 update_icon = "🔄" if container.has_update else ""
 
                 # 截断名称
-                name = container.name if len(container.name) <= 10 else container.name[:10] + "…"
+                name = container.name if len(container.name) <= 10 else container.name[:10] + "..."
 
-                # 使用短ID（前12位）
+                # 使用短ID(前12位)
                 short_id = container.id[:12]
 
                 button_text = f"{status_icon} {update_icon} {name}".strip()
@@ -346,7 +443,7 @@ class TelegramBot:
 
                 markup.add(*page_row)
 
-            # 添加"一键更新所有"按钮（如果有可更新的容器）
+            # 添加"一键更新所有"按钮(如果有可更新的容器)
             if update_count > 0:
                 markup.add(InlineKeyboardButton(
                     f'⚡ 一键更新所有 ({update_count}个)',
@@ -355,7 +452,7 @@ class TelegramBot:
 
             # 添加返回和取消按钮
             bottom_row = []
-            # 如果有多个实例，显示返回实例选择按钮
+            # 如果有多个实例,显示返回实例选择按钮
             if len(self.docker_clients) > 1:
                 bottom_row.append(InlineKeyboardButton('◀️ 返回', callback_data='back_to_instances'))
             bottom_row.append(InlineKeyboardButton('❌ 取消', callback_data='cancel'))
@@ -403,7 +500,7 @@ class TelegramBot:
             message += f"🏷 标签: <code>{image_tag}</code>\n"
 
             if container_info['has_update']:
-                message += f"\n🔄 <b>有新版本可用！</b>"
+                message += f"\n🔄 <b>有新版本可用!</b>"
 
             # 构建操作按钮
             markup = InlineKeyboardMarkup()
@@ -416,8 +513,8 @@ class TelegramBot:
             else:
                 markup.add(InlineKeyboardButton('▶️ 启动', callback_data=f'start:{container_id}'))
 
-            # 更新按钮（始终显示，如果有更新则高亮显示）
-            update_button_text = '⬆️ 更新镜像' if not container_info['has_update'] else '🔥 更新镜像（有新版本）'
+            # 更新按钮(始终显示,如果有更新则高亮显示)
+            update_button_text = '⬆️ 更新镜像' if not container_info['has_update'] else '🔥 更新镜像(有新版本)'
             markup.add(InlineKeyboardButton(update_button_text, callback_data=f'quick_update:{container_id}'))
 
             # 重命名按钮
@@ -446,6 +543,13 @@ class TelegramBot:
 
         logger.info(f"收到回调: {callback_data} from {chat_id}")
 
+        if self._is_in_startup_cooldown():
+            await self.bot.answer_callback_query(call.id, "⏳ Bot 刚启动，请稍后重试", show_alert=True)
+            return
+        if (not self.interactive_enabled) and self._is_interactive_callback(callback_data):
+            await self.bot.answer_callback_query(call.id, "⛔ 交互功能已关闭", show_alert=True)
+            return
+
         # 解析回调数据
         parts = callback_data.split(':', 1)
         action = parts[0]
@@ -462,7 +566,7 @@ class TelegramBot:
             page = int(param) if param else 0
             await self.send_containers_list(chat_id, message_id, page)
         elif action == "back_main":
-            # 返回主菜单（删除当前消息）
+            # 返回主菜单(删除当前消息)
             await self.bot.delete_message(chat_id, message_id)
         elif action == "cancel":
             await self.bot.delete_message(chat_id, message_id)
@@ -539,16 +643,16 @@ class TelegramBot:
             page = int(param) if param else 0
             await self.send_updates_list(chat_id, message_id, page)
         elif action == "quick_update":
-            # 快速更新容器（带进度显示）
+            # 快速更新容器(带进度显示)
             await self.quick_update_container(chat_id, message_id, param)
         elif action == "update_all_containers":
-            # 一键更新所有容器（显示确认对话框）
+            # 一键更新所有容器(显示确认对话框)
             await self.confirm_update_all_containers(chat_id, message_id)
         elif action == "do_update_all_containers":
             # 执行批量更新
             await self.do_update_all_containers(chat_id, message_id)
         elif action == "update_all_instances":
-            # 一键更新所有实例的所有容器（从通知消息）
+            # 一键更新所有实例的所有容器(从通知消息)
             await self.confirm_update_all_instances(chat_id, message_id)
         elif action == "do_update_all_instances":
             # 执行所有实例的批量更新
@@ -567,16 +671,16 @@ class TelegramBot:
             try:
                 logger.info(f"开始获取实例详情: instance={param}, chat_id={chat_id}, message_id={message_id}")
                 await self.send_instance_detail(chat_id, message_id, param)
-                # 成功更新，显示反馈
-                logger.info("获取详情成功，发送反馈")
+                # 成功更新,显示反馈
+                logger.info("获取详情成功,发送反馈")
                 await self.bot.answer_callback_query(call.id, "🔄 已重新测试", show_alert=False)
             except Exception as e:
                 logger.info(f"获取详情异常: {type(e).__name__}: {e}")
                 error_str = str(e).lower()
-                logger.debug(f"错误字符串（小写）: {error_str}")
+                logger.debug(f"错误字符串(小写): {error_str}")
                 if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
                     # 内容没有变化
-                    logger.info("内容未变化，发送'状态未变化'反馈")
+                    logger.info("内容未变化,发送'状态未变化'反馈")
                     await self.bot.answer_callback_query(call.id, "✅ 状态未变化", show_alert=False)
                 else:
                     # 其他错误
@@ -588,16 +692,16 @@ class TelegramBot:
             try:
                 logger.info(f"开始刷新实例管理界面: chat_id={chat_id}, message_id={message_id}")
                 await self.send_manage_instances(chat_id, message_id)
-                # 成功更新，显示反馈
-                logger.info("刷新成功，发送反馈")
+                # 成功更新,显示反馈
+                logger.info("刷新成功,发送反馈")
                 await self.bot.answer_callback_query(call.id, "🔄 已刷新", show_alert=False)
             except Exception as e:
                 logger.info(f"刷新异常: {type(e).__name__}: {e}")
                 error_str = str(e).lower()
-                logger.debug(f"错误字符串（小写）: {error_str}")
+                logger.debug(f"错误字符串(小写): {error_str}")
                 if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
                     # 内容没有变化
-                    logger.info("内容未变化，发送'状态未变化'反馈")
+                    logger.info("内容未变化,发送'状态未变化'反馈")
                     await self.bot.answer_callback_query(call.id, "✅ 状态未变化", show_alert=False)
                 else:
                     # 其他错误
@@ -613,7 +717,7 @@ class TelegramBot:
             except Exception as e:
                 error_str = str(e).lower()
                 if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
-                    # 内容没有变化，静默处理
+                    # 内容没有变化,静默处理
                     await self.bot.answer_callback_query(call.id)
                 else:
                     # 其他错误
@@ -634,7 +738,7 @@ class TelegramBot:
                 except Exception as e:
                     error_str = str(e).lower()
                     if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
-                        # 切换后消息内容相同，静默处理
+                        # 切换后消息内容相同,静默处理
                         await self.bot.answer_callback_query(call.id)
                     else:
                         await self.bot.answer_callback_query(call.id, f"❌ 操作失败", show_alert=True)
@@ -661,16 +765,16 @@ class TelegramBot:
         elif action == "noop":
             pass  # 不执行任何操作
 
-        # 确保回调被应答（如果之前的处理没有应答）
-        # 注意：如果已经应答过，这个调用会被忽略或失败，但不会影响功能
+        # 确保回调被应答(如果之前的处理没有应答)
+        # 注意:如果已经应答过,这个调用会被忽略或失败,但不会影响功能
         try:
             await self.bot.answer_callback_query(call.id)
         except Exception as e:
-            # 如果应答失败（可能已经应答过），忽略错误
-            logger.debug(f"回调应答失败（可能已应答）: {e}")
+            # 如果应答失败(可能已经应答过),忽略错误
+            logger.debug(f"回调应答失败(可能已应答): {e}")
 
     async def handle_container_action(self, chat_id: str, message_id: int, container_id: str, action: str):
-        """处理容器操作（启动/停止/重启/更新）"""
+        """处理容器操作(启动/停止/重启/更新)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -711,17 +815,17 @@ class TelegramBot:
                 except Exception:
                     pass
 
-                # 发送成功消息（不自动返回详情页）
+                # 发送成功消息(不自动返回详情页)
                 success_msg = f"✅ <b>{action_name}成功</b>\n\n"
                 success_msg += f"🖥 实例: <b>{instance_name}</b>\n"
                 success_msg += f"📦 容器: <b>{container_name}</b>\n"
                 success_msg += f"🆔 ID: <code>{container_id}</code>\n\n"
 
                 if action == "update":
-                    success_msg += f"🎉 容器已{action_name}完成！\n\n"
+                    success_msg += f"🎉 容器已{action_name}完成!\n\n"
                     success_msg += f"💡 使用 /containers 查看容器状态"
                 else:
-                    success_msg += f"🎉 容器已{action_name}！"
+                    success_msg += f"🎉 容器已{action_name}!"
 
                 await self.bot.send_message(chat_id, success_msg, parse_mode='HTML')
             else:
@@ -784,7 +888,7 @@ class TelegramBot:
                     parse_mode='HTML'
                 )
             except Exception:
-                # 如果编辑失败，发送新消息
+                # 如果编辑失败,发送新消息
                 await self.bot.send_message(
                     chat_id,
                     prompt_message,
@@ -817,7 +921,7 @@ class TelegramBot:
                 return
 
             if new_name == old_name:
-                await self.bot.send_message(chat_id, "💡 新名称与当前名称相同，无需修改")
+                await self.bot.send_message(chat_id, "💡 新名称与当前名称相同,无需修改")
                 return
 
             # 发送处理中消息
@@ -841,7 +945,7 @@ class TelegramBot:
                     f"📛 旧名称: <code>{old_name}</code>\n"
                     f"📝 新名称: <code>{new_name}</code>\n"
                     f"🆔 容器ID: <code>{container_id}</code>\n\n"
-                    f"🎉 容器已成功重命名！",
+                    f"🎉 容器已成功重命名!",
                     chat_id,
                     progress_msg.message_id,
                     parse_mode='HTML'
@@ -899,7 +1003,7 @@ class TelegramBot:
             await self.bot.send_message(chat_id, f"❌ 获取系统状态失败: {e}")
 
     async def quick_update_container(self, chat_id: str, message_id: int, container_id: str):
-        """快速更新容器（带进度追踪）"""
+        """快速更新容器(带进度追踪)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -920,16 +1024,16 @@ class TelegramBot:
                     chat_id,
                     f"❌ <b>{container_name}</b> 镜像TAG不正确\n\n"
                     f"当前镜像: <code>{image_name}</code>\n\n"
-                    f"该镜像无法自动更新，请修改TAG",
+                    f"该镜像无法自动更新,请修改TAG",
                     parse_mode='HTML'
                 )
                 return
 
-            # 尝试删除原消息（可能是列表或详情消息）
+            # 尝试删除原消息(可能是列表或详情消息)
             try:
                 await self.bot.delete_message(chat_id, message_id)
             except Exception as e:
-                logger.warning(f"删除原消息失败（可能已被删除）: {e}")
+                logger.warning(f"删除原消息失败(可能已被删除): {e}")
 
             progress_msg = await self.bot.send_message(
                 chat_id,
@@ -974,7 +1078,7 @@ class TelegramBot:
                 )
                 return
 
-            # 追踪更新进度（参考 ql.py 的实现）
+            # 追踪更新进度(参考 ql.py 的实现)
             max_checks = 30  # 最多检查30次
             check_interval = 5  # 每5秒检查一次
 
@@ -985,7 +1089,7 @@ class TelegramBot:
                 f"🖼 镜像: <code>{image_name}</code>\n\n"
                 f"📊 任务ID: <code>{task_id}</code>\n"
                 f"⏳ 正在追踪进度...\n\n"
-                f"💡 等待任务启动（3秒）...",
+                f"💡 等待任务启动(3秒)...",
                 chat_id,
                 progress_msg.message_id,
                 parse_mode='HTML'
@@ -1031,7 +1135,7 @@ class TelegramBot:
                                     f"🖥 实例: <b>{instance_name}</b>\n"
                                     f"📦 容器: <b>{container_name}</b>\n"
                                     f"🖼 镜像: <code>{image_name}</code>\n\n"
-                                    f"🎉 容器已更新到最新版本！\n"
+                                    f"🎉 容器已更新到最新版本!\n"
                                     f"⏱ 总用时: {(check_count * check_interval) + 3}秒",
                                     chat_id,
                                     progress_msg.message_id,
@@ -1039,12 +1143,12 @@ class TelegramBot:
                                 )
                             except Exception as final_err:
                                 logger.error(f"发送成功消息失败: {final_err}")
-                                # 如果编辑失败，发送新消息
+                                # 如果编辑失败,发送新消息
                                 await self.bot.send_message(
                                     chat_id,
                                     f"✅ <b>更新成功</b>\n\n"
                                     f"📦 容器: <b>{container_name}</b>\n"
-                                    f"🎉 容器已更新到最新版本！",
+                                    f"🎉 容器已更新到最新版本!",
                                     parse_mode='HTML'
                                 )
                             return
@@ -1062,7 +1166,7 @@ class TelegramBot:
                                 )
                             except Exception as fail_err:
                                 logger.error(f"发送失败消息失败: {fail_err}")
-                                # 如果编辑失败，发送新消息
+                                # 如果编辑失败,发送新消息
                                 await self.bot.send_message(
                                     chat_id,
                                     f"❌ <b>更新失败</b>\n\n"
@@ -1072,7 +1176,7 @@ class TelegramBot:
                                 )
                             return
                     else:
-                        # API返回非200，记录日志但继续追踪
+                        # API返回非200,记录日志但继续追踪
                         logger.warning(f"查询进度返回非200: code={progress_result.get('code')}, msg={progress_result.get('msg')}")
 
                 except Exception as e:
@@ -1087,14 +1191,14 @@ class TelegramBot:
                     f"🖼 镜像: <code>{image_name}</code>\n\n"
                     f"📊 任务ID: <code>{task_id}</code>\n\n"
                     f"⏰ 已追踪 {max_checks * check_interval}秒\n\n"
-                    f"💡 更新任务可能仍在后台运行，请稍后使用 /containers 或 /updates 检查容器状态。",
+                    f"💡 更新任务可能仍在后台运行,请稍后使用 /containers 或 /updates 检查容器状态。",
                     chat_id,
                     progress_msg.message_id,
                     parse_mode='HTML'
                 )
             except Exception as timeout_err:
                 logger.error(f"发送超时消息失败: {timeout_err}")
-                # 如果编辑失败，发送新消息
+                # 如果编辑失败,发送新消息
                 await self.bot.send_message(
                     chat_id,
                     f"⚠️ <b>更新进度追踪超时</b>\n\n"
@@ -1105,7 +1209,7 @@ class TelegramBot:
 
         except Exception as e:
             logger.error(f"快速更新容器失败: {e}", exc_info=True)
-            # 发送新消息而不是编辑（因为可能消息已被删除）
+            # 发送新消息而不是编辑(因为可能消息已被删除)
             try:
                 await self.bot.send_message(
                     chat_id,
@@ -1156,7 +1260,7 @@ class TelegramBot:
             message += f"• 更新过程可能需要较长时间\n"
             message += f"• 容器会逐个依次更新\n"
             message += f"• 更新期间服务会短暂中断\n\n"
-            message += f"确定要继续吗？"
+            message += f"确定要继续吗?"
 
             # 构建确认按钮
             markup = InlineKeyboardMarkup()
@@ -1249,7 +1353,7 @@ class TelegramBot:
                         failed_containers.append(f"{container.name}: {error_msg}")
                         logger.error(f"❌ 更新失败: {container.name} - {error_msg}")
 
-                    # 等待一下，避免API压力过大
+                    # 等待一下,避免API压力过大
                     await asyncio.sleep(2)
 
                 except Exception as e:
@@ -1265,7 +1369,7 @@ class TelegramBot:
             final_message += f"❌ 失败: {failed_count} 个\n"
 
             if failed_containers:
-                final_message += f"\n⚠️ <b>失败详情：</b>\n"
+                final_message += f"\n⚠️ <b>失败详情:</b>\n"
                 for fail in failed_containers[:5]:
                     final_message += f"  • {fail}\n"
                 if len(failed_containers) > 5:
@@ -1343,7 +1447,7 @@ class TelegramBot:
             message += f"• 容器会逐个依次更新\n"
             message += f"• 更新期间服务会短暂中断\n"
             message += f"• 黑名单容器将被跳过\n\n"
-            message += f"确定要继续吗？"
+            message += f"确定要继续吗?"
 
             # 构建确认按钮
             markup = InlineKeyboardMarkup()
@@ -1471,7 +1575,7 @@ class TelegramBot:
                             total_failed += 1
                             logger.error(f"❌ [{instance_name}] 更新失败: {container.name} - {error_msg}")
 
-                        # 等待一下，避免API压力过大
+                        # 等待一下,避免API压力过大
                         await asyncio.sleep(2)
 
                     except Exception as e:
@@ -1543,9 +1647,9 @@ class TelegramBot:
             # 启动新任务
             if self.notify_on_update:
                 self.update_check_task = asyncio.create_task(self._check_container_updates_loop())
-                logger.info(f"✅ 更新检测任务已重启（cron: {new_cron}）")
+                logger.info(f"✅ 更新检测任务已重启(cron: {new_cron})")
             else:
-                logger.info("⏸️ 更新检测通知已禁用，任务未启动")
+                logger.info("⏸️ 更新检测通知已禁用,任务未启动")
 
             return True
         except Exception as e:
@@ -1573,7 +1677,7 @@ class TelegramBot:
             # 启动新任务
             if self.auto_clean_images:
                 self.clean_images_task = asyncio.create_task(self._clean_images_loop())
-                logger.info(f"✅ 镜像清理任务已重启（cron: {self.clean_images_cron}）")
+                logger.info(f"✅ 镜像清理任务已重启(cron: {self.clean_images_cron})")
             else:
                 logger.info("⏸️ 镜像清理任务已禁用")
 
@@ -1603,7 +1707,7 @@ class TelegramBot:
             # 启动新任务
             if self.auto_update_containers:
                 self.auto_update_task = asyncio.create_task(self._auto_update_containers_loop())
-                logger.info(f"✅ 容器自动更新任务已重启（cron: {self.update_containers_cron}）")
+                logger.info(f"✅ 容器自动更新任务已重启(cron: {self.update_containers_cron})")
             else:
                 logger.info("⏸️ 容器自动更新任务已禁用")
 
@@ -1613,7 +1717,7 @@ class TelegramBot:
             return False
 
     async def send_updates_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
-        """发送可更新容器列表（支持分页）"""
+        """发送可更新容器列表(支持分页)"""
         try:
             logger.info(f"🔄 开始发送可更新容器列表: chat_id={chat_id}, page={page}")
             docker_client = self.get_docker_client(chat_id)
@@ -1625,12 +1729,12 @@ class TelegramBot:
             # 筛选出有更新的容器
             containers = [c for c in all_containers if c.has_update]
 
-            logger.info(f"🔄 找到 {len(containers)} 个可更新的容器（总共 {len(all_containers)} 个）")
+            logger.info(f"🔄 找到 {len(containers)} 个可更新的容器(总共 {len(all_containers)} 个)")
 
             if not containers:
                 no_update_msg = f"✅ <b>没有可更新的容器</b>\n\n"
                 no_update_msg += f"🖥 实例: <b>{instance_name}</b>\n\n"
-                no_update_msg += f"所有容器都是最新版本！"
+                no_update_msg += f"所有容器都是最新版本!"
 
                 if message_id:
                     await self.bot.edit_message_text(
@@ -1681,11 +1785,11 @@ class TelegramBot:
             # 构建键盘
             markup = InlineKeyboardMarkup()
 
-            # 每行2个容器按钮（直接更新，不跳转详情）
+            # 每行2个容器按钮(直接更新,不跳转详情)
             row = []
             for i, container in enumerate(page_containers):
                 short_id = container.id[:12]
-                name = container.name if len(container.name) <= 12 else container.name[:12] + "…"
+                name = container.name if len(container.name) <= 12 else container.name[:12] + "..."
 
                 button = InlineKeyboardButton(
                     text=f"⬆️ {name}",
@@ -1759,7 +1863,7 @@ class TelegramBot:
         return getattr(self, 'image_callback_cache', {}).get(f"{chat_id}:{key}", key)
 
     async def send_images_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
-        """发送镜像列表（支持分页）"""
+        """发送镜像列表(支持分页)"""
         try:
             logger.info(f"📸 开始发送镜像列表: chat_id={chat_id}, page={page}")
             docker_client = self.get_docker_client(chat_id)
@@ -1782,8 +1886,8 @@ class TelegramBot:
             end = min(start + items_per_page, len(images))
             page_images = images[start:end]
 
-            # 统计总大小（size已经是字符串格式，如"334 Mb"）
-            # 这里不再计算总大小，直接显示镜像数量
+            # 统计总大小(size已经是字符串格式,如"334 Mb")
+            # 这里不再计算总大小,直接显示镜像数量
             total_count = len(images)
 
             # 构建消息
@@ -1795,7 +1899,7 @@ class TelegramBot:
             markup = InlineKeyboardMarkup()
 
             for img in page_images:
-                # 获取镜像信息（使用实际的API字段）
+                # 获取镜像信息(使用实际的API字段)
                 name = img.get('name', '<none>')
                 tag = img.get('tag', 'None')
                 size_str = img.get('size', '0 Mb')  # 已经是字符串格式
@@ -1870,7 +1974,7 @@ class TelegramBot:
                 await self.bot.send_message(chat_id, f"❌ 未找到镜像 ID: {image_id}")
                 return
 
-            # 构建详情消息（使用实际的API字段）
+            # 构建详情消息(使用实际的API字段)
             name = image_info.get('name', '<none>')
             tag = image_info.get('tag', 'None')
             size_str = image_info.get('size', '0 Mb')
@@ -1894,15 +1998,15 @@ class TelegramBot:
             # 构建操作按钮
             markup = InlineKeyboardMarkup()
 
-            # 删除按钮（使用完整ID）
+            # 删除按钮(使用完整ID)
             if in_used:
-                # 正在使用的镜像，显示警告
+                # 正在使用的镜像,显示警告
                 markup.add(InlineKeyboardButton(
-                    '⚠️ 强制删除（使用中）',
+                    '⚠️ 强制删除(使用中)',
                     callback_data=f'confirm_del_image:{self._image_callback_key(chat_id, image_id_full)}'
                 ))
             else:
-                # 未使用的镜像，可安全删除
+                # 未使用的镜像,可安全删除
                 markup.add(InlineKeyboardButton(
                     '🗑 删除镜像',
                     callback_data=f'confirm_del_image:{self._image_callback_key(chat_id, image_id_full)}'
@@ -1957,10 +2061,10 @@ class TelegramBot:
             message += f"📦 镜像: <code>{full_tag}</code>\n\n"
 
             if in_used:
-                message += "🚨 <b>警告：此镜像正在使用中！</b>\n"
+                message += "🚨 <b>警告:此镜像正在使用中!</b>\n"
                 message += "删除将使用 <code>force=true</code>\n\n"
 
-            message += "确定要删除吗？"
+            message += "确定要删除吗?"
 
             # 构建确认按钮
             markup = InlineKeyboardMarkup()
@@ -2012,18 +2116,18 @@ class TelegramBot:
             await self.bot.send_message(chat_id, f"❌ 删除镜像失败: {e}")
 
     async def send_instance_selector(self, chat_id: str, action: str):
-        """发送实例选择器（用于选择查看哪个实例的资源）
+        """发送实例选择器(用于选择查看哪个实例的资源)
 
         Args:
             chat_id: 聊天ID
-            action: 要执行的操作（'containers', 'images', 'status'等）
+            action: 要执行的操作('containers', 'images', 'status'等)
         """
         try:
             current = self.get_current_instance_name(chat_id)
 
             message = f"🖥 <b>请选择实例</b>\n\n"
             message += f"当前默认: <b>{current}</b>\n\n"
-            message += "选择要查看的实例："
+            message += "选择要查看的实例:"
 
             markup = InlineKeyboardMarkup()
 
@@ -2038,12 +2142,12 @@ class TelegramBot:
                 )
                 row.append(button)
 
-                # 每2个按钮换行，或者是最后一个
+                # 每2个按钮换行,或者是最后一个
                 if len(row) == 2 or idx == len(instance_names) - 1:
                     markup.add(*row)
                     row = []
 
-            # 添加返回和取消按钮（一行2个）
+            # 添加返回和取消按钮(一行2个)
             markup.add(
                 InlineKeyboardButton('◀️ 返回', callback_data='back_main'),
                 InlineKeyboardButton('❌ 取消', callback_data='cancel')
@@ -2059,13 +2163,13 @@ class TelegramBot:
         """发送实例列表"""
         try:
             if len(self.docker_clients) <= 1:
-                await self.bot.send_message(chat_id, "💡 只配置了一个实例，无需切换")
+                await self.bot.send_message(chat_id, "💡 只配置了一个实例,无需切换")
                 return
 
             current = self.get_current_instance_name(chat_id)
             message = f"🖥 <b>Docker Copilot 实例列表</b>\n\n"
             message += f"当前实例: <b>{current}</b>\n\n"
-            message += "点击切换到其他实例："
+            message += "点击切换到其他实例:"
 
             markup = InlineKeyboardMarkup()
             for name in self.docker_clients.keys():
@@ -2088,7 +2192,7 @@ class TelegramBot:
             current_instance = self.get_current_instance_name(chat_id)
 
             if instance_name == current_instance:
-                # 已经是当前实例，只发送提示消息，不更新列表
+                # 已经是当前实例,只发送提示消息,不更新列表
                 await self.bot.send_message(
                     chat_id,
                     f"💡 当前已经是实例: <b>{instance_name}</b>",
@@ -2105,7 +2209,7 @@ class TelegramBot:
             current = self.get_current_instance_name(chat_id)
             message = f"🖥 <b>Docker Copilot 实例列表</b>\n\n"
             message += f"当前实例: <b>{current}</b>\n\n"
-            message += "点击切换到其他实例："
+            message += "点击切换到其他实例:"
 
             markup = InlineKeyboardMarkup()
             for name in self.docker_clients.keys():
@@ -2145,14 +2249,14 @@ class TelegramBot:
             message += f"总计: <b>{len(self.docker_clients)}</b> 个实例\n\n"
 
             # 获取每个实例的状态
-            message += "<b>实例列表：</b>\n"
+            message += "<b>实例列表:</b>\n"
 
             for idx, (name, client) in enumerate(self.docker_clients.items(), 1):
                 icon = "✅" if name == current else "⚪"
                 message += f"\n{idx}. {icon} <b>{name}</b>\n"
                 message += f"   📍 {client.api_url}\n"
 
-                # 尝试获取容器数量（测试连接）
+                # 尝试获取容器数量(测试连接)
                 try:
                     containers = client.get_containers()
                     running_count = sum(1 for c in containers if c.state == "running")
@@ -2162,7 +2266,7 @@ class TelegramBot:
                     message += f"   🔴 状态: 离线\n"
                     message += f"   ❗ 错误: {str(e)[:30]}...\n"
 
-            message += f"\n💡 <b>提示：</b>\n"
+            message += f"\n💡 <b>提示:</b>\n"
             message += f"• 点击实例名称查看详情\n"
             message += f"• 使用 /instances 快速切换实例\n"
             message += f"• 修改配置使用 /settings 命令或编辑环境变量"
@@ -2201,7 +2305,7 @@ class TelegramBot:
                 )
 
         except Exception as e:
-            # 如果是 "message is not modified" 错误，向上传播让调用者处理
+            # 如果是 "message is not modified" 错误,向上传播让调用者处理
             error_str = str(e).lower()
             if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
                 raise
@@ -2226,7 +2330,7 @@ class TelegramBot:
             message += f"⏱ 超时时间: {client.timeout} 秒\n\n"
 
             # 测试连接
-            message += f"<b>连接测试：</b>\n"
+            message += f"<b>连接测试:</b>\n"
             try:
                 containers = client.get_containers()
                 running_count = sum(1 for c in containers if c.state == "running")
@@ -2234,7 +2338,7 @@ class TelegramBot:
                 update_count = sum(1 for c in containers if c.has_update)
 
                 message += f"✅ 连接正常\n\n"
-                message += f"<b>容器统计：</b>\n"
+                message += f"<b>容器统计:</b>\n"
                 message += f"  • 总计: {len(containers)} 个\n"
                 message += f"  • 运行中: {running_count} 个\n"
                 message += f"  • 已停止: {stopped_count} 个\n"
@@ -2242,7 +2346,7 @@ class TelegramBot:
 
                 # 显示前5个容器
                 if containers:
-                    message += f"\n<b>容器列表（前5个）：</b>\n"
+                    message += f"\n<b>容器列表(前5个):</b>\n"
                     for container in containers[:5]:
                         status_icon = "🟢" if container.state == "running" else "⚪"
                         update_icon = "🔄" if container.has_update else ""
@@ -2258,7 +2362,7 @@ class TelegramBot:
             # 构建操作按钮
             markup = InlineKeyboardMarkup()
 
-            # 如果不是当前实例，显示切换按钮
+            # 如果不是当前实例,显示切换按钮
             if instance_name != current:
                 markup.add(InlineKeyboardButton(
                     '🔄 切换到此实例',
@@ -2279,7 +2383,7 @@ class TelegramBot:
             )
 
         except Exception as e:
-            # 如果是 "message is not modified" 错误，向上传播让调用者处理
+            # 如果是 "message is not modified" 错误,向上传播让调用者处理
             error_str = str(e).lower()
             if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
                 raise
@@ -2296,10 +2400,10 @@ class TelegramBot:
 
         Args:
             chat_id: 聊天ID
-            skip_selector: 是否跳过实例选择（从回调中调用时应设为True）
+            skip_selector: 是否跳过实例选择(从回调中调用时应设为True)
         """
         try:
-            # 如果有多个实例且未跳过选择器，先让用户选择
+            # 如果有多个实例且未跳过选择器,先让用户选择
             if len(self.docker_clients) > 1 and not skip_selector:
                 await self.send_instance_selector(chat_id, 'version')
                 return
@@ -2322,7 +2426,7 @@ class TelegramBot:
             message += f"🌐 最新版本: <code>{remote_version}</code>\n\n"
 
             if local_version != remote_version and remote_version != '未知':
-                message += "🔄 <b>有新版本可用！</b>\n"
+                message += "🔄 <b>有新版本可用!</b>\n"
                 message += "使用 /update_program 更新"
             elif local_version == remote_version:
                 message += "✅ <b>已是最新版本</b>"
@@ -2338,10 +2442,10 @@ class TelegramBot:
 
         Args:
             chat_id: 聊天ID
-            skip_selector: 是否跳过实例选择（从回调中调用时应设为True）
+            skip_selector: 是否跳过实例选择(从回调中调用时应设为True)
         """
         try:
-            # 如果有多个实例且未跳过选择器，先让用户选择
+            # 如果有多个实例且未跳过选择器,先让用户选择
             if len(self.docker_clients) > 1 and not skip_selector:
                 await self.send_instance_selector(chat_id, 'update_program')
                 return
@@ -2363,8 +2467,8 @@ class TelegramBot:
             if result.get('code') == 200:
                 await self.bot.send_message(
                     chat_id,
-                    f"✅ <b>{instance_name}</b> 更新成功！\n\n"
-                    f"程序正在重启，请稍候...",
+                    f"✅ <b>{instance_name}</b> 更新成功!\n\n"
+                    f"程序正在重启,请稍候...",
                     parse_mode='HTML'
                 )
             else:
@@ -2380,7 +2484,7 @@ class TelegramBot:
             await self.bot.send_message(chat_id, f"❌ 更新程序失败: {e}")
 
     async def create_backup(self, chat_id: str):
-        """创建容器备份（显示格式选择对话框）"""
+        """创建容器备份(显示格式选择对话框)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -2392,7 +2496,7 @@ class TelegramBot:
             message = f"💾 <b>创建容器备份</b>\n\n"
             message += f"🖥 实例: <b>{instance_name}</b>\n\n"
             message += f"📦 将备份 <b>{len(containers)}</b> 个容器的配置\n\n"
-            message += f"请选择备份格式："
+            message += f"请选择备份格式:"
 
             # 构建格式选择按钮
             markup = InlineKeyboardMarkup()
@@ -2419,7 +2523,7 @@ class TelegramBot:
             await self.bot.send_message(chat_id, f"❌ 操作失败: {e}")
 
     async def do_create_backup(self, chat_id: str, message_id: int):
-        """执行创建容器备份操作（Config格式）"""
+        """执行创建容器备份操作(Config格式)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -2446,7 +2550,7 @@ class TelegramBot:
                 await self.bot.edit_message_text(
                     f"❌ <b>Config备份失败</b>\n\n"
                     f"🖥 实例: <b>{instance_name}</b>\n\n"
-                    f"❗ 错误: API调用失败，请检查网络连接",
+                    f"❗ 错误: API调用失败,请检查网络连接",
                     chat_id,
                     progress_msg.message_id,
                     parse_mode='HTML'
@@ -2456,7 +2560,7 @@ class TelegramBot:
             # 检查返回码
             code = result.get('code', 0)
             if code == 200:
-                # 获取备份信息（如果API返回了）
+                # 获取备份信息(如果API返回了)
                 backup_data = result.get('data', {})
                 if backup_data:
                     backup_file = backup_data.get('filename', '未知')
@@ -2468,8 +2572,8 @@ class TelegramBot:
                     f"🖥 实例: <b>{instance_name}</b>\n"
                     f"📁 备份文件: <code>{backup_file}</code>\n"
                     f"📋 格式: Config (完整配置)\n\n"
-                    f"🎉 容器配置已成功备份！\n\n"
-                    f"💡 备份内容包括：\n"
+                    f"🎉 容器配置已成功备份!\n\n"
+                    f"💡 备份内容包括:\n"
                     f"  • 容器配置信息\n"
                     f"  • 环境变量\n"
                     f"  • 卷挂载\n"
@@ -2506,7 +2610,7 @@ class TelegramBot:
                 await self.bot.send_message(chat_id, f"❌ 创建Config备份失败: {e}")
 
     async def do_backup_to_compose(self, chat_id: str, message_id: int):
-        """执行备份为docker-compose操作（Compose格式）"""
+        """执行备份为docker-compose操作(Compose格式)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -2533,7 +2637,7 @@ class TelegramBot:
                 await self.bot.edit_message_text(
                     f"❌ <b>Compose备份失败</b>\n\n"
                     f"🖥 实例: <b>{instance_name}</b>\n\n"
-                    f"❗ 错误: API调用失败，请检查网络连接",
+                    f"❗ 错误: API调用失败,请检查网络连接",
                     chat_id,
                     progress_msg.message_id,
                     parse_mode='HTML'
@@ -2543,7 +2647,7 @@ class TelegramBot:
             # 检查返回码
             code = result.get('code', 0)
             if code == 200:
-                # 获取备份信息（如果API返回了）
+                # 获取备份信息(如果API返回了)
                 backup_data = result.get('data', {})
                 if backup_data:
                     backup_file = backup_data.get('filename', 'docker-compose.yml')
@@ -2554,8 +2658,8 @@ class TelegramBot:
                 success_msg += f"🖥 实例: <b>{instance_name}</b>\n"
                 success_msg += f"📁 备份文件: <code>{backup_file}</code>\n"
                 success_msg += f"📄 格式: Compose (docker-compose.yml)\n\n"
-                success_msg += f"🎉 已成功导出为docker-compose格式！\n\n"
-                success_msg += f"💡 此格式可用于：\n"
+                success_msg += f"🎉 已成功导出为docker-compose格式!\n\n"
+                success_msg += f"💡 此格式可用于:\n"
                 success_msg += f"  • 快速迁移容器配置\n"
                 success_msg += f"  • 版本控制管理\n"
                 success_msg += f"  • 批量部署容器\n\n"
@@ -2595,7 +2699,7 @@ class TelegramBot:
                 await self.bot.send_message(chat_id, f"❌ 创建Compose备份失败: {e}")
 
     async def send_backups_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
-        """发送备份文件列表（支持分页）"""
+        """发送备份文件列表(支持分页)"""
         try:
             logger.info(f"📋 开始发送备份列表: chat_id={chat_id}, page={page}")
             docker_client = self.get_docker_client(chat_id)
@@ -2643,7 +2747,7 @@ class TelegramBot:
 
             # 显示备份文件列表
             for idx, backup_file in enumerate(page_backups, start + 1):
-                # 解析备份文件名（通常包含时间戳）
+                # 解析备份文件名(通常包含时间戳)
                 # 例如: backup_2025-10-03_15-30-00.json
                 file_display = backup_file
                 if len(backup_file) > 35:
@@ -2654,7 +2758,7 @@ class TelegramBot:
             # 构建键盘
             markup = InlineKeyboardMarkup()
 
-            # 备份文件按钮（每行1个）
+            # 备份文件按钮(每行1个)
             for backup_file in page_backups:
                 # 截断文件名用于按钮显示
                 button_text = backup_file
@@ -2725,7 +2829,7 @@ class TelegramBot:
                 except Exception:
                     pass
 
-            message += f"💡 选择操作："
+            message += f"💡 选择操作:"
 
             # 构建操作按钮
             markup = InlineKeyboardMarkup()
@@ -2773,8 +2877,8 @@ class TelegramBot:
             message = f"⚠️ <b>确认删除备份</b>\n\n"
             message += f"🖥 实例: <b>{instance_name}</b>\n"
             message += f"📁 文件名: <code>{backup_filename}</code>{time_info}\n"
-            message += f"🚨 <b>此操作不可逆！</b>\n\n"
-            message += f"确定要删除这个备份文件吗？"
+            message += f"🚨 <b>此操作不可逆!</b>\n\n"
+            message += f"确定要删除这个备份文件吗?"
 
             # 构建确认按钮
             markup = InlineKeyboardMarkup()
@@ -2820,7 +2924,7 @@ class TelegramBot:
                     f"✅ <b>删除成功</b>\n\n"
                     f"🖥 实例: <b>{instance_name}</b>\n"
                     f"📁 文件: <code>{backup_filename}</code>\n\n"
-                    f"🎉 备份文件已成功删除！\n\n"
+                    f"🎉 备份文件已成功删除!\n\n"
                     f"💡 使用 /backups 查看剩余备份",
                     chat_id,
                     message_id,
@@ -2852,7 +2956,7 @@ class TelegramBot:
                 await self.bot.send_message(chat_id, f"❌ 删除备份失败: {e}")
 
     async def clean_unused_images(self, chat_id: str):
-        """清理无用镜像（无tag和未使用的镜像）"""
+        """清理无用镜像(无tag和未使用的镜像)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
@@ -2861,20 +2965,20 @@ class TelegramBot:
             images = docker_client.get_images()
 
             # 筛选出需要清理的镜像
-            # 1. 无tag的镜像（tag为空、None或'None'）
-            # 2. 未使用的镜像（inUsed=False）
+            # 1. 无tag的镜像(tag为空、None或'None')
+            # 2. 未使用的镜像(inUsed=False)
             images_to_clean = []
             for img in images:
                 tag = img.get('tag', '')
                 in_used = img.get('inUsed', False)
                 name = img.get('name', '<none>')
 
-                # 无tag：tag为空、None或字符串'None'
+                # 无tag:tag为空、None或字符串'None'
                 no_tag = not tag or tag == 'None' or tag == '<none>'
                 # 未使用
                 not_in_use = not in_used
 
-                # 符合清理条件：无tag 或 未使用（两个条件满足其一即可）
+                # 符合清理条件:无tag 或 未使用(两个条件满足其一即可)
                 if no_tag or not_in_use:
                     images_to_clean.append(img)
 
@@ -2890,7 +2994,7 @@ class TelegramBot:
             # 构建确认消息
             message = f"🗑 <b>清理无用镜像</b>\n\n"
             message += f"🖥 实例: <b>{instance_name}</b>\n\n"
-            message += f"找到 <b>{len(images_to_clean)}</b> 个可清理的镜像：\n\n"
+            message += f"找到 <b>{len(images_to_clean)}</b> 个可清理的镜像:\n\n"
 
             # 分类展示镜像详情
             no_tag_unused = []  # 无tag且未使用
@@ -2907,7 +3011,7 @@ class TelegramBot:
                 no_tag = not tag or tag == 'None' or tag == '<none>'
                 not_in_use = not in_used
 
-                # 构建显示名称（包含大小和短ID）
+                # 构建显示名称(包含大小和短ID)
                 if tag == 'None' or not tag:
                     display_name = f"{name}"
                 else:
@@ -2953,7 +3057,7 @@ class TelegramBot:
                     message += f"  • ... 还有 {len(not_used_only) - 5} 个\n"
                 message += "\n"
 
-            message += f"⚠️ <b>此操作不可逆，确定要清理这些镜像吗？</b>"
+            message += f"⚠️ <b>此操作不可逆,确定要清理这些镜像吗?</b>"
 
             # 构建确认按钮
             markup = InlineKeyboardMarkup()
@@ -2981,7 +3085,7 @@ class TelegramBot:
             progress_msg = await self.bot.send_message(
                 chat_id,
                 f"🗑 正在清理 <b>{instance_name}</b> 的无用镜像...\n\n"
-                f"⏳ 请稍候，这可能需要一些时间...",
+                f"⏳ 请稍候,这可能需要一些时间...",
                 parse_mode='HTML'
             )
 
@@ -3036,7 +3140,7 @@ class TelegramBot:
                     failed_images.append(f"{display_name}: {str(e)}")
                     logger.error(f"❌ 清理异常: {display_name} - {e}")
 
-                # 更新进度（每5个或最后一个）
+                # 更新进度(每5个或最后一个)
                 if idx % 5 == 0 or idx == len(images_to_clean):
                     progress_text = f"🗑 正在清理 <b>{instance_name}</b> 的无用镜像...\n\n"
                     progress_text += f"📊 进度: {idx}/{len(images_to_clean)}\n"
@@ -3061,7 +3165,7 @@ class TelegramBot:
             result_message += f"❌ 失败: {failed_count} 个\n"
 
             if failed_images:
-                result_message += f"\n⚠️ <b>失败详情：</b>\n"
+                result_message += f"\n⚠️ <b>失败详情:</b>\n"
                 # 只显示前5个失败项
                 for fail in failed_images[:5]:
                     result_message += f"  • {fail}\n"
@@ -3093,7 +3197,7 @@ class TelegramBot:
 
         return f"""👋 <b>欢迎使用 Docker Copilot Bot</b>
 
-我可以帮你管理Docker容器：
+我可以帮你管理Docker容器:
 • 查看/管理容器
 • 查看/清理镜像
 • 备份/恢复容器配置
@@ -3107,33 +3211,33 @@ class TelegramBot:
         if len(self.docker_clients) > 1:
             multi_instance_help = f"""
 
-<b>🖥 实例管理：</b>
+<b>🖥 实例管理:</b>
 /instances - 查看/切换实例
-/manage_instances - 管理实例配置（查看详情/测试连接）"""
+/manage_instances - 管理实例配置(查看详情/测试连接)"""
 
         return f"""📖 <b>Docker Copilot Bot 帮助</b>
 
-<b>📦 容器管理：</b>
-/containers - 查看容器列表（支持分页）
+<b>📦 容器管理:</b>
+/containers - 查看容器列表(支持分页)
 /updates - 查看可更新容器
 /status - 查看系统状态
 
-<b>🖼 镜像管理：</b>
+<b>🖼 镜像管理:</b>
 /images - 查看镜像列表
-/clean_images - 清理无用镜像（手动清理）
+/clean_images - 清理无用镜像(手动清理)
 
-<b>💾 备份管理：</b>
+<b>💾 备份管理:</b>
 /backup - 创建容器备份
 /backups - 查看备份列表{multi_instance_help}
 
-<b>ℹ️ 其他命令：</b>
+<b>i️ 其他命令:</b>
 /start - 查看欢迎信息
 /help - 显示本帮助信息
 /version - 查看版本信息
 /update_program - 更新Bot程序
 
-💡 <b>提示：</b>点击列表项可查看详情并进行操作
-🔧 <b>配置方式：</b>config.json（通过 /settings 修改）或环境变量"""
+💡 <b>提示:</b>点击列表项可查看详情并进行操作
+🔧 <b>配置方式:</b>config.json(通过 /settings 修改)或环境变量"""
 
     def send_startup_notification(self, instance_count: int, instance_names: List[str], chat_ids: List[str]):
         """发送启动成功通知"""
@@ -3150,7 +3254,7 @@ class TelegramBot:
             for i, name in enumerate(instance_names, 1):
                 message += f"  {i}. {name}\n"
 
-        message += f"\n✅ Bot已就绪，可以开始使用！\n"
+        message += f"\n✅ Bot已就绪,可以开始使用!\n"
         message += f"💡 发送 /help 查看可用命令"
 
         # 发送给所有配置的chat_ids
@@ -3169,11 +3273,11 @@ class TelegramBot:
             logger.warning(f"发送启动通知时出错: {e}")
 
     async def _check_container_updates_loop(self):
-        """后台任务：定期检查容器更新"""
+        """后台任务:定期检查容器更新"""
         try:
             # 验证cron表达式
             cron = croniter(self.update_check_cron, datetime.now())
-            logger.info(f"🔄 容器更新检测已启动（cron: {self.update_check_cron}）")
+            logger.info(f"🔄 容器更新检测已启动(cron: {self.update_check_cron})")
         except Exception as e:
             logger.error(f"❌ 无效的cron表达式 '{self.update_check_cron}': {e}")
             return
@@ -3206,20 +3310,20 @@ class TelegramBot:
                         updatable_containers = []
                         for container in containers:
                             if container.has_update:
-                                # 检查是否在黑名单中（不区分实例）
+                                # 检查是否在黑名单中(不区分实例)
                                 if not self._is_update_blacklisted(container):
                                     updatable_containers.append(container)
                                 else:
-                                    logger.debug(f"容器 [{instance_name}:{container.name}] 在黑名单中，跳过更新提醒")
+                                    logger.debug(f"容器 [{instance_name}:{container.name}] 在黑名单中,跳过更新提醒")
 
-                        # 如果有可更新容器，添加到汇总列表
+                        # 如果有可更新容器,添加到汇总列表
                         if updatable_containers:
                             all_updates[instance_name] = updatable_containers
 
                     except Exception as e:
                         logger.warning(f"检查实例 [{instance_name}] 容器更新时出错: {e}")
 
-                # 如果有任何新的可更新容器，发送统一通知
+                # 如果有任何新的可更新容器,发送统一通知
                 if all_updates:
                     await self._notify_container_updates(all_updates)
 
@@ -3227,7 +3331,7 @@ class TelegramBot:
                 logger.error(f"容器更新检测循环出错: {e}")
 
     async def _notify_container_updates(self, all_updates: Dict[str, List[Any]]):
-        """发送容器更新通知（合并所有实例）"""
+        """发送容器更新通知(合并所有实例)"""
         if not self.notify_chat_ids or not all_updates:
             return
 
@@ -3252,7 +3356,7 @@ class TelegramBot:
 
         message += "💡 使用 /updates 命令查看详情并更新"
 
-        # 创建内联键盘（一键更新所有实例按钮）
+        # 创建内联键盘(一键更新所有实例按钮)
         markup = InlineKeyboardMarkup()
         markup.row(
             InlineKeyboardButton("🚀 一键更新所有", callback_data="update_all_instances")
@@ -3267,11 +3371,11 @@ class TelegramBot:
                 logger.error(f"❌ 发送更新通知失败 [{chat_id}]: {e}")
 
     async def _clean_images_loop(self):
-        """镜像自动清理循环（定时清理未使用和无tag镜像）"""
+        """镜像自动清理循环(定时清理未使用和无tag镜像)"""
         try:
             # 验证cron表达式
             cron = croniter(self.clean_images_cron, datetime.now())
-            logger.info(f"🔄 镜像自动清理已启动（cron: {self.clean_images_cron}）")
+            logger.info(f"🔄 镜像自动清理已启动(cron: {self.clean_images_cron})")
         except Exception as e:
             logger.error(f"❌ 无效的cron表达式 '{self.clean_images_cron}': {e}")
             return
@@ -3300,7 +3404,7 @@ class TelegramBot:
                         logger.info(f"🧹 [{instance_name}] 开始清理镜像...")
                         images = client.get_images()
 
-                        # 筛选需要清理的镜像（未使用 + 无tag）
+                        # 筛选需要清理的镜像(未使用 + 无tag)
                         to_clean = []
                         for img in images:
                             in_used = img.get('inUsed', False)
@@ -3335,7 +3439,7 @@ class TelegramBot:
                                 else:
                                     display_name = f"{name}:{tag}"
 
-                                # 强制删除（force=True）
+                                # 强制删除(force=True)
                                 result = client.delete_image(image_id, force=True)
 
                                 if result.get('code') == 200:
@@ -3366,12 +3470,12 @@ class TelegramBot:
                             'failed_list': failed_images
                         }
 
-                        logger.info(f"✅ [{instance_name}] 清理完成: 成功 {success_count}/{len(to_clean)}，失败 {failed_count}")
+                        logger.info(f"✅ [{instance_name}] 清理完成: 成功 {success_count}/{len(to_clean)},失败 {failed_count}")
 
                     except Exception as e:
                         logger.error(f"❌ [{instance_name}] 镜像清理出错: {e}")
 
-                # 发送清理通知（启用自动清理时自动发送通知）
+                # 发送清理通知(启用自动清理时自动发送通知)
                 if all_results and self.auto_clean_images:
                     await self._notify_image_cleanup(all_results)
 
@@ -3379,7 +3483,7 @@ class TelegramBot:
                 logger.error(f"镜像清理循环出错: {e}")
 
     async def _notify_image_cleanup(self, all_results: Dict[str, Dict[str, Any]]):
-        """发送镜像清理通知（合并所有实例）"""
+        """发送镜像清理通知(合并所有实例)"""
         if not self.notify_chat_ids or not all_results:
             return
 
@@ -3396,7 +3500,7 @@ class TelegramBot:
         message += f"📊 总计: 成功清理 <b>{total_cleaned}</b> 个镜像"
 
         if total_failed > 0:
-            message += f"，失败 <b>{total_failed}</b> 个"
+            message += f",失败 <b>{total_failed}</b> 个"
 
         message += "\n\n"
 
@@ -3471,11 +3575,11 @@ class TelegramBot:
         return False
 
     async def _auto_update_containers_loop(self):
-        """容器自动更新循环（定时更新可更新的容器）"""
+        """容器自动更新循环(定时更新可更新的容器)"""
         try:
             # 验证cron表达式
             cron = croniter(self.update_containers_cron, datetime.now())
-            logger.info(f"🔄 容器自动更新已启动（cron: {self.update_containers_cron}）")
+            logger.info(f"🔄 容器自动更新已启动(cron: {self.update_containers_cron})")
         except Exception as e:
             logger.error(f"❌ 无效的cron表达式 '{self.update_containers_cron}': {e}")
             return
@@ -3511,7 +3615,7 @@ class TelegramBot:
                             if not container.has_update:
                                 continue
 
-                            # 检查是否在黑名单中（不区分实例）
+                            # 检查是否在黑名单中(不区分实例)
                             if self._is_update_blacklisted(container):
                                 logger.info(f"  ⏭ 跳过黑名单容器/镜像: {container.name} ({container.image})")
                                 continue
@@ -3551,7 +3655,7 @@ class TelegramBot:
                                     failed_containers.append(f"{container.name}: {error_msg}")
                                     logger.warning(f"  ❌ 更新失败: {container.name} - {error_msg}")
 
-                                # 避免API压力过大，等待2秒
+                                # 避免API压力过大,等待2秒
                                 await asyncio.sleep(2)
 
                             except Exception as e:
@@ -3568,12 +3672,12 @@ class TelegramBot:
                             'failed_list': failed_containers
                         }
 
-                        logger.info(f"✅ [{instance_name}] 更新完成: 成功 {success_count}/{len(to_update)}，失败 {failed_count}")
+                        logger.info(f"✅ [{instance_name}] 更新完成: 成功 {success_count}/{len(to_update)},失败 {failed_count}")
 
                     except Exception as e:
                         logger.error(f"❌ [{instance_name}] 容器自动更新出错: {e}")
 
-                # 发送更新通知（启用自动更新时自动发送通知）
+                # 发送更新通知(启用自动更新时自动发送通知)
                 if all_results and self.auto_update_containers:
                     await self._notify_auto_update(all_results)
 
@@ -3581,7 +3685,7 @@ class TelegramBot:
                 logger.error(f"容器自动更新循环出错: {e}")
 
     async def _notify_auto_update(self, all_results: Dict[str, Dict[str, Any]]):
-        """发送容器自动更新通知（合并所有实例）"""
+        """发送容器自动更新通知(合并所有实例)"""
         if not self.notify_chat_ids or not all_results:
             return
 
@@ -3598,7 +3702,7 @@ class TelegramBot:
         message += f"📊 总计: 成功更新 <b>{total_updated}</b> 个容器"
 
         if total_failed > 0:
-            message += f"，失败 <b>{total_failed}</b> 个"
+            message += f",失败 <b>{total_failed}</b> 个"
 
         message += "\n\n"
 
@@ -3636,9 +3740,9 @@ class TelegramBot:
                 logger.error(f"❌ 发送容器自动更新通知失败 [{chat_id}]: {e}")
 
     def _sync_runtime_config_on_first_run(self):
-        """首次运行时，将当前配置同步到config.json"""
+        """首次运行时,将当前配置同步到config.json"""
         try:
-            # 检查config.json是否是刚创建的（created_at在最近10秒内）
+            # 检查config.json是否是刚创建的(created_at在最近10秒内)
             config_data = self.runtime_config.get_all()
             created_at_str = config_data.get('created_at', '')
 
@@ -3648,9 +3752,9 @@ class TelegramBot:
                 now = datetime.now()
                 time_diff = (now - created_at).total_seconds()
 
-                # 如果是最近10秒内创建的，说明是首次运行
+                # 如果是最近10秒内创建的,说明是首次运行
                 if time_diff < 10:
-                    logger.info("🔄 检测到首次运行，正在同步当前配置到 config.json...")
+                    logger.info("🔄 检测到首次运行,正在同步当前配置到 config.json...")
 
                     # 获取 DockerCopilot 实例配置
                     from src.config import load_config
@@ -3755,7 +3859,7 @@ class TelegramBot:
             # 构建按钮
             markup = InlineKeyboardMarkup()
 
-            # 第一行：容器更新检测
+            # 第一行:容器更新检测
             markup.row(
                 InlineKeyboardButton("📝 编辑检测时间", callback_data="settings_edit_cron:update_check"),
                 InlineKeyboardButton(
@@ -3764,7 +3868,7 @@ class TelegramBot:
                 )
             )
 
-            # 第二行：镜像清理
+            # 第二行:镜像清理
             markup.row(
                 InlineKeyboardButton("📝 编辑清理时间", callback_data="settings_edit_cron:clean_images"),
                 InlineKeyboardButton(
@@ -3773,7 +3877,7 @@ class TelegramBot:
                 )
             )
 
-            # 第三行：容器自动更新
+            # 第三行:容器自动更新
             markup.row(
                 InlineKeyboardButton("📝 编辑更新时间", callback_data="settings_edit_cron:auto_update"),
                 InlineKeyboardButton(
@@ -3782,12 +3886,12 @@ class TelegramBot:
                 )
             )
 
-            # 第四行：黑名单
+            # 第四行:黑名单
             markup.row(
                 InlineKeyboardButton("📋 编辑黑名单", callback_data="settings_edit_blacklist")
             )
 
-            # 第五行：操作按钮
+            # 第五行:操作按钮
             markup.row(
                 InlineKeyboardButton("🔄 重新加载", callback_data="settings_reload"),
                 InlineKeyboardButton("❌ 关闭", callback_data="cancel")
@@ -3803,7 +3907,7 @@ class TelegramBot:
                         parse_mode='HTML'
                     )
                 except Exception as edit_error:
-                    # 如果编辑失败（如 message is not modified），删除旧消息并发送新消息
+                    # 如果编辑失败(如 message is not modified),删除旧消息并发送新消息
                     error_str = str(edit_error).lower()
                     if "message is not modified" in error_str or "message not modified" in error_str or "not modified" in error_str:
                         try:
@@ -3859,7 +3963,7 @@ class TelegramBot:
             message += "• <code>0 2 * * *</code>    - 每天凌晨2点\n"
             message += "• <code>0 0 * * 0</code>    - 每周日凌晨\n"
             message += "• <code>0 0 1 * *</code>    - 每月1日凌晨\n\n"
-            message += "请输入新的cron表达式：\n"
+            message += "请输入新的cron表达式:\n"
             message += "<i>(输入 /cancel 取消)</i>"
 
             # 保存用户状态
@@ -3919,7 +4023,7 @@ class TelegramBot:
             config_type = state.get('config_type')
 
             if not config_type:
-                await self.bot.send_message(chat_id, "❌ 状态丢失，请重新操作")
+                await self.bot.send_message(chat_id, "❌ 状态丢失,请重新操作")
                 return
 
             # 保存配置到config.json
@@ -3964,7 +4068,7 @@ class TelegramBot:
             else:
                 await self.bot.send_message(
                     chat_id,
-                    f"⚠️ 配置已保存，但重启任务失败\n请查看日志或重启容器"
+                    f"⚠️ 配置已保存,但重启任务失败\n请查看日志或重启容器"
                 )
 
             # 清除用户状态
@@ -3990,11 +4094,11 @@ class TelegramBot:
             if setting_name == "notify_on_update":
                 new_value = not self.notify_on_update
                 self.notify_on_update = new_value
-                # 如果启用了通知，重启更新检测任务
+                # 如果启用了通知,重启更新检测任务
                 if new_value:
                     await self.restart_update_check_task(self.update_check_cron)
                 else:
-                    # 如果禁用，停止任务
+                    # 如果禁用,停止任务
                     if self.update_check_task:
                         self.update_check_task.cancel()
             elif setting_name == "auto_clean_images":
@@ -4027,11 +4131,11 @@ class TelegramBot:
             message += "<b>说明:</b>\n"
             message += "• 黑名单中的容器不会发送更新提醒\n"
             message += "• 也不会被自动更新\n"
-            message += "• 容器名称，多个用逗号分隔\n"
+            message += "• 容器名称,多个用逗号分隔\n"
             message += "• 输入空格清空黑名单\n\n"
             message += "<b>示例:</b>\n"
             message += "<code>postgresql,redis,nginx</code>\n\n"
-            message += "请输入新的黑名单：\n"
+            message += "请输入新的黑名单:\n"
             message += "<i>(输入 /cancel 取消)</i>"
 
             # 保存用户状态
@@ -4125,7 +4229,7 @@ class TelegramBot:
                 # 从配置文件加载新值
                 telegram_config = self.runtime_config.get_telegram_config()
 
-                # 更新配置（需要重启任务）
+                # 更新配置(需要重启任务)
                 self.update_check_cron = telegram_config.get('update_check_cron', self.update_check_cron)
                 self.notify_on_update = telegram_config.get('notify_on_update', self.notify_on_update)
                 self.update_blacklist = telegram_config.get('update_blacklist', self.update_blacklist)
@@ -4151,7 +4255,7 @@ class TelegramBot:
                 # 发送成功提示
                 await self.bot.send_message(
                     chat_id,
-                    "✅ 配置已重新加载，所有任务已重启",
+                    "✅ 配置已重新加载,所有任务已重启",
                     parse_mode='HTML'
                 )
             else:
@@ -4172,11 +4276,13 @@ class TelegramBot:
             )
 
     def start_polling(self):
-        """启动轮询模式（使用asyncio）"""
-        logger.info("🤖 Telegram Bot 启动轮询模式（使用 pyTelegramBotAPI）...")
-        logger.info("📡 内置长轮询，自动处理409冲突")
+        """启动轮询模式(使用asyncio)"""
+        logger.info("🤖 Telegram Bot 启动轮询模式(使用 pyTelegramBotAPI)...")
+        logger.info("📡 内置长轮询,自动处理409冲突")
 
         async def run_bot():
+            await self._discard_backlog_once()
+
             # 启动容器更新检测后台任务
             if self.notify_on_update and self.notify_chat_ids:
                 self.update_check_task = asyncio.create_task(self._check_container_updates_loop())
@@ -4185,12 +4291,12 @@ class TelegramBot:
             # 启动镜像清理后台任务
             if self.auto_clean_images:
                 self.clean_images_task = asyncio.create_task(self._clean_images_loop())
-                logger.info(f"✅ 镜像自动清理后台任务已启动（cron: {self.clean_images_cron}）")
+                logger.info(f"✅ 镜像自动清理后台任务已启动(cron: {self.clean_images_cron})")
 
             # 启动容器自动更新后台任务
             if self.auto_update_containers:
                 self.auto_update_task = asyncio.create_task(self._auto_update_containers_loop())
-                logger.info(f"✅ 容器自动更新后台任务已启动（cron: {self.update_containers_cron}）")
+                logger.info(f"✅ 容器自动更新后台任务已启动(cron: {self.update_containers_cron})")
 
             # 运行异步轮询
             await self.bot.polling(non_stop=True, interval=0, timeout=60)

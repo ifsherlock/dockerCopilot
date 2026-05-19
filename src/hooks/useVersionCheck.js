@@ -252,6 +252,33 @@ export function useVersionCheck() {
     }
   }, [clearPolling, clearReconnect, refetch, pollUpdateTask, startReconnectCheck])
 
+  const uploadProgramUpdate = useCallback(async (file) => {
+    if (!file) return
+    try {
+      clearPolling()
+      clearReconnect()
+      setIsUpdating(true)
+      setPostUpdateNeedsRefresh(false)
+      setShowForceUpdate(false)
+      setUpdateProgress(1)
+      setUpdateMessage(`正在上传更新包：${file.name}`)
+      const response = await versionAPI.uploadProgram(file)
+      const taskId = response?.data?.data?.taskID || response?.data?.data?.taskId || ''
+      if (!taskId) {
+        setUpdateMessage('上传更新任务已提交，正在等待服务恢复...')
+        setTimeout(() => startReconnectCheck(), 1500)
+        return
+      }
+      setUpdateTaskId(taskId)
+      setUpdateMessage('上传更新任务已创建，正在获取进度...')
+      pollUpdateTask(taskId)
+    } catch (error) {
+      console.error('上传更新失败:', error)
+      setUpdateMessage(error.response?.data?.msg || error.message || '上传更新失败，请检查文件架构后重试')
+      setIsUpdating(false)
+    }
+  }, [clearPolling, clearReconnect, pollUpdateTask, startReconnectCheck])
+
   const forceUpdateBackend = useCallback(async () => {
     try {
       clearPolling()
@@ -330,6 +357,7 @@ export function useVersionCheck() {
     setShowUpdatePrompt,
     updateBackend,
     forceUpdateBackend,
+    uploadProgramUpdate,
     checkForUpdates,
     setUpdateMessage,
     setIsUpdating,

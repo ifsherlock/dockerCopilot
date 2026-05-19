@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AlertCircle, Download, RefreshCw, X } from 'lucide-react'
+import { AlertCircle, Download, RefreshCw, Upload, X } from 'lucide-react'
 import { cn } from '../utils/cn.js'
 
 /**
@@ -20,7 +20,8 @@ export function UpdatePrompt({
   updateProgress = 0,
   isReconnectChecking = false,
   postUpdateNeedsRefresh = false,
-  onRefreshNow
+  onRefreshNow,
+  onUploadProgram
 }) {
   if (!isVisible) return null
 
@@ -81,6 +82,36 @@ export function UpdatePrompt({
                 {updateMessage}
               </div>
             )}
+
+            <div className="mb-4 p-3 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/10">
+              <div className="flex items-start gap-2 text-sm text-indigo-800 dark:text-indigo-200 mb-3">
+                <Upload className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-medium">手动上传二进制/更新包</div>
+                  <div className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">请上传当前机器架构匹配的 Linux dockerCopilot 二进制或 tar.gz，例如 amd64/x86_64 与 arm64 不可混用；后端会再次校验架构。</div>
+                </div>
+              </div>
+              <label className={cn(
+                "inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all",
+                isUpdating
+                  ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                  : 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer'
+              )}>
+                <Upload className="h-4 w-4" />
+                选择文件并更新
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={isUpdating}
+                  accept=".gz,.tgz,.tar.gz,application/gzip,application/x-gzip,application/octet-stream"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ''
+                    if (file && onUploadProgram) onUploadProgram(file)
+                  }}
+                />
+              </label>
+            </div>
 
             {isUpdating && (
               <div className="mb-4">

@@ -102,13 +102,21 @@ def main():
         logger.info(f"成功初始化 {len(docker_clients)}/{len(config.dockercopilot.instances)} 个实例")
 
         # 初始化Telegram Bot（传入多个客户端）
+        # 注意：Telegram Bot API 代理只作用于 pyTelegramBotAPI；DockerCopilot API 客户端内部强制直连。
         if config.telegram.proxy.url():
-            import os
             proxy_url = config.telegram.proxy.url()
-            os.environ['HTTP_PROXY'] = proxy_url
-            os.environ['HTTPS_PROXY'] = proxy_url
-            os.environ['ALL_PROXY'] = proxy_url
-            logger.info(f"🌐 Telegram Bot 已启用 {config.telegram.proxy.type.upper()} 代理: {config.telegram.proxy.host}:{config.telegram.proxy.port}")
+            try:
+                import telebot.asyncio_helper
+                telebot.asyncio_helper.proxy = proxy_url
+                logger.info(f"🌐 Telegram Bot 已启用 {config.telegram.proxy.type.upper()} 代理: {config.telegram.proxy.host}:{config.telegram.proxy.port}")
+            except Exception as proxy_error:
+                logger.warning(f"⚠️ 设置 Telegram Bot 代理失败，将尝试直连: {proxy_error}")
+        else:
+            try:
+                import telebot.asyncio_helper
+                telebot.asyncio_helper.proxy = None
+            except Exception:
+                pass
 
         logger.info("正在初始化 Telegram Bot...")
         bot = TelegramBot(
@@ -122,7 +130,11 @@ def main():
             auto_clean_images=config.telegram.auto_clean_images,
             clean_images_cron=config.telegram.clean_images_cron,
             auto_update_containers=config.telegram.auto_update_containers,
-            update_containers_cron=config.telegram.update_containers_cron
+            update_containers_cron=config.telegram.update_containers_cron,
+            interactive_enabled=config.telegram.interactive_enabled,
+            startup_discard_backlog=config.telegram.startup_discard_backlog,
+            startup_cooldown_seconds=config.telegram.startup_cooldown_seconds,
+            dedupe_window_seconds=config.telegram.dedupe_window_seconds,
         )
 
         # 发送启动成功通知

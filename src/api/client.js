@@ -97,6 +97,14 @@ export const versionAPI = {
     return apiClient.get(`/api/version?type=${type}`)
   },
   updateProgram: (force = false) => apiClient.put(force ? '/api/program?force=1' : '/api/program'),
+  uploadProgram: (file) => {
+    const formData = new FormData()
+    formData.append('file', file)
+    return apiClient.post('/api/program/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 0,
+    })
+  },
 }
 
 // 容器相关API

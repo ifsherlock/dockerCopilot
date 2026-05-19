@@ -430,6 +430,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
         isReconnectChecking={isReconnectChecking}
         postUpdateNeedsRefresh={postUpdateNeedsRefresh}
         onRefreshNow={checkForUpdates}
+        onUploadProgram={uploadProgramUpdate}
       />
     </>
   )
