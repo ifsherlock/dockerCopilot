@@ -1,4 +1,5 @@
 """Docker Copilot API客户端"""
+import os
 import requests
 import logging
 import jwt
@@ -25,11 +26,20 @@ class DockerCopilotClient:
 
     def __init__(self, api_url: str, secret_key: str, timeout: int = 30):
         self.api_url = api_url.rstrip('/')
-        self.secret_key = secret_key
+        # 兼容旧配置：当实例 secret_key 为空时，回退环境变量
+        self.secret_key = secret_key or os.getenv('DOCKERCOPILOT_SECRET_KEY', '')
         self.timeout = timeout
         self._token_cache = None
         self._token_expire_time = 0
-        logger.info(f"Docker Copilot API客户端初始化完成: {self.api_url}")
+
+        # 关键策略：DockerCopilot API 请求永远直连，不走任何代理
+        # - ignore HTTP(S)_PROXY/ALL_PROXY/no_proxy 环境变量
+        # - requests 仅用于 DockerCopilot API，不影响 Telegram Bot 自身网络行为
+        self._session = requests.Session()
+        self._session.trust_env = False
+        self._session.proxies = {"http": None, "https": None}
+
+        logger.info(f"Docker Copilot API客户端初始化完成: {self.api_url} (proxy=disabled)")
 
     def _generate_jwt(self, force_new: bool = False) -> str:
         """生成JWT Token（使用HS256算法，支持缓存）"""
@@ -72,7 +82,7 @@ class DockerCopilotClient:
 
         # 首次尝试
         try:
-            response = requests.request(
+            response = self._session.request(
                 method=method,
                 url=url,
                 headers=self._get_headers(),
@@ -89,7 +99,7 @@ class DockerCopilotClient:
                 logger.warning(f"收到401错误，尝试刷新Token后重试: {url}")
                 logger.debug(f"当前时间: {int(time.time())}, Secret Key: {self.secret_key[:10]}...")
                 try:
-                    response = requests.request(
+                    response = self._session.request(
                         method=method,
                         url=url,
                         headers=self._get_headers(force_new_token=True),
