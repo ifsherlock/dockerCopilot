@@ -250,6 +250,14 @@ export function Containers() {
   const unignoreUpdate = async (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
   const getContainerActionState = (container) => containerActions[container.id] || containerActions[`name:${container.name}`]
 
+  const flushUIFrame = () => new Promise(resolve => {
+    if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
+      window.requestAnimationFrame(() => setTimeout(resolve, 0))
+      return
+    }
+    setTimeout(resolve, 0)
+  })
+
   const setContainerUpdateAction = (containerId, containerName, actionState) => {
     setContainerActions(prev => ({
       ...prev,
@@ -592,7 +600,9 @@ export function Containers() {
             setConfirmModal({ isOpen: false })
             setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在检查远端版本...', percentage: 10 })
             try {
+              await flushUIFrame()
               setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在下载并准备新的 DockerCopilot 二进制...', percentage: 35 })
+              await flushUIFrame()
               const response = await versionAPI.updateProgram()
               if (response.data.code === 200 || response.data.code === 0) {
                 if (response.data.data?.updated === false || response.data.msg === '当前已是最新版本') {
@@ -643,6 +653,7 @@ export function Containers() {
       console.log(`开始更新容器 "${container.name}"，使用镜像: ${updateImageRef}`)
 
       setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在准备更新...', percentage: 1 })
+      await flushUIFrame()
 
       if (existingTaskID) {
         console.log('复用已有更新任务, taskID:', existingTaskID)
@@ -1035,7 +1046,7 @@ export function Containers() {
           更新
         </button>
         {isUpdateIgnored(container) ? (
-          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 bg-yellow-50 dark:bg-yellow-900/30 hover:bg-yellow-100 dark:hover:bg-yellow-900/50 font-semibold" title="取消忽略更新">取消忽略</button>
+          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold" title="取消忽略更新">取消忽略</button>
         ) : (
           <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20" title="忽略更新">忽略</button>
         )}
@@ -1796,7 +1807,7 @@ export function Containers() {
                               {isUpdateIgnored(container) ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-amber-800 dark:text-amber-100 bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 border border-amber-500 dark:border-amber-400 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-700 dark:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
                                   title="取消忽略更新"
                                 >
                                   <Undo2 className="h-4 w-4" />

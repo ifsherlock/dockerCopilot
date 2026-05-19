@@ -62,7 +62,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
   } = useVersionCheck()
 
   const displayVersion = (value) => {
-    const raw = String(value || '2.1.3').trim()
+    const raw = String(value || '').trim()
+    if (!raw) return '--'
     return raw.startsWith('v') ? raw : `v${raw}`
   }
 
