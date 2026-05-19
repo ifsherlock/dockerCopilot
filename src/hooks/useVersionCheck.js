@@ -53,6 +53,8 @@ function parseVersion(version) {
  */
 export function useVersionCheck() {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false)
+  const [isUpdating, setIsUpdating] = useState(false)
+  const [updateMessage, setUpdateMessage] = useState('')
 
   // 查询后端版本信息
   const { data: versionData, refetch } = useQuery({
@@ -117,21 +119,31 @@ export function useVersionCheck() {
   // 更新后端
   const updateBackend = useCallback(async () => {
     try {
+      setIsUpdating(true)
+      setUpdateMessage('正在提交更新请求...')
       const response = await versionAPI.updateProgram()
+
       if (response.data?.data?.updated === false || response.data?.msg === '当前已是最新版本') {
-        alert('当前已是最新版本')
+        setUpdateMessage('当前已是最新版本')
+        await refetch()
+        setTimeout(() => {
+          setIsUpdating(false)
+        }, 800)
         return
       }
-      setShowUpdatePrompt(true)
+
+      setUpdateMessage('更新任务已提交，正在下载并准备重启...')
+      await refetch()
       // 自更新链路会下载二进制并等待进程退出重启，给它更宽松的重启窗口
       setTimeout(() => {
         window.location.reload()
       }, 12000)
     } catch (error) {
       console.error('后端更新失败:', error)
-      alert(error.response?.data?.msg || error.message || '后端更新失败，请手动重启应用')
+      setUpdateMessage(error.response?.data?.msg || error.message || '后端更新失败，请手动重试')
+      setIsUpdating(false)
     }
-  }, [])
+  }, [refetch])
 
   // 手动检查更新
   const checkForUpdates = useCallback(async () => {
@@ -141,6 +153,8 @@ export function useVersionCheck() {
   return {
     // 状态
     showUpdatePrompt,
+    isUpdating,
+    updateMessage,
 
     // 版本数据
     backendVersion: versionData?.backendVersion,
@@ -151,6 +165,8 @@ export function useVersionCheck() {
     // 方法
     setShowUpdatePrompt,
     updateBackend,
-    checkForUpdates
+    checkForUpdates,
+    setUpdateMessage,
+    setIsUpdating
   }
 }

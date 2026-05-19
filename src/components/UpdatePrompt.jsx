@@ -13,7 +13,8 @@ export function UpdatePrompt({
   remoteVersion,
   hasBackendUpdate,
   onUpdateBackend,
-  isUpdating = false
+  isUpdating = false,
+  updateMessage = ''
 }) {
   if (!isVisible) return null
 
@@ -68,6 +69,12 @@ export function UpdatePrompt({
                   : '您正在使用最新版本，感谢您的支持！'}
               </p>
             </div>
+
+            {updateMessage && (
+              <div className="mb-4 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-sm text-gray-700 dark:text-gray-200">
+                {updateMessage}
+              </div>
+            )}
           </div>
 
           {/* 底部 - 操作按钮 */}
