@@ -119,6 +119,7 @@ func extractUploadedOrReleaseBinary(path string, dest string) (string, error) {
 		}
 		candidates := []string{
 			filepath.Join(dest, "dist", "linux", runtime.GOARCH, "dockerCopilot-new"),
+			filepath.Join(dest, "dist", "linux", runtime.GOARCH, "dockerCopilot"),
 			filepath.Join(dest, "dockerCopilot-new"),
 			filepath.Join(dest, "dockerCopilot"),
 		}
@@ -127,17 +128,24 @@ func extractUploadedOrReleaseBinary(path string, dest string) (string, error) {
 				return c, nil
 			}
 		}
-		var found string
+
+		var fallbackELF string
 		_ = filepath.Walk(dest, func(p string, info os.FileInfo, err error) error {
-			if err == nil && !info.IsDir() && (info.Name() == "dockerCopilot" || info.Name() == "dockerCopilot-new") && found == "" {
-				found = p
+			if err != nil || info == nil || info.IsDir() {
+				return nil
+			}
+			if fallbackELF == "" {
+				if f, openErr := elf.Open(p); openErr == nil {
+					_ = f.Close()
+					fallbackELF = p
+				}
 			}
 			return nil
 		})
-		if found == "" {
-			return "", fmt.Errorf("未找到更新包内的 dockerCopilot 二进制")
+		if fallbackELF == "" {
+			return "", fmt.Errorf("未找到更新包内可用的 dockerCopilot 二进制")
 		}
-		return found, nil
+		return fallbackELF, nil
 	}
 	return path, nil
 }

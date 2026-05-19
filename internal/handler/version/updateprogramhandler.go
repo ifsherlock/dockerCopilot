@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/onlyLTY/dockerCopilot/internal/logic/version"
@@ -82,6 +83,8 @@ func UploadProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				return
 			}
 			svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新完成，正在重启服务...", DetailMsg: "上传包已应用，即将自动重启并恢复连接", IsDone: true})
+			// 给前端一次机会拿到 100% 完成态，再触发自重启。
+			time.Sleep(1500 * time.Millisecond)
 			// 与在线更新保持一致：让启动脚本切换 dockerCopilot-new
 			os.Exit(1)
 		}()

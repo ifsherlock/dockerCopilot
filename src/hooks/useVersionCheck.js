@@ -182,7 +182,20 @@ export function useVersionCheck() {
     const pollOnce = async () => {
       try {
         const resp = await programAPI.getUpdateProgress(taskId)
-        const data = resp?.data?.data || {}
+        const body = resp?.data || {}
+        const code = Number(body.code ?? 200)
+        const msg = String(body.msg || '').trim()
+
+        if (code !== 200) {
+          const taskMissing = msg.includes('taskID 未找到') || msg.includes('未找到')
+          if (taskMissing) {
+            setUpdateMessage('更新进度任务已结束，正在等待服务重启恢复...')
+            startReconnectCheck()
+            return
+          }
+        }
+
+        const data = body.data || {}
         const percentage = Number(data.percentage || 0)
         const message = String(data.message || '').trim()
         const detailMsg = String(data.detailMsg || '').trim()
@@ -198,6 +211,7 @@ export function useVersionCheck() {
             setIsUpdating(false)
             return
           }
+          setUpdateProgress(100)
           setUpdateMessage('更新包已就绪，正在自动重启并恢复连接...')
           startReconnectCheck()
           return
@@ -207,14 +221,11 @@ export function useVersionCheck() {
         const msg = String(error?.response?.data?.msg || '').trim()
         const taskMissing = status === 404 || msg.includes('taskID 未找到') || msg.includes('未找到')
 
-        // 上传更新/在线更新触发自重启后，内存中的 task progress 会丢失。
-        // 此时不要无限轮询旧 taskId，而是切到重连检测流程。
         if (taskMissing) {
           setUpdateMessage('更新进度任务已结束，正在等待服务重启恢复...')
           startReconnectCheck()
           return
         }
-        // 其它短暂错误继续轮询
       }
 
       pollTimerRef.current = setTimeout(pollOnce, 900)
