@@ -967,8 +967,8 @@ export function Containers() {
     return true
   })
 
-  const getUpdateProgressPercent = (containerId) => {
-    const action = containerActions[containerId]
+  const getUpdateProgressPercent = (container) => {
+    const action = getContainerActionState(container)
     if (!action || !action.loading) return 0
     if (typeof action.percentage === 'number') return Math.max(0, Math.min(100, Math.round(action.percentage)))
     return action.action === 'update' ? 5 : 0
@@ -1094,7 +1094,7 @@ export function Containers() {
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
             {filteredContainers.map((container) => {
               const isSelected = selectedContainers.includes(container.id)
-              const progressPercent = getUpdateProgressPercent(container.id)
+              const progressPercent = getUpdateProgressPercent(container)
               return (
                 <tr key={container.id} onClick={() => toggleContainerSelection(container.id)} className={cn(
                   "hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer",
