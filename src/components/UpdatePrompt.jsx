@@ -16,7 +16,11 @@ export function UpdatePrompt({
   onForceUpdateBackend,
   showForceUpdate = false,
   isUpdating = false,
-  updateMessage = ''
+  updateMessage = '',
+  updateProgress = 0,
+  isReconnectChecking = false,
+  postUpdateNeedsRefresh = false,
+  onRefreshNow
 }) {
   if (!isVisible) return null
 
@@ -77,6 +81,21 @@ export function UpdatePrompt({
                 {updateMessage}
               </div>
             )}
+
+            {isUpdating && (
+              <div className="mb-4">
+                <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+                  <span>{isReconnectChecking ? '服务恢复检测中' : '更新进度'}</span>
+                  <span>{Math.max(0, Math.min(100, Number(updateProgress) || 0))}%</span>
+                </div>
+                <div className="h-2 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+                  <div
+                    className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500"
+                    style={{ width: `${Math.max(0, Math.min(100, Number(updateProgress) || 0))}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
 
           {/* 底部 - 操作按钮 */}
@@ -90,19 +109,26 @@ export function UpdatePrompt({
 
             {hasBackendUpdate && (
               <button
-                onClick={onUpdateBackend}
+                onClick={postUpdateNeedsRefresh ? onRefreshNow : onUpdateBackend}
                 disabled={isUpdating}
                 className={cn(
                   "flex-1 flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium transition-all",
                   isUpdating
                     ? 'bg-gray-300 dark:bg-gray-600 text-gray-500 dark:text-gray-400 cursor-not-allowed'
-                    : 'bg-gradient-to-r from-yellow-500 to-amber-500 text-white hover:shadow-lg active:scale-95'
+                    : postUpdateNeedsRefresh
+                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:shadow-lg active:scale-95'
+                      : 'bg-gradient-to-r from-yellow-500 to-amber-500 text-white hover:shadow-lg active:scale-95'
                 )}
               >
                 {isUpdating ? (
                   <>
                     <RefreshCw className="h-4 w-4 animate-spin" />
                     更新中...
+                  </>
+                ) : postUpdateNeedsRefresh ? (
+                  <>
+                    <RefreshCw className="h-4 w-4" />
+                    刷新状态
                   </>
                 ) : (
                   <>

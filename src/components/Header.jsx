@@ -12,7 +12,8 @@ import {
   Info,
   Bot,
   ChevronDown,
-  ChevronRight
+  ChevronRight,
+  RefreshCw
 } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle.jsx'
 import { UpdatePrompt } from './UpdatePrompt.jsx'
@@ -60,6 +61,9 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     isUpdating,
     updateMessage,
     showForceUpdate,
+    updateProgress,
+    isReconnectChecking,
+    postUpdateNeedsRefresh,
     updateBackend,
     forceUpdateBackend,
     checkForUpdates
@@ -422,6 +426,10 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
         showForceUpdate={showForceUpdate}
         isUpdating={isUpdating}
         updateMessage={updateMessage}
+        updateProgress={updateProgress}
+        isReconnectChecking={isReconnectChecking}
+        postUpdateNeedsRefresh={postUpdateNeedsRefresh}
+        onRefreshNow={checkForUpdates}
       />
     </>
   )

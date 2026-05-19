@@ -1,6 +1,6 @@
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { versionAPI } from '../api/client.js'
+import { versionAPI, programAPI } from '../api/client.js'
 
 /**
  * 检查版本是否需要更新
@@ -56,6 +56,12 @@ export function useVersionCheck() {
   const [isUpdating, setIsUpdating] = useState(false)
   const [updateMessage, setUpdateMessage] = useState('')
   const [showForceUpdate, setShowForceUpdate] = useState(false)
+  const [updateProgress, setUpdateProgress] = useState(0)
+  const [updateTaskId, setUpdateTaskId] = useState('')
+  const [isReconnectChecking, setIsReconnectChecking] = useState(false)
+  const [postUpdateNeedsRefresh, setPostUpdateNeedsRefresh] = useState(false)
+  const pollTimerRef = useRef(null)
+  const reconnectTimerRef = useRef(null)
 
   // 查询后端版本信息
   const { data: versionData, refetch } = useQuery({
@@ -117,15 +123,110 @@ export function useVersionCheck() {
     staleTime: 30000 // 30秒内不重新请求
   })
 
+  const clearPolling = useCallback(() => {
+    if (pollTimerRef.current) {
+      clearTimeout(pollTimerRef.current)
+      pollTimerRef.current = null
+    }
+  }, [])
+
+  const clearReconnect = useCallback(() => {
+    if (reconnectTimerRef.current) {
+      clearTimeout(reconnectTimerRef.current)
+      reconnectTimerRef.current = null
+    }
+  }, [])
+
+  const startReconnectCheck = useCallback(async () => {
+    setIsReconnectChecking(true)
+    const intervals = [1000, 2000, 2000, 3000, 3000, 5000, 5000, 8000, 8000, 10000]
+    let idx = 0
+
+    const tryOnce = async () => {
+      try {
+        const localRes = await versionAPI.getVersion('local')
+        if ((localRes?.data?.code === 200 || localRes?.data?.code === 0) && localRes?.data?.data) {
+          setUpdateProgress(100)
+          setUpdateMessage('更新完成，服务已恢复')
+          setPostUpdateNeedsRefresh(true)
+          await refetch()
+          setTimeout(() => {
+            setIsUpdating(false)
+            setIsReconnectChecking(false)
+            setUpdateTaskId('')
+          }, 800)
+          return
+        }
+      } catch (_) {
+        // 服务重启窗口内失败是预期行为，继续重试
+      }
+
+      if (idx >= intervals.length) {
+        setUpdateMessage('服务重启较慢，请稍后手动刷新页面确认版本')
+        setPostUpdateNeedsRefresh(true)
+        setIsUpdating(false)
+        setIsReconnectChecking(false)
+        return
+      }
+
+      const delay = intervals[idx++]
+      reconnectTimerRef.current = setTimeout(tryOnce, delay)
+    }
+
+    await tryOnce()
+  }, [refetch])
+
+  const pollUpdateTask = useCallback((taskId) => {
+    clearPolling()
+
+    const pollOnce = async () => {
+      try {
+        const resp = await programAPI.getUpdateProgress(taskId)
+        const data = resp?.data?.data || {}
+        const percentage = Number(data.percentage || 0)
+        const message = String(data.message || '').trim()
+        const detailMsg = String(data.detailMsg || '').trim()
+        const isDone = Boolean(data.isDone)
+
+        setUpdateProgress(Number.isFinite(percentage) ? percentage : 0)
+        if (message) {
+          setUpdateMessage(detailMsg ? `${message}（${detailMsg}）` : message)
+        }
+
+        if (isDone) {
+          if (message.includes('失败')) {
+            setIsUpdating(false)
+            return
+          }
+          setUpdateMessage('更新包已就绪，正在自动重启并恢复连接...')
+          startReconnectCheck()
+          return
+        }
+      } catch (error) {
+        // 短暂404/连接中断先继续轮询
+      }
+
+      pollTimerRef.current = setTimeout(pollOnce, 900)
+    }
+
+    pollOnce()
+  }, [clearPolling, startReconnectCheck])
+
   // 更新后端
   const updateBackend = useCallback(async () => {
     try {
+      clearPolling()
+      clearReconnect()
       setIsUpdating(true)
+      setPostUpdateNeedsRefresh(false)
+      setShowForceUpdate(false)
+      setUpdateProgress(1)
       setUpdateMessage('正在提交更新请求...')
       const response = await versionAPI.updateProgram()
 
       if (response.data?.data?.updated === false || response.data?.msg === '当前已是最新版本') {
         setShowForceUpdate(true)
+        setUpdateProgress(100)
         setUpdateMessage('当前已是最新版本（如需重下并覆盖，可点“强制覆盖更新”）')
         await refetch()
         setTimeout(() => {
@@ -134,23 +235,30 @@ export function useVersionCheck() {
         return
       }
 
-      setShowForceUpdate(false)
-      setUpdateMessage('更新任务已提交，正在下载并准备重启...')
-      await refetch()
-      // 自更新链路会下载二进制并等待进程退出重启，给它更宽松的重启窗口
-      setTimeout(() => {
-        window.location.reload()
-      }, 12000)
+      const taskId = response?.data?.data?.taskID || response?.data?.data?.taskId || ''
+      if (!taskId) {
+        setUpdateMessage('更新任务已提交，正在等待状态...')
+        setTimeout(() => startReconnectCheck(), 1500)
+        return
+      }
+
+      setUpdateTaskId(taskId)
+      setUpdateMessage('更新任务已创建，正在获取进度...')
+      pollUpdateTask(taskId)
     } catch (error) {
       console.error('后端更新失败:', error)
       setUpdateMessage(error.response?.data?.msg || error.message || '后端更新失败，请手动重试')
       setIsUpdating(false)
     }
-  }, [refetch])
+  }, [clearPolling, clearReconnect, refetch, pollUpdateTask, startReconnectCheck])
 
   const forceUpdateBackend = useCallback(async () => {
     try {
+      clearPolling()
+      clearReconnect()
       setIsUpdating(true)
+      setPostUpdateNeedsRefresh(false)
+      setUpdateProgress(1)
       setUpdateMessage('正在强制覆盖更新（跳过版本相同检查）...')
       const response = await versionAPI.updateProgram(true)
 
@@ -160,22 +268,45 @@ export function useVersionCheck() {
         return
       }
 
+      const taskId = response?.data?.data?.taskID || response?.data?.data?.taskId || ''
+      if (!taskId) {
+        setUpdateMessage('强制更新任务已提交，正在等待状态...')
+        setTimeout(() => startReconnectCheck(), 1500)
+        return
+      }
+
+      setUpdateTaskId(taskId)
       setShowForceUpdate(false)
-      setUpdateMessage('强制更新任务已提交，正在下载并准备重启...')
-      await refetch()
-      setTimeout(() => {
-        window.location.reload()
-      }, 12000)
+      setUpdateMessage('强制更新任务已创建，正在获取进度...')
+      pollUpdateTask(taskId)
     } catch (error) {
       console.error('强制更新失败:', error)
       setUpdateMessage(error.response?.data?.msg || error.message || '强制更新失败，请手动重试')
       setIsUpdating(false)
     }
-  }, [refetch])
+  }, [clearPolling, clearReconnect, pollUpdateTask, startReconnectCheck])
+  useEffect(() => {
+    return () => {
+      clearPolling()
+      clearReconnect()
+    }
+  }, [clearPolling, clearReconnect])
 
   // 手动检查更新
   const checkForUpdates = useCallback(async () => {
     await refetch()
+    // 若已完成更新且当前已追平版本，则自动恢复普通按钮
+    try {
+      const localResponse = await versionAPI.getVersion('local')
+      const remoteResponse = await versionAPI.getVersion('remote')
+      const localData = localResponse?.data?.data
+      const remoteData = remoteResponse?.data?.data
+      const localVersion = typeof localData === 'object' ? String(localData?.version || '').trim() : String(localData || '').trim()
+      const remoteVersion = typeof remoteData === 'object' ? String(remoteData?.remoteVersion || '').trim() : String(remoteData || '').trim()
+      if (localVersion && remoteVersion && !shouldUpdate(localVersion, remoteVersion)) {
+        setPostUpdateNeedsRefresh(false)
+      }
+    } catch (_) {}
   }, [refetch])
 
   return {
@@ -184,6 +315,10 @@ export function useVersionCheck() {
     isUpdating,
     updateMessage,
     showForceUpdate,
+    updateProgress,
+    updateTaskId,
+    isReconnectChecking,
+    postUpdateNeedsRefresh,
 
     // 版本数据
     backendVersion: versionData?.backendVersion,
@@ -197,6 +332,7 @@ export function useVersionCheck() {
     forceUpdateBackend,
     checkForUpdates,
     setUpdateMessage,
-    setIsUpdating
+    setIsUpdating,
+    setPostUpdateNeedsRefresh
   }
 }

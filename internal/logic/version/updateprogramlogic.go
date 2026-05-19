@@ -2,14 +2,16 @@ package version
 
 import (
 	"context"
+	"os"
+	"strings"
+	"time"
+
+	"github.com/google/uuid"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/zeromicro/go-zero/core/logx"
-	"os"
-	"strings"
-	"time"
 )
 
 type UpdateProgramLogic struct {
@@ -40,19 +42,43 @@ func (l *UpdateProgramLogic) UpdateProgram(force bool) (resp *types.Resp, err er
 		}
 	}
 
-	err = utiles.UpdateProgram(l.svcCtx)
-	if err != nil {
-		resp.Code = 500
-		resp.Msg = err.Error()
-		resp.Data = map[string]interface{}{}
-		return resp, err
-	}
-	resp.Code = 200
-	resp.Msg = "success"
+	taskID := uuid.New().String()
+	l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
+		TaskID:     taskID,
+		Percentage: 1,
+		Name:       "dockerCopilot",
+		Message:    "正在排队更新任务...",
+		DetailMsg:  "任务已创建，准备开始执行",
+		IsDone:     false,
+	})
+
 	go func() {
-		time.Sleep(10 * time.Second)
+		if runErr := utiles.UpdateProgram(l.svcCtx, taskID); runErr != nil {
+			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
+				TaskID:     taskID,
+				Percentage: 100,
+				Name:       "dockerCopilot",
+				Message:    "更新失败",
+				DetailMsg:  runErr.Error(),
+				IsDone:     true,
+			})
+			return
+		}
+
+		l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
+			TaskID:     taskID,
+			Percentage: 100,
+			Name:       "dockerCopilot",
+			Message:    "更新完成，正在重启服务...",
+			DetailMsg:  "即将自动重启并恢复连接",
+			IsDone:     true,
+		})
+		time.Sleep(3 * time.Second)
 		os.Exit(1)
 	}()
-	resp.Data = map[string]interface{}{"updated": true}
+
+	resp.Code = 200
+	resp.Msg = "success"
+	resp.Data = map[string]interface{}{"updated": true, "taskID": taskID}
 	return resp, nil
 }

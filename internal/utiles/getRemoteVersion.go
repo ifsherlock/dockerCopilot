@@ -1,10 +1,12 @@
 package utiles
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -43,28 +45,45 @@ func GetRemoteVersion() (remoteVersion string, err error) {
 
 func fetchVersionFromURL(url string) (string, error) {
 	client := &http.Client{
+		Timeout: 10 * time.Second,
 		Transport: &http.Transport{
 			Proxy: http.ProxyFromEnvironment,
 		},
 	}
 
-	resp, err := client.Get(url)
-	if err != nil {
-		return "", err
-	}
-	defer func(Body io.ReadCloser) {
-		err := Body.Close()
+	var lastErr error
+	for i := 0; i < 3; i++ {
+		resp, err := client.Get(url)
 		if err != nil {
-			logx.Error("关闭Body失败:", err)
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 300 * time.Millisecond)
+			continue
 		}
-	}(resp.Body)
 
-	versionData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			_ = resp.Body.Close()
+			lastErr = fmt.Errorf("fetch version failed, HTTP %d", resp.StatusCode)
+			time.Sleep(time.Duration(i+1) * 300 * time.Millisecond)
+			continue
+		}
+
+		versionData, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil {
+			lastErr = err
+			time.Sleep(time.Duration(i+1) * 300 * time.Millisecond)
+			continue
+		}
+
+		v := strings.TrimSpace(string(versionData))
+		if v == "" {
+			lastErr = fmt.Errorf("remote version is empty")
+			time.Sleep(time.Duration(i+1) * 300 * time.Millisecond)
+			continue
+		}
+		return v, nil
 	}
-
-	return strings.TrimSpace(string(versionData)), nil
+	return "", lastErr
 }
 
 func normalizeVersion(version string) string {

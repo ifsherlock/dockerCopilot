@@ -158,6 +158,11 @@ export const progressAPI = {
   getProgress: (taskid) => apiClient.get(`/api/progress/${taskid}`),
 }
 
+// 程序更新任务查询（与通用进度接口保持语义区分）
+export const programAPI = {
+  getUpdateProgress: (taskid) => apiClient.get(`/api/progress/${taskid}`),
+}
+
 // Telegram Bot 配置 API
 export const botAPI = {
   getConfig: () => apiClient.get('/api/bot/config'),

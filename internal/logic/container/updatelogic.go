@@ -47,7 +47,7 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 				DetailMsg:  "检测到当前容器，切换为程序自更新流程",
 				IsDone:     false,
 			})
-			err := utiles.UpdateProgram(l.svcCtx)
+			err := utiles.UpdateProgram(l.svcCtx, taskID)
 			if err != nil {
 				l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
 					TaskID:     taskID,
