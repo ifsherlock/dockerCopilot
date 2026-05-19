@@ -2,6 +2,10 @@ name: docker-images
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - latest
+    paths:
       - version
       - src/**
       - public/**
@@ -127,7 +131,7 @@ jobs:
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/dockercopilot:v2.1.3
+            ghcr.io/${{ github.repository_owner }}/dockercopilot:v${{ env.version }}
             ghcr.io/${{ github.repository_owner }}/dockercopilot:latest
           push: true
 
@@ -179,6 +183,6 @@ jobs:
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:v2.1.3
+            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:v${{ env.version }}
             ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:latest
           push: true
