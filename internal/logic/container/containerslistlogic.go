@@ -3,6 +3,8 @@ package container
 import (
 	"context"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
+	"os"
+	"strings"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -26,6 +28,7 @@ type Info struct {
 	CreateTime  string `json:"createTime"`
 	RunningTime string `json:"runningTime"`
 	HaveUpdate  bool   `json:"haveUpdate"`
+	IsSelf      bool   `json:"isSelf"`
 }
 
 func NewContainersListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ContainersListLogic {
@@ -58,6 +61,8 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 			utiles.CheckImageUpdate(l.svcCtx, checkList)
 		}()
 	}
+	selfID, _ := os.Hostname()
+	selfID = strings.TrimSpace(selfID)
 	for _, v := range list {
 		var containerInfo Info
 		containerInfo.Id = v.ID
@@ -91,6 +96,7 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		containerInfo.CreateTime = t.Format("2006-01-02 15:04:05")
 		containerInfo.RunningTime = v.Status
 		containerInfo.HaveUpdate = v.Update
+		containerInfo.IsSelf = selfID != "" && (v.ID == selfID || strings.HasPrefix(v.ID, selfID) || strings.HasPrefix(selfID, v.ID))
 		containerInfoList = append(containerInfoList, containerInfo)
 	}
 	resp.Data = containerInfoList

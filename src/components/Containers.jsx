@@ -17,7 +17,7 @@ import {
   Undo2,
   CheckSquare
 } from 'lucide-react'
-import { containerAPI, progressAPI, imageAPI, botAPI } from '../api/client.js'
+import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -274,6 +274,7 @@ export function Containers() {
   const selectedContainerItems = containers.filter(c => selectedContainers.includes(c.id))
   const hasSelectedIgnored = selectedContainerItems.some(isUpdateIgnored)
   const getUpdateImageRef = (container) => container?.createImage || container?.usingImage || ''
+  const isSelfContainer = (container) => !!container?.isSelf
   const topButtonClass = (enabledClass, disabled) => cn(
     'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium',
     disabled
@@ -579,6 +580,47 @@ export function Containers() {
 
       if (isUpdateIgnored(container)) {
         console.log(`容器 "${container.name}" 已在更新黑名单，跳过更新`)
+        return
+      }
+
+      if (isSelfContainer(container)) {
+        setConfirmModal({
+          isOpen: true,
+          title: '更新 DockerCopilot',
+          message: '这是当前正在运行的 DockerCopilot 容器。普通容器重建流程会先停止自身，导致更新中断，所以这里会改走程序自身更新流程。执行后当前页面可能会短暂断开，请稍后刷新重连。',
+          onConfirm: async () => {
+            setConfirmModal({ isOpen: false })
+            setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在更新 DockerCopilot...', percentage: 15 })
+            try {
+              const response = await versionAPI.updateProgram()
+              if (response.data.code === 200 || response.data.code === 0) {
+                setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '已提交自更新，稍后重连', percentage: 100 })
+                setTimeout(() => {
+                  window.location.reload()
+                }, 12000)
+              } else {
+                throw new Error(response.data.msg || '自更新失败')
+              }
+            } catch (error) {
+              console.error('自更新失败:', error)
+              setContainerActions(prev => {
+                const newState = { ...prev }
+                delete newState[containerId]
+                return newState
+              })
+              setConfirmModal({
+                isOpen: true,
+                title: '更新失败',
+                message: error.response?.data?.msg || error.message || '自更新失败',
+                onConfirm: () => setConfirmModal({ isOpen: false }),
+                onCancel: null,
+                type: 'danger'
+              })
+            }
+          },
+          onCancel: () => setConfirmModal({ isOpen: false }),
+          type: 'warning'
+        })
         return
       }
 
@@ -1508,7 +1550,7 @@ export function Containers() {
                         isSelected
                           ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-md"
                           : isUpdateIgnored(container)
-                            ? "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800 opacity-60 grayscale"
+                            ? "border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 hover:border-amber-300 dark:hover:border-amber-700"
                             : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
                       )}
                     >
@@ -1739,7 +1781,7 @@ export function Containers() {
                               {isUpdateIgnored(container) ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-yellow-700 dark:text-yellow-300 bg-yellow-50 dark:bg-yellow-900/30 hover:bg-yellow-100 dark:hover:bg-yellow-900/50 border border-yellow-300 dark:border-yellow-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
+                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-amber-800 dark:text-amber-100 bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 border border-amber-500 dark:border-amber-400 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
                                   title="取消忽略更新"
                                 >
                                   <Undo2 className="h-4 w-4" />
@@ -1807,6 +1849,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
   const [currentContainer, setCurrentContainer] = useState(container)
   const fileInputRef = React.useRef(null)
   const [isUploadingIcon, setIsUploadingIcon] = useState(false)
+  const ignored = isUpdateIgnored(currentContainer)
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -2271,12 +2314,12 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
             <div className="flex gap-2 w-full sm:w-auto">
               <button
                 onClick={() => onUpdate(container.id)}
-                disabled={isActionProcessing || isUpdating}
-                className={`flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 ${isActionProcessing && currentAction === 'update'
+                disabled={isActionProcessing || isUpdating || ignored}
+                className={`flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 ${(isActionProcessing && currentAction === 'update') || ignored
                   ? 'bg-gray-200 text-gray-500 cursor-not-allowed dark:bg-gray-700 dark:text-gray-400'
                   : 'bg-purple-600 text-white hover:bg-purple-700 dark:bg-purple-500 dark:hover:bg-purple-600'
                   }`}
-                title="更新"
+                title={ignored ? '已忽略更新，无法更新；请先取消忽略' : '更新'}
               >
                 {isActionProcessing && currentAction === 'update' ? (
                   <>
@@ -2361,7 +2404,29 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
               )}
             </div>
 
-
+            <div className="flex gap-2 w-full sm:w-auto">
+              {ignored ? (
+                <button
+                  onClick={() => onUnignore(currentContainer)}
+                  disabled={isActionProcessing || isUpdating}
+                  className="flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-amber-800 dark:text-amber-100 bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 border border-amber-500 dark:border-amber-400 font-semibold"
+                  title="取消忽略更新"
+                >
+                  <Undo2 className="h-4 w-4 flex-shrink-0" />
+                  <span>取消忽略</span>
+                </button>
+              ) : (
+                <button
+                  onClick={() => onIgnore(currentContainer)}
+                  disabled={isActionProcessing || isUpdating}
+                  className="flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700"
+                  title="忽略更新"
+                >
+                  <Ban className="h-4 w-4 flex-shrink-0" />
+                  <span>忽略更新</span>
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
