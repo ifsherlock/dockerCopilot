@@ -1522,7 +1522,7 @@ export function Containers() {
                     {filterStatus === 'ignored' && (
                       <button
                         onClick={() => saveUpdateBlacklist(updateBlacklist.filter(item => !filteredContainers.some(container => matchesBlacklistItem(container, item))))}
-                        className="px-2 py-0.5 text-xs font-semibold text-white bg-amber-600 hover:bg-amber-700 rounded transition-colors shadow-sm"
+                        className="px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 rounded transition-colors"
                       >
                         取消忽略
                       </button>
@@ -1565,7 +1565,7 @@ export function Containers() {
                         isSelected
                           ? "border-primary-500 bg-primary-50 dark:bg-primary-900/20 shadow-md"
                           : isUpdateIgnored(container)
-                            ? "border-amber-200 dark:border-amber-800 bg-amber-50/60 dark:bg-amber-900/10 hover:border-amber-300 dark:hover:border-amber-700"
+                            ? "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 hover:border-gray-300 dark:hover:border-gray-600"
                             : "border-gray-200 dark:border-gray-700 hover:border-primary-300 dark:hover:border-primary-600"
                       )}
                     >
@@ -2424,7 +2424,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
                 <button
                   onClick={() => onUnignore(currentContainer)}
                   disabled={isActionProcessing || isUpdating}
-                  className="flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 text-amber-800 dark:text-amber-100 bg-amber-500 hover:bg-amber-600 dark:bg-amber-500 dark:hover:bg-amber-400 border border-amber-500 dark:border-amber-400 font-semibold"
+                  className="flex-1 sm:flex-none px-2 sm:px-4 py-2 text-sm rounded-lg transition-colors flex items-center justify-center sm:justify-start gap-1 sm:gap-2 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 border border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700 font-medium"
                   title="取消忽略更新"
                 >
                   <Undo2 className="h-4 w-4 flex-shrink-0" />
