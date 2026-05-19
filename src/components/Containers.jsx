@@ -688,13 +688,23 @@ export function Containers() {
 
           pollProgress(containerId, taskID, container?.name)
         } else {
-          // 如果没有返回taskID,说明更新可能立即完成
-          setContainerActions(prev => {
-            const newState = { ...prev }
-            delete newState[containerId]
-            return newState
+          // 没有 taskID 通常是后端快速完成/短路完成。
+          // 先展示一小段完成动画，再刷新列表，避免“金色更新按钮一闪就跳到前面”。
+          setContainerUpdateAction(containerId, container.name, {
+            action: 'update',
+            loading: false,
+            done: true,
+            progress: response.data.msg || '更新完成',
+            percentage: 100
           })
-          await refetch()
+          setTimeout(async () => {
+            setContainerActions(prev => {
+              const newState = { ...prev }
+              delete newState[containerId]
+              return newState
+            })
+            await refetch()
+          }, 1400)
 
         }
       } else {
@@ -835,11 +845,10 @@ export function Containers() {
             delete newState[containerId]
             return newState
           })
-          await refetch()
-          setTimeout(() => {
+          setTimeout(async () => {
             clearContainerUpdateAction(containerId, containerName)
-            refetch()
-          }, 5000)
+            await refetch()
+          }, 1400)
           console.log('✅ 容器更新完成!')
           return // 确保不再继续执行
         }
