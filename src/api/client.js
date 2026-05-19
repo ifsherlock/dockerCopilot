@@ -96,7 +96,7 @@ export const versionAPI = {
     }
     return apiClient.get(`/api/version?type=${type}`)
   },
-  updateProgram: () => apiClient.put('/api/program'),
+  updateProgram: (force = false) => apiClient.put(force ? '/api/program?force=1' : '/api/program'),
 }
 
 // 容器相关API

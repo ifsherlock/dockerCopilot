@@ -13,6 +13,8 @@ export function UpdatePrompt({
   remoteVersion,
   hasBackendUpdate,
   onUpdateBackend,
+  onForceUpdateBackend,
+  showForceUpdate = false,
   isUpdating = false,
   updateMessage = ''
 }) {
@@ -110,9 +112,26 @@ export function UpdatePrompt({
                 )}
               </button>
             )}
-
-
           </div>
+
+          {showForceUpdate && (
+            <div className="px-6 pb-5 -mt-1">
+              <button
+                onClick={onForceUpdateBackend}
+                disabled={isUpdating}
+                className={cn(
+                  "w-full flex items-center justify-center gap-2 px-4 py-2 rounded-lg font-medium border transition-all",
+                  isUpdating
+                    ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                    : 'bg-white dark:bg-slate-900 text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50 dark:hover:bg-amber-900/20'
+                )}
+              >
+                <RefreshCw className={cn('h-4 w-4', isUpdating && 'animate-spin')} />
+                强制覆盖更新（重下同版本）
+              </button>
+            </div>
+          )}
+
         </div>
       </div>
     </>

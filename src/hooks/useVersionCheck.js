@@ -55,6 +55,7 @@ export function useVersionCheck() {
   const [showUpdatePrompt, setShowUpdatePrompt] = useState(false)
   const [isUpdating, setIsUpdating] = useState(false)
   const [updateMessage, setUpdateMessage] = useState('')
+  const [showForceUpdate, setShowForceUpdate] = useState(false)
 
   // 查询后端版本信息
   const { data: versionData, refetch } = useQuery({
@@ -124,7 +125,8 @@ export function useVersionCheck() {
       const response = await versionAPI.updateProgram()
 
       if (response.data?.data?.updated === false || response.data?.msg === '当前已是最新版本') {
-        setUpdateMessage('当前已是最新版本')
+        setShowForceUpdate(true)
+        setUpdateMessage('当前已是最新版本（如需重下并覆盖，可点“强制覆盖更新”）')
         await refetch()
         setTimeout(() => {
           setIsUpdating(false)
@@ -132,6 +134,7 @@ export function useVersionCheck() {
         return
       }
 
+      setShowForceUpdate(false)
       setUpdateMessage('更新任务已提交，正在下载并准备重启...')
       await refetch()
       // 自更新链路会下载二进制并等待进程退出重启，给它更宽松的重启窗口
@@ -141,6 +144,31 @@ export function useVersionCheck() {
     } catch (error) {
       console.error('后端更新失败:', error)
       setUpdateMessage(error.response?.data?.msg || error.message || '后端更新失败，请手动重试')
+      setIsUpdating(false)
+    }
+  }, [refetch])
+
+  const forceUpdateBackend = useCallback(async () => {
+    try {
+      setIsUpdating(true)
+      setUpdateMessage('正在强制覆盖更新（跳过版本相同检查）...')
+      const response = await versionAPI.updateProgram(true)
+
+      if (response.data?.data?.updated === false) {
+        setUpdateMessage('强制更新未执行，请稍后重试')
+        setIsUpdating(false)
+        return
+      }
+
+      setShowForceUpdate(false)
+      setUpdateMessage('强制更新任务已提交，正在下载并准备重启...')
+      await refetch()
+      setTimeout(() => {
+        window.location.reload()
+      }, 12000)
+    } catch (error) {
+      console.error('强制更新失败:', error)
+      setUpdateMessage(error.response?.data?.msg || error.message || '强制更新失败，请手动重试')
       setIsUpdating(false)
     }
   }, [refetch])
@@ -155,6 +183,7 @@ export function useVersionCheck() {
     showUpdatePrompt,
     isUpdating,
     updateMessage,
+    showForceUpdate,
 
     // 版本数据
     backendVersion: versionData?.backendVersion,
@@ -165,6 +194,7 @@ export function useVersionCheck() {
     // 方法
     setShowUpdatePrompt,
     updateBackend,
+    forceUpdateBackend,
     checkForUpdates,
     setUpdateMessage,
     setIsUpdating

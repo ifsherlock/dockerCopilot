@@ -26,15 +26,17 @@ func NewUpdateProgramLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Upd
 	}
 }
 
-func (l *UpdateProgramLogic) UpdateProgram() (resp *types.Resp, err error) {
+func (l *UpdateProgramLogic) UpdateProgram(force bool) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	remoteVersion, remoteErr := utiles.GetRemoteVersion()
-	if remoteErr == nil && strings.TrimSpace(remoteVersion) != "" {
-		if strings.TrimPrefix(strings.TrimSpace(remoteVersion), "v") == strings.TrimPrefix(strings.TrimSpace(config.Version), "v") {
-			resp.Code = 200
-			resp.Msg = "当前已是最新版本"
-			resp.Data = map[string]interface{}{"updated": false, "currentVersion": config.Version, "remoteVersion": remoteVersion}
-			return resp, nil
+	if !force {
+		remoteVersion, remoteErr := utiles.GetRemoteVersion()
+		if remoteErr == nil && strings.TrimSpace(remoteVersion) != "" {
+			if strings.TrimPrefix(strings.TrimSpace(remoteVersion), "v") == strings.TrimPrefix(strings.TrimSpace(config.Version), "v") {
+				resp.Code = 200
+				resp.Msg = "当前已是最新版本"
+				resp.Data = map[string]interface{}{"updated": false, "currentVersion": config.Version, "remoteVersion": remoteVersion}
+				return resp, nil
+			}
 		}
 	}
 

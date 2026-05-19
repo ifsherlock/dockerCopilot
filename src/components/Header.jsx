@@ -59,7 +59,9 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     hasBackendUpdate,
     isUpdating,
     updateMessage,
+    showForceUpdate,
     updateBackend,
+    forceUpdateBackend,
     checkForUpdates
   } = useVersionCheck()
 
@@ -416,6 +418,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
         remoteVersion={remoteVersion}
         hasBackendUpdate={hasBackendUpdate}
         onUpdateBackend={updateBackend}
+        onForceUpdateBackend={forceUpdateBackend}
+        showForceUpdate={showForceUpdate}
         isUpdating={isUpdating}
         updateMessage={updateMessage}
       />
