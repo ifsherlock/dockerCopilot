@@ -27,22 +27,26 @@ export function UpdatePrompt({
 
   return (
     <>
-      {/* 半透明背景 */}
       <div
         className="fixed inset-0 bg-black/50 z-40"
         onClick={onClose}
       />
 
-      {/* 弹窗 */}
-      <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-md mx-4">
-        <div className="bg-white dark:bg-slate-900 rounded-lg shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
-          {/* 顶部 - 关闭按钮 */}
-          <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-50 to-blue-100 dark:from-blue-900/20 dark:to-blue-800/20 border-b border-gray-200 dark:border-slate-700">
-            <div className="flex items-center gap-2">
-              <AlertCircle className="h-5 w-5 text-blue-600 dark:text-blue-400" />
-              <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                有新版本可用
-              </h2>
+      <div className="fixed top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 z-50 w-full max-w-2xl mx-4">
+        <div className="bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 overflow-hidden">
+          <div className="flex items-center justify-between px-6 py-4 bg-gradient-to-r from-blue-50 to-indigo-50 dark:from-blue-900/20 dark:to-indigo-800/20 border-b border-gray-200 dark:border-slate-700">
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
+                <AlertCircle className="h-5 w-5" />
+              </div>
+              <div>
+                <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
+                  程序更新与安装包管理
+                </h2>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+                  查看最新版本、执行在线更新，或手动上传匹配架构的程序包。
+                </p>
+              </div>
             </div>
             <button
               onClick={onClose}
@@ -52,43 +56,56 @@ export function UpdatePrompt({
             </button>
           </div>
 
-          {/* 内容 */}
-          <div className="px-6 py-4">
-            {/* 版本信息 */}
-            <div className="space-y-3 mb-4">
-              {hasBackendUpdate && (
-                <div className="flex items-center justify-between p-3 bg-yellow-50 dark:bg-yellow-900/20 rounded-lg border border-yellow-200 dark:border-yellow-700/50">
-                  <span className="text-sm text-gray-600 dark:text-gray-400">后端版本</span>
-                  <span className="text-sm font-semibold">
-                    <span className="text-yellow-700 dark:text-yellow-400">{backendVersion}</span>
-                    <span className="text-gray-400 mx-1">→</span>
-                    <span className="text-green-600 dark:text-green-400">{remoteVersion}</span>
-                  </span>
+          <div className="px-6 py-5 space-y-5">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div className="p-4 bg-gray-50 dark:bg-slate-800/60 rounded-xl border border-gray-200 dark:border-slate-700">
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">当前版本</div>
+                <div className="text-base font-semibold text-gray-900 dark:text-white">{backendVersion || '--'}</div>
+              </div>
+              <div className={cn(
+                "p-4 rounded-xl border",
+                hasBackendUpdate
+                  ? 'bg-yellow-50 dark:bg-yellow-900/20 border-yellow-200 dark:border-yellow-700/50'
+                  : 'bg-emerald-50 dark:bg-emerald-900/20 border-emerald-200 dark:border-emerald-700/50'
+              )}>
+                <div className="text-xs text-gray-500 dark:text-gray-400 mb-1">更新检测</div>
+                <div className="text-base font-semibold">
+                  {hasBackendUpdate ? (
+                    <>
+                      <span className="text-yellow-700 dark:text-yellow-400">发现新版本</span>
+                      <span className="text-gray-400 mx-1.5">→</span>
+                      <span className="text-green-600 dark:text-green-400">{remoteVersion || '--'}</span>
+                    </>
+                  ) : (
+                    <span className="text-emerald-700 dark:text-emerald-400">当前已是最新版本</span>
+                  )}
                 </div>
-              )}
+              </div>
             </div>
 
-            {/* 提示文本 */}
-            <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg border border-blue-200 dark:border-blue-700/50">
-              <p className="text-sm text-blue-800 dark:text-blue-300">
-                {hasBackendUpdate
-                  ? '检测到后端有新版本可用。建议您立即更新以获得最新功能和安全补丁。'
-                  : '您正在使用最新版本，感谢您的支持！'}
-              </p>
+            <div className={cn(
+              "p-4 rounded-xl border text-sm leading-relaxed",
+              hasBackendUpdate
+                ? 'bg-blue-50 dark:bg-blue-900/20 border-blue-200 dark:border-blue-700/50 text-blue-800 dark:text-blue-300'
+                : 'bg-gray-50 dark:bg-slate-800/60 border-gray-200 dark:border-slate-700 text-gray-700 dark:text-gray-300'
+            )}>
+              {hasBackendUpdate
+                ? '检测到程序有可用更新。你可以直接在线更新，也可以手动上传已下载好的二进制或更新包。更新过程中服务可能短暂重启，请尽量在了解当前运行状态后操作。'
+                : '当前程序版本与远端检测结果一致。如果你需要重装同版本、离线覆盖，或者验证指定构建产物，也可以使用下方的手动上传更新功能。'}
             </div>
 
             {updateMessage && (
-              <div className="mb-4 p-3 rounded-lg border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-sm text-gray-700 dark:text-gray-200">
+              <div className="p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-sm text-gray-700 dark:text-gray-200">
                 {updateMessage}
               </div>
             )}
 
-            <div className="mb-4 p-3 rounded-lg border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/10">
-              <div className="flex items-start gap-2 text-sm text-indigo-800 dark:text-indigo-200 mb-3">
+            <div className="rounded-2xl border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/10 p-4 sm:p-5">
+              <div className="flex items-start gap-3 text-sm text-indigo-800 dark:text-indigo-200 mb-4">
                 <Upload className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
-                  <div className="font-medium">手动上传二进制/更新包</div>
-                  <div className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">请上传当前机器架构匹配的 Linux dockerCopilot 二进制或 tar.gz，例如 amd64/x86_64 与 arm64 不可混用；后端会再次校验架构。</div>
+                  <div className="font-semibold">手动上传二进制 / 更新包</div>
+                  <div className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">请上传与当前机器架构匹配的 Linux dockerCopilot 二进制或 tar.gz 更新包，例如 amd64 / x86_64 与 arm64 / aarch64 不可混用；后端会再次校验架构。</div>
                 </div>
               </div>
               <label className={cn(
@@ -114,7 +131,7 @@ export function UpdatePrompt({
             </div>
 
             {isUpdating && (
-              <div className="mb-4">
+              <div>
                 <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
                   <span>{isReconnectChecking ? '服务恢复检测中' : '更新进度'}</span>
                   <span>{Math.max(0, Math.min(100, Number(updateProgress) || 0))}%</span>
@@ -129,7 +146,6 @@ export function UpdatePrompt({
             )}
           </div>
 
-          {/* 底部 - 操作按钮 */}
           <div className="px-6 py-4 bg-gray-50 dark:bg-slate-800/50 border-t border-gray-200 dark:border-slate-700 flex gap-3">
             <button
               onClick={onClose}

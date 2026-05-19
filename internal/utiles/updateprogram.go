@@ -98,6 +98,9 @@ func UpdateProgramWithSource(ctx *svc.ServiceContext, taskID string, source Prog
 	if err := validateBinaryArch(extractedBinaryPath); err != nil {
 		return err
 	}
+	if err := validateBinaryRuntimeCompatibility(extractedBinaryPath); err != nil {
+		return err
+	}
 
 	updateTask(80, "正在替换程序文件...", "写入新二进制文件", false)
 	if err := copyFile(extractedBinaryPath, stagedBinaryPath, 0755); err != nil {
@@ -152,6 +155,30 @@ func validateBinaryArch(path string) error {
 	ok := (runtime.GOARCH == "amd64" && machine == elf.EM_X86_64) || (runtime.GOARCH == "arm64" && machine == elf.EM_AARCH64) || (runtime.GOARCH == "arm" && machine == elf.EM_ARM)
 	if !ok {
 		return fmt.Errorf("二进制架构不匹配：当前运行环境是 %s，但上传文件是 %s", runtime.GOARCH, machine.String())
+	}
+	return nil
+}
+
+func validateBinaryRuntimeCompatibility(path string) error {
+	f, err := elf.Open(path)
+	if err != nil {
+		return nil
+	}
+	defer f.Close()
+
+	for _, prog := range f.Progs {
+		if prog.Type != elf.PT_INTERP {
+			continue
+		}
+		r := prog.Open()
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return fmt.Errorf("读取二进制解释器信息失败: %w", err)
+		}
+		interp := strings.TrimRight(string(data), "\x00")
+		if strings.Contains(interp, "ld-linux") {
+			return fmt.Errorf("上传的二进制依赖 glibc 动态链接器（%s），当前 DockerCopilot 容器基于 Alpine/musl，无法直接运行；请上传静态编译（CGO_ENABLED=0）的 Linux %s dockerCopilot 二进制或 tar.gz 更新包", interp, runtime.GOARCH)
+		}
 	}
 	return nil
 }

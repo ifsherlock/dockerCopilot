@@ -21,6 +21,8 @@ import { cn } from '../utils/cn.js'
 import logoImg from '../assets/DockerCopilot-logo.png'
 import { useVersionCheck } from '../hooks/useVersionCheck.js'
 
+const FRONTEND_BUILD_MARK = 'uploadfix-release'
+
 export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false, onToggleCollapse, windowWidth = 1024 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
   const [isDevInfoExpanded, setIsDevInfoExpanded] = React.useState(false)
@@ -72,8 +74,9 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
 
   const displayVersion = (value) => {
     const raw = String(value || '').trim()
-    if (!raw) return '--'
-    return raw.startsWith('v') ? raw : `v${raw}`
+    if (!raw) return `-- (${FRONTEND_BUILD_MARK})`
+    const normalized = raw.startsWith('v') ? raw : `v${raw}`
+    return `${normalized}-${FRONTEND_BUILD_MARK}`
   }
 
   // 智能判断是否可以手动切换侧边栏
@@ -399,10 +402,15 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                     {hasBackendUpdate && (
                       <button
                         onClick={() => setShowUpdatePrompt(true)}
-                        className="w-full py-2.5 px-3 mt-1 rounded-lg bg-gradient-to-r from-amber-400/20 to-orange-400/20 dark:from-amber-900/30 dark:to-orange-900/30 border border-amber-300 dark:border-amber-700/50 text-amber-700 dark:text-amber-300 hover:from-amber-400/30 hover:to-orange-400/30 dark:hover:from-amber-900/40 dark:hover:to-orange-900/40 font-semibold text-sm transition-all duration-200 flex items-center justify-center gap-2"
+                        className="w-full py-3 px-3 mt-1 rounded-xl bg-gradient-to-r from-amber-400/15 to-orange-400/15 dark:from-amber-900/30 dark:to-orange-900/30 border border-amber-300 dark:border-amber-700/50 text-left text-amber-800 dark:text-amber-200 hover:from-amber-400/25 hover:to-orange-400/25 dark:hover:from-amber-900/40 dark:hover:to-orange-900/40 transition-all duration-200"
                       >
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span>
-                        <span>有新版本可更新</span>
+                        <div className="flex items-start gap-3">
+                          <span className="mt-1 w-2 h-2 rounded-full bg-amber-500 animate-pulse shrink-0"></span>
+                          <div>
+                            <div className="font-semibold text-sm">检测到程序更新</div>
+                            <div className="text-xs mt-1 text-amber-700/90 dark:text-amber-300/90 leading-relaxed">可查看远端版本、在线更新，或手动上传匹配架构的二进制文件。</div>
+                          </div>
+                        </div>
                       </button>
                     )}
                   </div>

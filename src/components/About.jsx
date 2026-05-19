@@ -1,11 +1,20 @@
 import React, { useState } from 'react'
-import { Github, Heart, HelpCircle, Sparkles, X } from 'lucide-react'
+import { Github, Heart, HelpCircle, Sparkles, Upload, HardDrive, AlertTriangle, X } from 'lucide-react'
+import { cn } from '../utils/cn.js'
+import { useVersionCheck } from '../hooks/useVersionCheck.js'
 import wechatImg from '../assets/wechat.jpg'
 import alipayImg from '../assets/alipay.jpg'
 import logoImg from '../assets/DockerCopilot-logo.png'
 
 export function About() {
   const [showDonate, setShowDonate] = useState(false)
+  const {
+    isUpdating,
+    updateMessage,
+    updateProgress,
+    isReconnectChecking,
+    uploadProgramUpdate
+  } = useVersionCheck()
 
   return (
     <div className="max-w-[1800px] mx-auto">
@@ -23,7 +32,7 @@ export function About() {
             <a href="https://github.com/ifsherlock/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
               <Github className="h-4 w-4" /><span>GitHub</span>
             </a>
-            <a href="https://github.com/ifsherlock/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/50 transition-colors">
+            <a href="https://github.com/ifsherlock/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
               <HelpCircle className="h-4 w-4" /><span>反馈建议</span>
             </a>
           </div>
@@ -39,19 +48,89 @@ export function About() {
           </div>
           <div className="card p-6 flex flex-col h-full">
             <div className="flex items-center gap-2 mb-4"><Sparkles className="h-5 w-5 text-purple-500" /><h3 className="text-lg font-bold text-gray-900 dark:text-white">改版声明</h3></div>
-            <p className="text-gray-600 dark:text-gray-400 leading-relaxed mb-3">当前改版在原项目基础上加入了 AI 辅助开发与功能扩展，重点增强多实例、更新流程、Bot 交互和 fnOS 打包体验。</p>
-            <p className="text-gray-600 dark:text-gray-400 leading-relaxed">请在理解风险的前提下使用：容器管理、程序自更新和自动化操作可能影响正在运行的服务；使用者应自行备份配置并承担由环境差异、误操作或第三方服务变化带来的风险。</p>
+            <p className="text-gray-600 dark:text-gray-400 leading-relaxed">本项目使用AI进行二次开发，增加了视图模式，tgbot交互等功能，请在理解风险的前提下使用：容器管理、程序自更新和自动化操作可能影响正在运行的服务；使用者应自行备份配置并承担由环境差异、误操作或第三方服务变化带来的风险。</p>
           </div>
         </div>
 
         <div className="card p-6 sm:p-8 border-2 border-primary-100 dark:border-primary-900/30">
-          <div className="text-center">
-            <h2 className="text-xl font-bold text-gray-900 dark:text-white mb-2">反馈与参与</h2>
-            <p className="text-gray-600 dark:text-gray-400 mb-5 max-w-2xl mx-auto">遇到 Bug、兼容问题或有功能建议，欢迎通过 GitHub Issues 反馈。请尽量附带版本、运行方式和复现步骤。</p>
-            <a href="https://github.com/ifsherlock/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 text-white hover:bg-primary-700 transition-colors font-medium">
-              <HelpCircle className="h-4 w-4" /> 前往 Issues
-            </a>
+          <div className="flex items-start gap-3 mb-5">
+            <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300 shrink-0">
+              <Upload className="h-5 w-5" />
+            </div>
+            <div>
+              <h2 className="text-xl font-bold text-gray-900 dark:text-white">上传二进制文件更新</h2>
+              <p className="text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">适用于网络受限、手动发版或需要指定构建产物的场景。请上传与当前机器架构匹配的 Linux 程序包，例如 amd64 / x86_64、arm64 / aarch64 不可混用。</p>
+            </div>
           </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4">
+            <div className="rounded-2xl border border-dashed border-primary-300 dark:border-primary-700 bg-primary-50/50 dark:bg-primary-900/10 p-5">
+              <div className="flex items-start gap-3 text-sm text-primary-900 dark:text-primary-100 mb-4">
+                <HardDrive className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-semibold">支持文件</div>
+                  <div className="mt-1 text-primary-800/80 dark:text-primary-200/80">支持上传 dockerCopilot Linux 二进制文件或 tar.gz 更新包；后端会继续校验文件内容与架构是否匹配。</div>
+                </div>
+              </div>
+
+              <label className={cn(
+                "inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium border transition-all",
+                isUpdating
+                  ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                  : 'bg-white dark:bg-slate-900 text-primary-700 dark:text-primary-300 border-primary-300 dark:border-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/20 cursor-pointer'
+              )}>
+                <Upload className="h-4 w-4" />
+                选择文件并更新
+                <input
+                  type="file"
+                  className="hidden"
+                  disabled={isUpdating}
+                  accept=".gz,.tgz,.tar.gz,application/gzip,application/x-gzip,application/octet-stream"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    e.target.value = ''
+                    if (file) uploadProgramUpdate(file)
+                  }}
+                />
+              </label>
+            </div>
+
+            <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/10 p-5">
+              <div className="flex items-start gap-3 text-sm text-amber-900 dark:text-amber-100">
+                <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
+                <div>
+                  <div className="font-semibold">使用提示</div>
+                  <ul className="mt-2 space-y-1.5 text-amber-800/90 dark:text-amber-200/80 list-disc pl-4">
+                    <li>更新前请先确认当前机器架构。</li>
+                    <li>建议先备份配置与重要运行环境。</li>
+                    <li>更新过程中服务可能会短暂重启或断开。</li>
+                  </ul>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {(updateMessage || isUpdating) && (
+            <div className="mt-5 rounded-2xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 p-4">
+              {updateMessage && (
+                <div className="text-sm text-gray-700 dark:text-gray-200 mb-3">{updateMessage}</div>
+              )}
+              {isUpdating && (
+                <>
+                  <div className="flex items-center justify-between text-xs text-gray-500 dark:text-gray-400 mb-1.5">
+                    <span>{isReconnectChecking ? '服务恢复检测中' : '上传更新进度'}</span>
+                    <span>{Math.max(0, Math.min(100, Number(updateProgress) || 0))}%</span>
+                  </div>
+                  <div className="h-2 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500"
+                      style={{ width: `${Math.max(0, Math.min(100, Number(updateProgress) || 0))}%` }}
+                    />
+                  </div>
+                </>
+              )}
+            </div>
+          )}
         </div>
 
         {showDonate && (

@@ -203,7 +203,18 @@ export function useVersionCheck() {
           return
         }
       } catch (error) {
-        // 短暂404/连接中断先继续轮询
+        const status = error?.response?.status
+        const msg = String(error?.response?.data?.msg || '').trim()
+        const taskMissing = status === 404 || msg.includes('taskID 未找到') || msg.includes('未找到')
+
+        // 上传更新/在线更新触发自重启后，内存中的 task progress 会丢失。
+        // 此时不要无限轮询旧 taskId，而是切到重连检测流程。
+        if (taskMissing) {
+          setUpdateMessage('更新进度任务已结束，正在等待服务重启恢复...')
+          startReconnectCheck()
+          return
+        }
+        // 其它短暂错误继续轮询
       }
 
       pollTimerRef.current = setTimeout(pollOnce, 900)
@@ -274,7 +285,13 @@ export function useVersionCheck() {
       pollUpdateTask(taskId)
     } catch (error) {
       console.error('上传更新失败:', error)
-      setUpdateMessage(error.response?.data?.msg || error.message || '上传更新失败，请检查文件架构后重试')
+      const status = error?.response?.status
+      const serverMsg = error?.response?.data?.msg
+      if (status === 413) {
+        setUpdateMessage('上传失败：文件过大，当前服务上传上限过小，请升级到已放宽上传限制的版本后重试')
+      } else {
+        setUpdateMessage(serverMsg || error.message || '上传更新失败，请检查文件架构后重试')
+      }
       setIsUpdating(false)
     }
   }, [clearPolling, clearReconnect, pollUpdateTask, startReconnectCheck])

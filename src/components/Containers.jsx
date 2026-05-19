@@ -100,6 +100,9 @@ export function Containers() {
   // 添加操作状态跟踪
   const [containerActions, setContainerActions] = useState({}) // 跟踪每个容器的操作状态
   const [updateTasks, setUpdateTasks] = useState({}) // 跟踪更新任务
+  const [updateFilterPinnedKeys, setUpdateFilterPinnedKeys] = useState([]) // 临时保留在"有更新"筛选中的容器键，避免点击更新后瞬间消失
+  const [updateFilterPinnedSnapshots, setUpdateFilterPinnedSnapshots] = useState({}) // 保留点击更新时的容器快照，避免后端短暂换 id / 消失导致列表闪跳
+  const [updateFilterPinnedPositions, setUpdateFilterPinnedPositions] = useState({}) // 记录容器在“有更新”列表中的原始位置，避免保留态被补到列表末尾造成跳位
   // 添加筛选状态
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('docker_copilot_containers_view_mode') || 'card') // 'card' | 'table'
@@ -203,6 +206,18 @@ export function Containers() {
     return Array.from(new Set([...imageCandidates, ...nameCandidates]))
   }
   const getBlacklistKey = (container) => canonicalImageName(container?.usingImage || container?.createImage) || normalizeImageName(container?.name)
+  const getUpdateFilterPinKey = (containerOrName, containerId = '') => {
+    if (typeof containerOrName === 'string') {
+      return normalizeImageName(containerOrName) || String(containerId || '')
+    }
+    return getBlacklistKey(containerOrName) || String(containerOrName?.id || containerId || '')
+  }
+  const getContainerRenderKey = (container) => {
+    if (filterStatus === 'update') {
+      return `update:${getUpdateFilterPinKey(container)}`
+    }
+    return container?.id || `name:${container?.name || 'unknown'}`
+  }
   const matchesBlacklistItem = (container, item) => {
     const normalizedItem = canonicalImageName(item)
     if (!normalizedItem) return false
@@ -275,9 +290,53 @@ export function Containers() {
     })
   }
 
+  const pinContainerInUpdateFilter = (containerOrName, containerId = '') => {
+    const pinKey = getUpdateFilterPinKey(containerOrName, containerId)
+    if (!pinKey) return
+    setUpdateFilterPinnedKeys(prev => prev.includes(pinKey) ? prev : [...prev, pinKey])
+    if (containerOrName && typeof containerOrName === 'object') {
+      setUpdateFilterPinnedSnapshots(prev => ({
+        ...prev,
+        [pinKey]: { ...containerOrName }
+      }))
+      setUpdateFilterPinnedPositions(prev => {
+        if (prev[pinKey] !== undefined) return prev
+        const visibleUpdateContainers = containers.filter(item => !isUpdateIgnored(item) && item.haveUpdate)
+        const pinnedIndex = visibleUpdateContainers.findIndex(item => getUpdateFilterPinKey(item) === pinKey)
+        return {
+          ...prev,
+          [pinKey]: pinnedIndex >= 0 ? pinnedIndex : visibleUpdateContainers.length
+        }
+      })
+    }
+  }
+
+  const unpinContainerInUpdateFilter = (containerOrName, containerId = '') => {
+    const pinKey = getUpdateFilterPinKey(containerOrName, containerId)
+    if (!pinKey) return
+    setUpdateFilterPinnedKeys(prev => prev.filter(item => item !== pinKey))
+    setUpdateFilterPinnedSnapshots(prev => {
+      const next = { ...prev }
+      delete next[pinKey]
+      return next
+    })
+    setUpdateFilterPinnedPositions(prev => {
+      const next = { ...prev }
+      delete next[pinKey]
+      return next
+    })
+  }
+
   const displayedHaveUpdate = (container) => {
     const action = getContainerActionState(container)
     return container.haveUpdate && !isUpdateIgnored(container) && !(action?.action === 'update' && (action?.loading || action?.done))
+  }
+
+  const visibleInUpdateFilter = (container) => {
+    const action = getContainerActionState(container)
+    const isUpdatingOrJustDone = action?.action === 'update' && (action?.loading || action?.done)
+    const isPinnedInUpdateFilter = updateFilterPinnedKeys.includes(getUpdateFilterPinKey(container))
+    return !isUpdateIgnored(container) && (container.haveUpdate || isUpdatingOrJustDone || isPinnedInUpdateFilter)
   }
   const selectedContainerItems = containers.filter(c => selectedContainers.includes(c.id))
   const hasSelectedIgnored = selectedContainerItems.some(isUpdateIgnored)
@@ -385,6 +444,7 @@ export function Containers() {
         delete newState[containerId]
         return newState
       })
+      unpinContainerInUpdateFilter(container.name, containerId)
 
       // 增加超时错误的处理
       if (error.code === 'ECONNABORTED' || error.message.includes('timeout')) {
@@ -444,6 +504,7 @@ export function Containers() {
       if (action === 'update') {
         actionableContainerIds.forEach(containerId => {
           const container = containers.find(c => c.id === containerId)
+          pinContainerInUpdateFilter(container, containerId)
           setContainerUpdateAction(containerId, container?.name, { action: 'update', loading: true, progress: '正在准备更新...', percentage: 1 })
         })
       }
@@ -598,6 +659,7 @@ export function Containers() {
           message: '这是当前正在运行的 DockerCopilot 容器。普通容器重建流程会先停止自身，导致更新中断，所以这里会改走程序自身更新流程。执行后当前页面可能会短暂断开，请稍后刷新重连。',
           onConfirm: async () => {
             setConfirmModal({ isOpen: false })
+            pinContainerInUpdateFilter(container, containerId)
             setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在检查远端版本...', percentage: 10 })
             try {
               await flushUIFrame()
@@ -613,6 +675,7 @@ export function Containers() {
                       delete newState[containerId]
                       return newState
                     })
+                    unpinContainerInUpdateFilter(container.name, containerId)
                   }, 2500)
                   return
                 }
@@ -633,6 +696,7 @@ export function Containers() {
                 delete newState[containerId]
                 return newState
               })
+              unpinContainerInUpdateFilter(container.name, containerId)
               setConfirmModal({
                 isOpen: true,
                 title: '更新失败',
@@ -652,6 +716,7 @@ export function Containers() {
       const updateImageRef = getUpdateImageRef(container)
       console.log(`开始更新容器 "${container.name}"，使用镜像: ${updateImageRef}`)
 
+      pinContainerInUpdateFilter(container, containerId)
       setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在准备更新...', percentage: 1 })
       await flushUIFrame()
 
@@ -703,8 +768,9 @@ export function Containers() {
               delete newState[containerId]
               return newState
             })
+            unpinContainerInUpdateFilter(container.name, containerId)
             await refetch()
-          }, 1400)
+          }, 2200)
 
         }
       } else {
@@ -767,6 +833,7 @@ export function Containers() {
         delete newState[containerId]
         return newState
       })
+      unpinContainerInUpdateFilter(containerName, containerId)
     }
 
     const poll = async () => {
@@ -847,8 +914,9 @@ export function Containers() {
           })
           setTimeout(async () => {
             clearContainerUpdateAction(containerId, containerName)
+            unpinContainerInUpdateFilter(containerName, containerId)
             await refetch()
-          }, 1400)
+          }, 2200)
           console.log('✅ 容器更新完成!')
           return // 确保不再继续执行
         }
@@ -905,7 +973,7 @@ export function Containers() {
 
   // 全选/取消全选
   const toggleSelectAll = () => {
-    const ids = filteredContainers.map(container => container.id)
+    const ids = renderedContainers.map(container => container.id)
     const allSelected = ids.length > 0 && ids.every(id => selectedContainers.includes(id))
     setSelectedContainers(allSelected ? selectedContainers.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedContainers, ...ids])))
   }
@@ -947,7 +1015,7 @@ export function Containers() {
     return statusConfig[status?.toLowerCase()] || 'bg-gray-500'
   }
 
-  const filteredContainers = containers.filter((container) => {
+  const baseFilteredContainers = containers.filter((container) => {
     const keyword = searchKeyword.trim().toLowerCase()
     const matchesKeyword = !keyword || [
       container.name,
@@ -962,10 +1030,51 @@ export function Containers() {
     if (!filterStatus) return true
     if (filterStatus === 'running') return container.status && container.status.toLowerCase() === 'running'
     if (filterStatus === 'stopped') return container.status && container.status.toLowerCase() !== 'running'
-    if (filterStatus === 'update') return displayedHaveUpdate(container)
+    if (filterStatus === 'update') return visibleInUpdateFilter(container)
     if (filterStatus === 'ignored') return isUpdateIgnored(container)
     return true
   })
+
+  const filteredContainers = (() => {
+    let next = [...baseFilteredContainers]
+
+    if (filterStatus === 'update') {
+      const missingPinned = updateFilterPinnedKeys
+        .map(pinKey => ({
+          pinKey,
+          snapshot: updateFilterPinnedSnapshots[pinKey],
+          position: updateFilterPinnedPositions[pinKey]
+        }))
+        .filter(({ pinKey, snapshot }) => snapshot && !next.some(container => getUpdateFilterPinKey(container) === pinKey))
+        .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))
+
+      for (const { snapshot, position } of missingPinned) {
+        const insertAt = typeof position === 'number' ? Math.max(0, Math.min(position, next.length)) : next.length
+        next.splice(insertAt, 0, snapshot)
+      }
+    }
+
+    return next
+  })()
+
+  const renderedContainers = (() => {
+    if (filterStatus !== 'update') return filteredContainers
+
+    const pinnedItems = updateFilterPinnedKeys
+      .map(pinKey => ({
+        pinKey,
+        snapshot: updateFilterPinnedSnapshots[pinKey],
+        position: updateFilterPinnedPositions[pinKey]
+      }))
+      .filter(({ snapshot }) => !!snapshot)
+      .sort((a, b) => (a.position ?? Number.MAX_SAFE_INTEGER) - (b.position ?? Number.MAX_SAFE_INTEGER))
+      .map(({ snapshot }) => snapshot)
+
+    const pinnedKeySet = new Set(updateFilterPinnedKeys)
+    const normalItems = filteredContainers.filter(container => !pinnedKeySet.has(getUpdateFilterPinKey(container)))
+
+    return [...pinnedItems, ...normalItems]
+  })()
 
   const getUpdateProgressPercent = (container) => {
     const action = getContainerActionState(container)
@@ -1073,9 +1182,9 @@ export function Containers() {
                 <label className="inline-flex items-center justify-center w-8 h-8 cursor-pointer">
                   <input
                     type="checkbox"
-                    checked={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id))}
+                    checked={renderedContainers.length > 0 && renderedContainers.every(c => selectedContainers.includes(c.id))}
                     onChange={() => {
-                      const ids = filteredContainers.map(c => c.id)
+                      const ids = renderedContainers.map(c => c.id)
                       const allSelected = ids.length > 0 && ids.every(id => selectedContainers.includes(id))
                       setSelectedContainers(allSelected ? selectedContainers.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedContainers, ...ids])))
                       setIsBatchMode(true)
@@ -1092,11 +1201,11 @@ export function Containers() {
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-100 dark:divide-gray-700 bg-white dark:bg-gray-800">
-            {filteredContainers.map((container) => {
+            {renderedContainers.map((container) => {
               const isSelected = selectedContainers.includes(container.id)
               const progressPercent = getUpdateProgressPercent(container)
               return (
-                <tr key={container.id} onClick={() => toggleContainerSelection(container.id)} className={cn(
+                <tr key={getContainerRenderKey(container)} onClick={() => toggleContainerSelection(container.id)} className={cn(
                   "hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors cursor-pointer",
                   isSelected && "bg-primary-50 dark:bg-primary-900/20",
                   isUpdateIgnored(container) && "opacity-55 grayscale"
@@ -1450,7 +1559,7 @@ export function Containers() {
             <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
               <div className="text-2xl sm:text-3xl font-bold text-yellow-600 dark:text-yellow-400 transition-transform duration-300 group-hover:scale-110">
-                {containers.filter(c => displayedHaveUpdate(c)).length}
+                {containers.filter(c => visibleInUpdateFilter(c)).length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">有更新</div>
             </div>
@@ -1516,11 +1625,11 @@ export function Containers() {
                     </button>
                     <button
                       onClick={() => {
-                        const filteredContainers = containers.filter((container) => {
+                        const filteredContainers = renderedContainers.filter((container) => {
                           if (!filterStatus) return true
                           if (filterStatus === 'running') return container.status && container.status.toLowerCase() === 'running'
                           if (filterStatus === 'stopped') return container.status && container.status.toLowerCase() !== 'running'
-                          if (filterStatus === 'update') return displayedHaveUpdate(container)
+                          if (filterStatus === 'update') return visibleInUpdateFilter(container)
                           if (filterStatus === 'ignored') return isUpdateIgnored(container)
                           return true
                         })
@@ -1533,7 +1642,7 @@ export function Containers() {
                     </button>
                     {(filterStatus === 'update' || filterStatus === null) && (
                       <button
-                        onClick={() => saveUpdateBlacklist([...updateBlacklist, ...filteredContainers.map(getBlacklistKey)])}
+                        onClick={() => saveUpdateBlacklist([...updateBlacklist, ...renderedContainers.map(getBlacklistKey)])}
                         className="px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 rounded transition-colors"
                       >
                         忽略全部
@@ -1541,7 +1650,7 @@ export function Containers() {
                     )}
                     {filterStatus === 'ignored' && (
                       <button
-                        onClick={() => saveUpdateBlacklist(updateBlacklist.filter(item => !filteredContainers.some(container => matchesBlacklistItem(container, item))))}
+                        onClick={() => saveUpdateBlacklist(updateBlacklist.filter(item => !renderedContainers.some(container => matchesBlacklistItem(container, item))))}
                         className="px-2 py-0.5 text-xs font-medium text-gray-700 dark:text-gray-200 hover:text-gray-900 dark:hover:text-white bg-gray-100 dark:bg-gray-700 rounded transition-colors"
                       >
                         取消忽略
@@ -1565,10 +1674,10 @@ export function Containers() {
         {containers.length > 0 ? (
           viewMode === 'table' ? renderTableView() : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
-            {filteredContainers.map((container) => {
+            {renderedContainers.map((container) => {
                 const isSelected = selectedContainers.includes(container.id)
                 return (
-                  <div key={container.id} className="group">
+                  <div key={getContainerRenderKey(container)} className="group">
                     {/* 容器卡片 - 简化设计，点击调起详情 */}
                     <div
                       onClick={(e) => {
