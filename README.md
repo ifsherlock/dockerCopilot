@@ -6,7 +6,7 @@
 
 DockerCopilot 是一个主打便捷的 Docker 容器管理工具，支持通过 Web 页面和 Telegram Bot 管理容器、镜像、备份和更新。
 
-> 当前维护版：`2.1.3` / `v2.1.3`
+> 当前维护版：`2.1.6` / `v2.1.6`
 
 ## 功能概览
 
@@ -54,18 +54,18 @@ GHCR：
 
 ```text
 ghcr.io/ifsherlock/dockercopilot:latest
-ghcr.io/ifsherlock/dockercopilot:v2.1.3
+ghcr.io/ifsherlock/dockercopilot:v2.1.6
 ghcr.io/ifsherlock/dockercopilot-bot:latest
-ghcr.io/ifsherlock/dockercopilot-bot:2.1.3
+ghcr.io/ifsherlock/dockercopilot-bot:2.1.6
 ```
 
 DockerHub：
 
 ```text
 jaysherlock/dockercopilot:latest
-jaysherlock/dockercopilot:v2.1.3
+jaysherlock/dockercopilot:v2.1.6
 jaysherlock/dockercopilot-bot:latest
-jaysherlock/dockercopilot-bot:2.1.3
+jaysherlock/dockercopilot-bot:2.1.6
 ```
 
 ## 主程序 docker-compose.yaml
@@ -100,7 +100,7 @@ services:
     environment:
       - TZ=Asia/Shanghai
       - DOCKER_HOST=unix:///var/run/docker.sock
-      # 登录密钥：不少于 8 位，且不要使用纯数字
+      # 登录密钥：不少于 8 位
       - secretKey=请改成你的强密码
       # 备份目录，默认也可不填
       - BACKUP_DIR=/data/backups
@@ -130,7 +130,7 @@ ports:
 
 | 变量 | 必填 | 说明 |
 | --- | --- | --- |
-| `secretKey` | 是 | Web 登录密钥，不少于 8 位且不要使用纯数字 |
+| `secretKey` | 是 | Web 登录密钥，不少于 8 位 |
 | `TZ` | 否 | 时区，建议 `Asia/Shanghai` |
 | `DOCKER_HOST` | 否 | Docker socket 地址，默认使用 `unix:///var/run/docker.sock` |
 | `BACKUP_DIR` | 否 | 备份文件目录，建议 `/data/backups` |
