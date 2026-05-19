@@ -318,6 +318,40 @@ jaysherlock/dc-update-test:latest
 
 容器列表接口会优先返回本地容器状态，更新检测在后台异步刷新缓存。
 
+## 程序自更新说明
+
+DockerCopilot 左下角版本信息会同时读取：
+
+- 本地运行版本
+- 远端 `latest/version` 版本
+
+当远端版本高于本地版本时，页面会提示有新版本。
+
+### DockerCopilot 自身容器如何更新？
+
+DockerCopilot 自己这个容器不会走普通容器的“拉镜像 -> 停止 -> 重建容器”流程。
+
+原因很简单：如果先把自己停掉，更新流程也就中断了。
+
+因此自身更新会改走 **程序自更新**：
+
+1. 读取远端 `latest/version`
+2. 从 GitHub Release 下载对应架构的 `dockerCopilot-<arch>.tar.gz`
+3. 解压出新的 `dockerCopilot-new` 二进制
+4. 将其写入容器工作目录中的 `./dockerCopilot-new`
+5. 主进程退出后，容器重启
+6. `start.sh` 检测到 `./dockerCopilot-new`，自动替换为 `./dockerCopilot`
+
+这样容器版就可以通过**仅替换二进制文件**完成自更新，而不需要先把容器删除重建。
+
+### 什么时候不会执行自更新？
+
+如果本地版本已经等于远端版本，界面会直接提示：
+
+- `当前已是最新版本`
+
+此时不会重复下载，也不会触发重启。
+
 ## 常见问题
 
 ### 登录提示失败
