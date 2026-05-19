@@ -2,6 +2,24 @@ name: docker-images
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - latest
+    paths:
+      - version
+      - src/**
+      - public/**
+      - package.json
+      - package-lock.json
+      - internal/**
+      - dockercopilot.go
+      - go.mod
+      - go.sum
+      - etc/**
+      - docker/**
+      - start.sh
+      - bot/**
+      - .github/workflows/docker-build-push-v2.1.3.yml
 
 concurrency:
   group: docker-images-${{ github.ref }}
@@ -56,9 +74,8 @@ jobs:
           path: front
 
       - name: Get version from file
-        id: get_version
         run: |
-          echo "version=$(cat version)" >> $GITHUB_ENV
+          echo "VERSION=$(cat version)" >> $GITHUB_ENV
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -68,7 +85,7 @@ jobs:
 
       - name: Build backend for ${{ matrix.arch }}
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X 'github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.version }}' -X 'github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=$(date)'" -o dist/linux/${{ matrix.arch }}/dockerCopilot .
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X 'github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.VERSION }}' -X 'github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=$(date)'" -o dist/linux/${{ matrix.arch }}/dockerCopilot .
 
       - name: Prepare Files
         run: |
@@ -88,6 +105,10 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Get version from file
+        run: |
+          echo "VERSION=$(cat version)" >> $GITHUB_ENV
 
       - name: Download Backend Artifacts
         uses: actions/download-artifact@v4
@@ -113,7 +134,7 @@ jobs:
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ghcr.io/${{ github.repository_owner }}/dockercopilot:v${{ env.version }}
+            ghcr.io/${{ github.repository_owner }}/dockercopilot:v${{ env.VERSION }}
             ghcr.io/${{ github.repository_owner }}/dockercopilot:latest
           push: true
 
@@ -137,6 +158,11 @@ jobs:
       - name: Checkout code
         if: steps.dockerhub.outputs.enabled == 'true'
         uses: actions/checkout@v4
+
+      - name: Get version from file
+        if: steps.dockerhub.outputs.enabled == 'true'
+        run: |
+          echo "VERSION=$(cat version)" >> $GITHUB_ENV
 
       - name: Download Backend Artifacts
         if: steps.dockerhub.outputs.enabled == 'true'
@@ -165,6 +191,6 @@ jobs:
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
           tags: |
-            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:v${{ env.version }}
+            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:v${{ env.VERSION }}
             ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:latest
           push: true
