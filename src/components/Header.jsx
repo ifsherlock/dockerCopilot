@@ -21,8 +21,6 @@ import { cn } from '../utils/cn.js'
 import logoImg from '../assets/DockerCopilot-logo.png'
 import { useVersionCheck } from '../hooks/useVersionCheck.js'
 
-const FRONTEND_BUILD_MARK = 'uploadfix-release'
-
 export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false, onToggleCollapse, windowWidth = 1024 }) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
   const [isDevInfoExpanded, setIsDevInfoExpanded] = React.useState(false)
@@ -74,9 +72,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
 
   const displayVersion = (value) => {
     const raw = String(value || '').trim()
-    if (!raw) return `-- (${FRONTEND_BUILD_MARK})`
-    const normalized = raw.startsWith('v') ? raw : `v${raw}`
-    return `${normalized}-${FRONTEND_BUILD_MARK}`
+    if (!raw) return '--'
+    return raw.startsWith('v') ? raw : `v${raw}`
   }
 
   // 智能判断是否可以手动切换侧边栏
