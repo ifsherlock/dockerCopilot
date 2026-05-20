@@ -103,6 +103,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: container.ContainersListHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodGet,
+				Path:    "/container/:id/logs",
+				Handler: container.ContainerLogsHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/containers/check-update",
 				Handler: container.CheckUpdateHandler(serverCtx),

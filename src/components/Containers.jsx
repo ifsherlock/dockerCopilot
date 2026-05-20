@@ -1116,57 +1116,66 @@ export function Containers() {
   const renderTableActionButtons = (container) => {
     const actionState = getContainerActionState(container)
     const isBusy = actionState?.loading
+    const progressPercent = Math.max(0, Math.min(100, Math.round(actionState?.percentage || 0)))
+    const progressLabel = actionState?.progress || ''
 
-    if (isBusy || actionState?.done) {
-      return (
-        <div className={cn("inline-flex items-center gap-2 px-2 py-1 text-xs rounded-md whitespace-nowrap", actionState?.done ? "text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/30" : "text-primary-700 dark:text-primary-300 bg-primary-50 dark:bg-primary-900/30")}>
-          {actionState?.done ? <span className="h-3 w-3 text-center leading-3">✓</span> : <RefreshCw className="h-3 w-3 animate-spin" />}
-          <span>
-            {actionState.action === 'start' && '启动中'}
-            {actionState.action === 'stop' && '停止中'}
-            {actionState.action === 'restart' && '重启中'}
-            {actionState.action === 'update' && (actionState?.done ? (actionState.progress || '更新完成') : `更新中${actionState.percentage ? ` ${Math.round(actionState.percentage)}%` : ''}`)}
-            {actionState.action === 'delete' && '删除中'}
-          </span>
-        </div>
-      )
-    }
+    const progressOverlay = (isBusy || actionState?.done) ? (
+      <div className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden rounded-lg">
+        <div
+          className={cn(
+            "h-full rounded-lg transition-all duration-500",
+            actionState?.done
+              ? "bg-emerald-200/55 dark:bg-emerald-500/20"
+              : "bg-sky-200/70 dark:bg-sky-400/20"
+          )}
+          style={{ width: `${progressPercent}%` }}
+        />
+      </div>
+    ) : null
 
     return (
-      <div className="flex items-center gap-1 justify-start">
-        {container.status === 'running' ? (
-          <>
-            <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700" title="停止">
-              停止
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700" title="重启">
-              重启
-            </button>
-          </>
-        ) : (
-          <>
-            <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700" title="启动">
-              启动
-            </button>
-            <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="px-2 py-1 text-xs rounded-md text-white bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 shadow-sm" title="删除已停止容器">
-              删除
-            </button>
-          </>
-        )}
-        <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
-          "px-2 py-1 text-xs rounded-md border transition-colors",
-          isUpdateIgnored(container)
-            ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100 dark:bg-gray-800 cursor-not-allowed opacity-70"
-            : displayedHaveUpdate(container)
-              ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20"
-              : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20"
-        )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
-          更新
-        </button>
-        {isUpdateIgnored(container) ? (
-          <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100 dark:bg-gray-700 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold" title="取消忽略更新">取消忽略</button>
-        ) : (
-          <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50 dark:hover:bg-yellow-900/20" title="忽略更新">忽略</button>
+      <div className="min-w-[250px]">
+        <div className="relative inline-flex items-stretch gap-1 justify-start rounded-xl">
+          {progressOverlay}
+          {container.status === 'running' ? (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="停止">
+                停止
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="重启">
+                重启
+              </button>
+            </>
+          ) : (
+            <>
+              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
+                启动
+              </button>
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md text-white bg-red-500/88 hover:bg-red-600 dark:bg-red-600/88 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
+                删除
+              </button>
+            </>
+          )}
+          <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
+            "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]",
+            isUpdateIgnored(container)
+              ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100/80 dark:bg-gray-800/80 cursor-not-allowed opacity-70"
+              : displayedHaveUpdate(container)
+                ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20"
+                : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50/80 dark:hover:bg-purple-900/20"
+          )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
+            更新
+          </button>
+          {isUpdateIgnored(container) ? (
+            <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100/82 dark:bg-gray-700/82 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold backdrop-blur-[1px]" title="取消忽略更新">取消忽略</button>
+          ) : (
+            <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
+          )}
+        </div>
+        {progressLabel && (isBusy || actionState?.done) && (
+          <div className={cn("mt-1 pl-1 text-[11px] truncate", actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300")} title={progressLabel}>
+            {progressLabel}
+          </div>
         )}
       </div>
     )
@@ -1193,7 +1202,7 @@ export function Containers() {
                   />
                 </label>
               </th>
-              {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '操作', '进度'].map((title) => (
+              {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '操作与进度'].map((title) => (
                 <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
                   {title}
                 </th>
@@ -1253,17 +1262,8 @@ export function Containers() {
                       )
                     })()}
                   </td>
-                  <td className="px-2 py-3 whitespace-nowrap min-w-[190px]" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-2 py-3 whitespace-nowrap min-w-[280px]" onClick={(e) => e.stopPropagation()}>
                     {renderTableActionButtons(container)}
-                  </td>
-                  <td className="px-3 py-3 min-w-[220px]">
-                    <div className="flex items-center gap-2">
-                      <span className="w-9 text-xs font-semibold text-gray-700 dark:text-gray-300 text-right">{progressPercent}%</span>
-                      <div className="h-2.5 w-40 bg-gray-200 dark:bg-gray-700 rounded-full overflow-hidden">
-                        <div className={cn("h-full rounded-full transition-all duration-500", progressPercent > 0 ? "bg-primary-500" : "bg-gray-300 dark:bg-gray-600")} style={{ width: `${progressPercent}%` }} />
-                      </div>
-                    </div>
-                    {getContainerActionState(container)?.progress && <div className="text-[10px] text-gray-500 dark:text-gray-400 mt-1 truncate max-w-[220px]" title={getContainerActionState(container).progress}>{firstWord(getContainerActionState(container).progress)}</div>}
                   </td>
                 </tr>
               )

@@ -35,6 +35,11 @@ type GetProgressReq struct {
 
 type GetLogsReq struct{}
 
+type GetContainerLogsReq struct {
+	Id   string `path:"id"`
+	Tail string `form:"tail,optional"`
+}
+
 type PullImageReq struct {
 	ImageName   string `json:"imageName"`
 	Source      string `json:"source"`

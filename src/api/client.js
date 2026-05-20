@@ -134,6 +134,7 @@ export const containerAPI = {
   },
   deleteBackup: (filename) => apiClient.delete(`/api/container/backups?filename=${encodeURIComponent(filename)}`),
   backupToCompose: () => apiClient.get('/api/container/backup2compose'),
+  getContainerLogs: (id, tail = 300) => apiClient.get(`/api/container/${id}/logs?tail=${tail}`),
 }
 
 // 镜像相关API

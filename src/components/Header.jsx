@@ -11,6 +11,7 @@ import {
   Palette,
   Info,
   Bot,
+  FileText,
   ChevronDown,
   ChevronRight,
   RefreshCw
@@ -108,6 +109,11 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
       id: '#bot',
       label: '交互',
       icon: Bot,
+    },
+    {
+      id: '#logs',
+      label: '日志',
+      icon: FileText,
     },
     {
       id: '#about',
@@ -464,6 +470,11 @@ export function MobileBottomNav({ activeTab, onTabChange, windowWidth = 1024 }) 
       id: '#bot',
       label: '交互',
       icon: Bot,
+    },
+    {
+      id: '#logs',
+      label: '日志',
+      icon: FileText,
     },
     {
       id: '#about',
