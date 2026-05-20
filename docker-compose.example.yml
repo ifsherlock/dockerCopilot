@@ -1,6 +1,6 @@
 services:
   dockercopilot:
-    image: your-dockerhub-username/dockercopilot:v2.1.3
+    image: jaysherlock/dockercopilot:latest
     container_name: dockercopilot
     restart: always
     ports:

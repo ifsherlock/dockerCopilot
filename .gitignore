@@ -35,3 +35,6 @@ node_modules/
 dist/
 front/
 *.pyc
+
+# Local temporary build artifacts
+.tmp-*
