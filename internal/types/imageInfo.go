@@ -6,8 +6,11 @@ import (
 
 type Image struct {
 	image.Summary
-	ImageName  string `json:"imageName"`
-	ImageTag   string `json:"imageTag"`
-	InUsed     bool   `json:"inUsed"`
-	SizeFormat string `json:"sizeFormat"`
+	ImageName        string `json:"imageName"`
+	ImageTag         string `json:"imageTag"`
+	InUsed           bool   `json:"inUsed"`
+	SizeFormat       string `json:"sizeFormat"`
+	CleanupCandidate bool   `json:"cleanupCandidate"`
+	CleanupReason    string `json:"cleanupReason"`
+	MultiRef         bool   `json:"multiRef"`
 }

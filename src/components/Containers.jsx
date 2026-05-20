@@ -1167,7 +1167,7 @@ export function Containers() {
               <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
                 启动
               </button>
-              <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md text-white bg-red-500/88 hover:bg-red-600 dark:bg-red-600/88 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
+              <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md font-semibold text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400 border border-red-600 dark:border-red-500 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
                 删除
               </button>
             </>
@@ -1382,121 +1382,6 @@ export function Containers() {
               管理您的Docker容器，包括启动、停止、重启等操作
             </p>
           </div>
-
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:max-w-[78%]">
-            {viewMode === 'card' && (
-              <button
-                onClick={() => {
-                  setIsBatchMode(!isBatchMode)
-                  if (isBatchMode) setSelectedContainers([])
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
-              >
-                <CheckSquare className="h-4 w-4" />
-                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
-              </button>
-            )}
-            {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (
-              <>
-                <button
-                  className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors text-sm font-medium"
-                  onClick={toggleSelectAll}
-                  title={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
-                >
-                  <span>{filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}</span>
-                </button>
-                <button
-                  className={topButtonClass('bg-primary-600 hover:bg-primary-700 text-white', selectedContainers.length === 0)}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('start')}
-                  title="启动"
-                >
-                  <Play className="h-4 w-4" />
-                  <span>启动</span>
-                </button>
-                <button
-                  className={topButtonClass('bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/60', selectedContainers.length === 0)}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('stop')}
-                  title="停止"
-                >
-                  <Square className="h-4 w-4" />
-                  <span>停止</span>
-                </button>
-                <button
-                  className={topButtonClass('bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60', selectedContainers.length === 0)}
-                  disabled={selectedContainers.length === 0}
-                  onClick={() => handleBatchAction('restart')}
-                  title="重启"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  <span>重启</span>
-                </button>
-                <button
-                  className={topButtonClass('bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 hover:bg-emerald-200 dark:hover:bg-emerald-900/60', selectedContainers.length === 0 || hasSelectedIgnored)}
-                  disabled={selectedContainers.length === 0 || hasSelectedIgnored}
-                  onClick={() => handleBatchAction('update')}
-                  title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}
-                >
-                  <Upload className="h-4 w-4" />
-                  <span>更新</span>
-                </button>
-                <button
-                  className={topButtonClass(hasSelectedIgnored ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60', selectedContainers.length === 0)}
-                  disabled={selectedContainers.length === 0}
-                  onClick={async () => {
-                    if (hasSelectedIgnored) {
-                      await unignoreSelected()
-                    } else {
-                      const selected = containers.filter(c => selectedContainers.includes(c.id))
-                      await saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
-                      setSelectedContainers([])
-                    }
-                  }}
-                  title={hasSelectedIgnored ? '取消忽略' : '忽略更新'}
-                >
-                  <Ban className="h-4 w-4" />
-                  <span>{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
-                </button>
-              </>
-            )}
-
-            <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
-              <button
-                onClick={() => setViewMode('card')}
-                className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                title="卡片视图"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                title="表格视图"
-              >
-                <LayoutList className="h-4 w-4" />
-              </button>
-            </div>
-            <button
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
-              onClick={handleRefresh}
-              disabled={isRefreshing}
-              title="刷新页面并检测容器更新"
-            >
-              <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-              <span>刷新</span>
-            </button>
-            <div className={cn('relative', viewMode === 'table' ? 'flex-1 min-w-[220px]' : '')}>
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="搜索容器/镜像/状态"
-                className="w-full sm:w-64 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -1597,6 +1482,93 @@ export function Containers() {
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">更新黑名单</div>
             </div>
           </button>
+        </div>
+
+        <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            {viewMode === 'card' && (
+              <button
+                onClick={() => {
+                  setIsBatchMode(!isBatchMode)
+                  if (isBatchMode) setSelectedContainers([])
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              >
+                <CheckSquare className="h-4 w-4" />
+                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
+              </button>
+            )}
+
+            {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (
+              <>
+                <button
+                  className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors text-sm font-medium"
+                  onClick={toggleSelectAll}
+                  title={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
+                >
+                  <span>{filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}</span>
+                </button>
+                <button className={topButtonClass('bg-primary-600 hover:bg-primary-700 text-white', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('start')} title="启动">
+                  <Play className="h-4 w-4" />
+                  <span>启动</span>
+                </button>
+                <button className={topButtonClass('bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/60', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('stop')} title="停止">
+                  <Square className="h-4 w-4" />
+                  <span>停止</span>
+                </button>
+                <button className={topButtonClass('bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('restart')} title="重启">
+                  <RotateCcw className="h-4 w-4" />
+                  <span>重启</span>
+                </button>
+                <button className={topButtonClass('bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 hover:bg-emerald-200 dark:hover:bg-emerald-900/60', selectedContainers.length === 0 || hasSelectedIgnored)} disabled={selectedContainers.length === 0 || hasSelectedIgnored} onClick={() => handleBatchAction('update')} title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}>
+                  <Upload className="h-4 w-4" />
+                  <span>更新</span>
+                </button>
+                <button
+                  className={topButtonClass(hasSelectedIgnored ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60', selectedContainers.length === 0)}
+                  disabled={selectedContainers.length === 0}
+                  onClick={async () => {
+                    if (hasSelectedIgnored) {
+                      await unignoreSelected()
+                    } else {
+                      const selected = containers.filter(c => selectedContainers.includes(c.id))
+                      await saveUpdateBlacklist([...updateBlacklist, ...selected.flatMap(getBlacklistCandidates)])
+                      setSelectedContainers([])
+                    }
+                  }}
+                  title={hasSelectedIgnored ? '取消忽略' : '忽略更新'}
+                >
+                  <Ban className="h-4 w-4" />
+                  <span>{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
+                </button>
+            </>
+            )}
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className={cn('relative min-w-[220px] flex-1 sm:flex-none sm:w-72')}>
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder="搜索容器/镜像/状态"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <button className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium" onClick={handleRefresh} disabled={isRefreshing} title="刷新页面并检测容器更新">
+                <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+                <span>刷新</span>
+              </button>
+              <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-1">
+                <button onClick={() => setViewMode('card')} className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')} title="卡片视图">
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button onClick={() => setViewMode('table')} className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')} title="表格视图">
+                  <LayoutList className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 

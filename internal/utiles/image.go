@@ -19,16 +19,19 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 
 	for _, img := range dockerImages {
 		i := MyType.Image{
-			Summary:    img,
-			ImageName:  "",
-			ImageTag:   "",
-			InUsed:     false,
-			SizeFormat: "",
+			Summary:          img,
+			ImageName:        "",
+			ImageTag:         "",
+			InUsed:           false,
+			SizeFormat:       "",
+			CleanupCandidate: false,
+			CleanupReason:    "",
+			MultiRef:         false,
 		}
 		imagesList = append(imagesList, i)
 	}
-	//看不明白就不要看了，这内存反复地申请，如果你看明白了 给这改成指针吧，啥？我为啥不直接写指针，我懒癌犯了就这样，欢迎pr
-	imagesList, err = checkImageInUsed(ctx, splitImageNameAndTag(calculateImageSize(imagesList)))
+	imagesList = splitImageNameAndTag(calculateImageSize(imagesList))
+	imagesList, err = enrichImageCleanupFlags(ctx, imagesList)
 	if err != nil {
 		return imagesList, err
 	}
@@ -38,8 +41,13 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 func splitImageNameAndTag(imagesList []MyType.Image) []MyType.Image {
 	for i, imageInfo := range imagesList {
 		if len(imageInfo.RepoTags) != 0 {
-			imagesList[i].ImageName = strings.Split(imageInfo.RepoTags[0], ":")[0]
-			imagesList[i].ImageTag = strings.Split(imageInfo.RepoTags[0], ":")[1]
+			parts := strings.SplitN(imageInfo.RepoTags[0], ":", 2)
+			imagesList[i].ImageName = parts[0]
+			if len(parts) > 1 {
+				imagesList[i].ImageTag = parts[1]
+			} else {
+				imagesList[i].ImageTag = "None"
+			}
 		} else if len(imageInfo.RepoDigests) != 0 {
 			imagesList[i].ImageName = strings.Split(imageInfo.RepoDigests[0], "@")[0]
 			imagesList[i].ImageTag = "None"
@@ -50,30 +58,74 @@ func splitImageNameAndTag(imagesList []MyType.Image) []MyType.Image {
 	}
 	return imagesList
 }
-func checkImageInUsed(svc *svc.ServiceContext, imageList []MyType.Image) ([]MyType.Image, error) {
+
+func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) ([]MyType.Image, error) {
 	list, err := GetContainerList(svc)
 	if err != nil {
 		return imageList, err
 	}
-	// 这里可以用mapreduce 我懒等pr
+	inUseMap := make(map[string]bool, len(list))
 	for _, v := range list {
-		for i, imageInfo := range imageList {
-			if v.ImageID == imageInfo.ID {
-				imageList[i].InUsed = true
-				break
-			}
+		inUseMap[v.ImageID] = true
+	}
+	for i, imageInfo := range imageList {
+		imageList[i].InUsed = inUseMap[imageInfo.ID]
+		tag := strings.TrimSpace(strings.ToLower(imageInfo.ImageTag))
+		noTag := tag == "" || tag == "none" || tag == "<none>"
+		multiRef := countMeaningfulRefs(imageInfo) > 1
+		imageList[i].MultiRef = multiRef
+		switch {
+		case imageList[i].InUsed:
+			imageList[i].CleanupCandidate = false
+			imageList[i].CleanupReason = "in_use"
+		case multiRef:
+			imageList[i].CleanupCandidate = false
+			imageList[i].CleanupReason = "multi_ref"
+		case noTag:
+			imageList[i].CleanupCandidate = true
+			imageList[i].CleanupReason = "dangling"
+		default:
+			imageList[i].CleanupCandidate = true
+			imageList[i].CleanupReason = "unused"
 		}
 	}
 	return imageList, nil
 }
+
+func countMeaningfulRefs(img MyType.Image) int {
+	seen := map[string]struct{}{}
+	count := 0
+	for _, tag := range img.RepoTags {
+		t := strings.TrimSpace(strings.ToLower(tag))
+		if t == "" || t == "<none>:<none>" || t == "none:none" {
+			continue
+		}
+		if _, ok := seen[t]; ok {
+			continue
+		}
+		seen[t] = struct{}{}
+		count++
+	}
+	for _, digest := range img.RepoDigests {
+		d := strings.TrimSpace(strings.ToLower(digest))
+		if d == "" || strings.Contains(d, "<none>") {
+			continue
+		}
+		if _, ok := seen[d]; ok {
+			continue
+		}
+		seen[d] = struct{}{}
+		count++
+	}
+	return count
+}
+
 func calculateImageSize(imagesList []MyType.Image) []MyType.Image {
 	for i := range imagesList {
 		if imagesList[i].Size >= 1024*1024*1024 {
-			imagesList[i].SizeFormat = // Convert size to gigabytes
-				fmt.Sprintf("%d Gb", imagesList[i].Size/1024/1024/1024)
+			imagesList[i].SizeFormat = fmt.Sprintf("%d Gb", imagesList[i].Size/1024/1024/1024)
 		} else {
-			imagesList[i].SizeFormat = // Convert size to megabytes
-				fmt.Sprintf("%d Mb", imagesList[i].Size/1024/1024)
+			imagesList[i].SizeFormat = fmt.Sprintf("%d Mb", imagesList[i].Size/1024/1024)
 		}
 	}
 	return imagesList

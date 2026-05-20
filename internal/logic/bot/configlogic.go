@@ -82,6 +82,8 @@ func defaultConfig(secretKey string) runtimeConfig {
 			"backup_max_files":          20,
 			"image_accelerators":        []string{"docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"},
 			"default_image_accelerator": "docker.1ms.run",
+			"theme_mode":                "light",
+			"theme_appearance":          "aurora",
 			"proxy": map[string]interface{}{
 				"type":     "none",
 				"host":     "",
@@ -425,6 +427,24 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		"username": req.ProxyUsername,
 		"password": req.ProxyPassword,
 	}
+	themeMode := strings.TrimSpace(req.ThemeMode)
+	if themeMode == "" {
+		themeMode = existingString(cfg.Telegram, "theme_mode", "light")
+	}
+	if themeMode != "light" && themeMode != "dark" && themeMode != "system" {
+		themeMode = "light"
+	}
+	themeAppearance := strings.TrimSpace(req.ThemeAppearance)
+	if themeAppearance == "" {
+		themeAppearance = existingString(cfg.Telegram, "theme_appearance", "aurora")
+	}
+	switch themeAppearance {
+	case "aurora", "night_sail", "mist":
+	default:
+		themeAppearance = "aurora"
+	}
+	cfg.Telegram["theme_mode"] = themeMode
+	cfg.Telegram["theme_appearance"] = themeAppearance
 	if strings.TrimSpace(req.DefaultInstance) != "" {
 		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
 	}

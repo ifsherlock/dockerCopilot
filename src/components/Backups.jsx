@@ -644,7 +644,7 @@ export function Backups() {
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
                   <div className="font-semibold text-gray-900 dark:text-white">JSON 备份</div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">默认输出容器配置 JSON</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">备份 DockerCopilot 当前识别到的容器配置清单，适合做配置留档、迁移和恢复。</div>
                 </div>
                 <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -655,6 +655,9 @@ export function Backups() {
                   />
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">启用</span>
                 </label>
+              </div>
+              <div className="mb-3 rounded-xl border border-blue-200/70 dark:border-blue-800/70 bg-white/70 dark:bg-gray-900/30 p-3 text-xs leading-6 text-gray-600 dark:text-gray-300">
+                里面主要是容器相关的结构化配置数据，不是镜像文件本体，也不是容器运行时数据卷内容。
               </div>
               <input
                 type="text"
@@ -670,7 +673,7 @@ export function Backups() {
               <div className="flex items-center justify-between gap-3 mb-3">
                 <div>
                   <div className="font-semibold text-gray-900 dark:text-white">YAML / Compose 备份</div>
-                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">导出为 Compose / YAML 结构</div>
+                  <div className="text-xs text-gray-600 dark:text-gray-400 mt-1">备份 Docker 部署用的 Compose / YAML 文件结构，适合重建部署或手工查看编排内容。</div>
                 </div>
                 <label className="inline-flex items-center gap-2 cursor-pointer select-none">
                   <input
@@ -681,6 +684,9 @@ export function Backups() {
                   />
                   <span className="text-sm font-medium text-gray-700 dark:text-gray-300">启用</span>
                 </label>
+              </div>
+              <div className="mb-3 rounded-xl border border-purple-200/70 dark:border-purple-800/70 bg-white/70 dark:bg-gray-900/30 p-3 text-xs leading-6 text-gray-600 dark:text-gray-300">
+                这个更接近你平时看到的 docker-compose.yml / compose.yaml 文本，重点是部署方式，不包含镜像文件本体和数据卷实际内容。
               </div>
               <input
                 type="text"

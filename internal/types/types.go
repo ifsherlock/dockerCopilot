@@ -134,4 +134,6 @@ type BotConfigReq struct {
 	BackupMaxFiles          int    `json:"backupMaxFiles,optional"`
 	ImageAccelerators       string `json:"imageAccelerators,optional"`
 	DefaultImageAccelerator string `json:"defaultImageAccelerator,optional"`
+	ThemeMode               string `json:"themeMode,optional"`
+	ThemeAppearance         string `json:"themeAppearance,optional"`
 }

@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { Github, Heart, HelpCircle, Sparkles, Upload, HardDrive, AlertTriangle, X } from 'lucide-react'
+import { Github, BadgeInfo, HelpCircle, Sparkles, Upload, HardDrive, AlertTriangle, X, Link as LinkIcon } from 'lucide-react'
 import { cn } from '../utils/cn.js'
 import { useVersionCheck } from '../hooks/useVersionCheck.js'
 import wechatImg from '../assets/wechat.jpg'
@@ -29,10 +29,10 @@ export function About() {
             一个简洁、优雅且强大的 Docker 容器管理工具，旨在为您提供流畅的容器运维体验。
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <a href="https://github.com/ifsherlock/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
+            <a href="https://github.com/onlyLTY/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
               <Github className="h-4 w-4" /><span>GitHub</span>
             </a>
-            <a href="https://github.com/ifsherlock/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 border border-gray-300 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
+            <a href="https://github.com/onlyLTY/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 border-2 border-gray-900 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
               <HelpCircle className="h-4 w-4" /><span>反馈建议</span>
             </a>
           </div>
@@ -40,10 +40,23 @@ export function About() {
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
           <div className="card p-6 flex flex-col h-full">
-            <div className="flex items-center gap-2 mb-4"><Heart className="h-5 w-5 text-red-500" /><h3 className="text-lg font-bold text-gray-900 dark:text-white">致谢 / Thanks</h3></div>
-            <p className="text-gray-600 dark:text-gray-400 leading-relaxed flex-1">感谢原作者 <b>onlyLTY</b> 开源 Docker Copilot；本项目核心源码由 onlyLTY 编写。也感谢所有使用者的建议、反馈和鼓励，让这个工具持续变得更好。</p>
-            <button onClick={() => setShowDonate(true)} className="mt-5 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-red-50 text-red-600 dark:bg-red-900/20 dark:text-red-300 hover:bg-red-100 dark:hover:bg-red-900/30 transition-colors font-medium">
-              <Heart className="h-4 w-4" /> 支持原作者
+            <div className="flex items-center gap-2 mb-4"><span className="text-lg leading-none">💰</span><h3 className="text-lg font-bold text-gray-900 dark:text-white">致谢 / Thanks</h3></div>
+            <div className="text-gray-600 dark:text-gray-400 leading-relaxed flex-1 space-y-3">
+              <p>
+                感谢原作者{' '}
+                <a href="https://github.com/onlyLTY" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+                  onlyLTY <LinkIcon className="h-3.5 w-3.5" />
+                </a>{' '}
+                开源{' '}
+                <a href="https://github.com/onlyLTY/dockerCopilot" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1 font-semibold text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300">
+                  Docker Copilot <LinkIcon className="h-3.5 w-3.5" />
+                </a>
+                ；本项目核心源码由 onlyLTY 编写。
+              </p>
+              <p>也感谢所有使用者的建议、反馈和鼓励，让这个工具持续变得更好。</p>
+            </div>
+            <button onClick={() => setShowDonate(true)} className="mt-5 inline-flex items-center justify-center gap-2 px-4 py-2 rounded-lg bg-amber-50 text-amber-700 dark:bg-amber-900/20 dark:text-amber-300 hover:bg-amber-100 dark:hover:bg-amber-900/30 transition-colors font-medium">
+              <span className="text-base leading-none">💰</span> 支持原作者
             </button>
           </div>
           <div className="card p-6 flex flex-col h-full">
@@ -55,7 +68,7 @@ export function About() {
         <div className="card p-6 sm:p-8 border-2 border-primary-100 dark:border-primary-900/30">
           <div className="flex items-start gap-3 mb-5">
             <div className="flex h-11 w-11 items-center justify-center rounded-2xl bg-primary-50 text-primary-600 dark:bg-primary-900/30 dark:text-primary-300 shrink-0">
-              <Upload className="h-5 w-5" />
+              <BadgeInfo className="h-5 w-5" />
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">上传二进制文件更新</h2>
@@ -139,7 +152,7 @@ export function About() {
             <div className="relative w-full max-w-lg bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-gray-200 dark:border-slate-700 p-6">
               <button onClick={() => setShowDonate(false)} className="absolute top-4 right-4 text-gray-400 hover:text-gray-700 dark:hover:text-gray-200"><X className="h-5 w-5" /></button>
               <div className="text-center mb-5">
-                <Heart className="h-8 w-8 text-red-500 mx-auto mb-2" />
+                <div className="mx-auto mb-2 text-3xl leading-none">💰</div>
                 <h3 className="text-xl font-bold text-gray-900 dark:text-white">支持原作者 onlyLTY</h3>
                 <p className="text-sm text-gray-500 dark:text-gray-400 mt-2">如果原项目帮到了你，可以请原作者喝一瓶快乐水。</p>
               </div>

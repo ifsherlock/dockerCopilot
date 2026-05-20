@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"embed"
 	"flag"
 	"fmt"
@@ -9,7 +10,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
+	botruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -34,22 +37,28 @@ type UnauthorizedResponse struct {
 }
 
 func main() {
+	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil {
+		time.Local = loc
+	}
+
 	logDir := "./logs"
 	ErrSetupLog := SetupLog(logDir)
 	if ErrSetupLog != nil {
-		logx.Errorf("failed to setup log: %v", ErrSetupLog)
+		logx.Errorf("日志系统初始化失败: %v", ErrSetupLog)
 		os.Exit(1)
 	}
 	logx.SetLevel(logx.InfoLevel)
+	logx.Infof("DockerCopilot 启动中: config=%s logDir=%s", *configFile, logDir)
 
 	flag.Parse()
 	var c config.Config
 	err := conf.Load(*configFile, &c, conf.UseEnv())
 	if err != nil {
-		logx.Errorf("无法加载配置文件出错: %v", err)
-		logx.Errorf("请确认secretKey设置正确，要求非纯数字且大于八位")
+		logx.Errorf("配置加载失败: %v", err)
+		logx.Errorf("请确认 secretKey 设置正确，要求非纯数字且长度大于 8 位")
 		os.Exit(1)
 	}
+	logx.Infof("配置加载完成: host=%s port=%d", c.Host, c.Port)
 	server := rest.MustNewServer(c.RestConf, rest.WithCors("*"), rest.WithUnauthorizedCallback(
 		func(w http.ResponseWriter, r *http.Request, err error) {
 			response := UnauthorizedResponse{
@@ -61,11 +70,19 @@ func main() {
 		}))
 	defer server.Stop()
 	ctx := svc.NewServiceContext(c)
+	logx.Infof("服务上下文初始化完成")
+	if err := ctx.ReloadBackupSchedulers(); err != nil {
+		logx.Errorf("初始化定时备份失败: %v", err)
+	} else {
+		logx.Infof("定时备份调度器加载完成")
+	}
 
 	// Ensure data directory and config exist (Auto-init)
 	dataDir := "/data/config/image"
 	if err := os.MkdirAll(dataDir, 0755); err != nil {
-		logx.Errorf("Failed to create data directory: %v", err)
+		logx.Errorf("创建数据目录失败: %v", err)
+	} else {
+		logx.Infof("数据目录已就绪: %s", dataDir)
 	}
 
 	imageLogosPath := "/data/config/imageLogos.js"
@@ -75,7 +92,9 @@ export const customImageLogos = {
 };
 `)
 		if err := os.WriteFile(imageLogosPath, defaultConfig, 0644); err != nil {
-			logx.Errorf("Failed to create default imageLogos.js: %v", err)
+			logx.Errorf("创建默认 imageLogos.js 失败: %v", err)
+		} else {
+			logx.Infof("已创建默认镜像图标配置: %s", imageLogosPath)
 		}
 	}
 
@@ -88,10 +107,11 @@ export const customImageLogos = {
 		// 保留定时器占位，更新状态由容器列表按实际 createImage/ImageID 检测。
 	})
 	if err != nil {
-		logx.Errorf("panic添加定时任务出错: %v", err)
+		logx.Errorf("添加内置定时任务失败: %v", err)
 		panic(err)
 	}
 	corndanmu.Start()
+	logx.Infof("内置 cron 调度器已启动")
 	defer corndanmu.Stop()
 	httpx.SetErrorHandler(func(err error) (int, any) {
 		switch e := err.(type) {
@@ -109,8 +129,14 @@ export const customImageLogos = {
 	})
 	handler.RegisterHandlers(server, ctx)
 	RegisterHandlers(server)
-	fmt.Printf("Starting server at %s:%d...\n", c.Host, c.Port)
-	logx.Info("程序版本" + config.Version)
+	logx.Infof("HTTP 路由注册完成")
+	if err := botruntime.Start(context.Background(), ctx); err != nil {
+		logx.Errorf("启动 Telegram Bot 失败: %v", err)
+	} else {
+		logx.Infof("Telegram Bot 启动流程已完成")
+	}
+	logx.Infof("程序版本=%s", config.Version)
+	logx.Infof("HTTP 服务准备监听: %s:%d", c.Host, c.Port)
 	server.Start()
 }
 func RegisterHandlers(engine *rest.Server) {

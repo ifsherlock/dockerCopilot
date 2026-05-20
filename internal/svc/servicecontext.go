@@ -369,6 +369,14 @@ func (ctx *ServiceContext) pruneBackups() error {
 	return nil
 }
 
+func (ctx *ServiceContext) RunJSONBackupNow() error {
+	return ctx.runJSONBackup()
+}
+
+func (ctx *ServiceContext) RunComposeBackupNow() error {
+	return ctx.runComposeBackup()
+}
+
 func LoadRuntimeConfigForRead() (backupRuntimeConfig, error) {
 	path := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG"))
 	if path == "" {

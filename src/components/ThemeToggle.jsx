@@ -1,68 +1,94 @@
 import React from 'react'
-import { Moon, Sun, Monitor } from 'lucide-react'
+import { Moon, Sun, Palette, Monitor } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { cn } from '../utils/cn'
 
 export function ThemeToggle({ collapsed = false, embedded = false }) {
-  const { theme, setTheme } = useTheme()
+  const { theme, setTheme, appearance, setAppearance } = useTheme()
 
-  // 获取当前实际应用的主题（当theme为system时，返回系统实际主题）
-  const getActualTheme = () => {
-    if (theme === 'system') {
-      return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
-    }
-    return theme
-  }
+  const actualTheme = theme === 'system'
+    ? (window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light')
+    : theme
 
-  const themes = [
+  const modes = [
     { value: 'light', label: '浅色', icon: Sun },
     { value: 'dark', label: '深色', icon: Moon },
-    { value: 'system', label: '系统', icon: Monitor },
+    { value: 'system', label: '跟随系统', icon: Monitor },
   ]
 
-  if (collapsed) {
-    // 收起状态：只显示当前主题的图标，点击循环切换
-    // 如果是系统主题，显示系统当前实际主题的图标
-    const actualTheme = getActualTheme()
-    const displayTheme = theme === 'system' ? 'system' : actualTheme
-    const currentTheme = themes.find(t => t.value === displayTheme)
-    const Icon = currentTheme.icon
+  const appearances = [
+    { value: 'aurora', label: '极光', swatch: 'from-cyan-400 via-blue-500 to-violet-500' },
+    { value: 'night_sail', label: '夜航', swatch: 'from-slate-700 via-sky-700 to-indigo-800' },
+    { value: 'mist', label: '雾白', swatch: 'from-stone-200 via-slate-200 to-zinc-300' },
+  ]
 
+  const nextTheme = () => {
+    const currentIndex = modes.findIndex(item => item.value === theme)
+    const nextIndex = (currentIndex + 1) % modes.length
+    setTheme(modes[nextIndex].value)
+  }
+
+  const nextAppearance = () => {
+    const currentIndex = appearances.findIndex(item => item.value === appearance)
+    const nextIndex = (currentIndex + 1) % appearances.length
+    setAppearance(appearances[nextIndex].value)
+  }
+
+  const currentMode = modes.find(item => item.value === theme) || modes[0]
+  const CurrentModeIcon = currentMode.value === 'system' ? Monitor : (actualTheme === 'dark' ? Moon : Sun)
+  const currentAppearance = appearances.find(item => item.value === appearance) || appearances[0]
+
+  const baseIconButton = 'inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors'
+
+  if (collapsed) {
     return (
-      <button
-        onClick={() => {
-          const currentIndex = themes.findIndex(t => t.value === theme)
-          const nextIndex = (currentIndex + 1) % themes.length
-          setTheme(themes[nextIndex].value)
-        }}
-        className="p-2 text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white hover:bg-gray-100 dark:hover:bg-gray-700 rounded-lg transition-colors"
-        title={`当前: ${currentTheme.label} (点击切换)`}
-      >
-        <Icon className="h-5 w-5" />
-      </button>
+      <div className="flex flex-col items-center gap-2">
+        <button
+          onClick={nextTheme}
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          title={`当前明暗：${currentMode.label}，点击切换`}
+        >
+          <CurrentModeIcon className="h-4.5 w-4.5" />
+        </button>
+        <button
+          onClick={nextAppearance}
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          title={`当前外观：${currentAppearance.label}，点击切换`}
+        >
+          <span className={cn('absolute inset-1 rounded-md bg-gradient-to-br opacity-90', currentAppearance.swatch)} />
+          <Palette className="relative h-4 w-4 text-white drop-shadow" />
+        </button>
+      </div>
     )
   }
 
   return (
     <div className={cn(
-      "flex items-center space-x-1 rounded-lg p-1",
-      embedded ? "bg-transparent p-0" : "bg-gray-100 dark:bg-gray-800"
+      'flex items-center gap-2',
+      embedded ? 'bg-transparent p-0' : 'rounded-2xl border border-gray-200/60 bg-white/52 p-2 shadow-sm backdrop-blur dark:border-gray-700/60 dark:bg-gray-800/38'
     )}>
-      {themes.map(({ value, label, icon: Icon }) => (
-        <button
-          key={value}
-          onClick={() => setTheme(value)}
-          className={cn(
-            'flex items-center justify-center p-2 rounded-md transition-all duration-200',
-            theme === value
-              ? 'bg-white dark:bg-gray-700 text-primary-600 dark:text-primary-400 shadow-sm'
-              : 'text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-white'
-          )}
-          title={label}
-        >
-          <Icon className="h-4 w-4" />
-        </button>
-      ))}
+      <button
+        onClick={nextTheme}
+        className={cn(
+          baseIconButton,
+          'text-gray-600 hover:bg-white/65 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/10 dark:hover:text-white'
+        )}
+        title={`当前明暗：${currentMode.label}，点击切换`}
+      >
+        <CurrentModeIcon className="h-5 w-5" />
+      </button>
+
+      <button
+        onClick={nextAppearance}
+        className={cn(
+          baseIconButton,
+          'relative text-gray-600 hover:bg-white/65 dark:text-gray-300 dark:hover:bg-white/10'
+        )}
+        title={`当前外观：${currentAppearance.label}，点击切换`}
+      >
+        <span className={cn('absolute inset-2 rounded-full bg-gradient-to-br opacity-95', currentAppearance.swatch)} />
+        <Palette className="relative h-4.5 w-4.5 text-white drop-shadow" />
+      </button>
     </div>
   )
 }

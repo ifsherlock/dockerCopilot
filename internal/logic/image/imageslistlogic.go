@@ -18,12 +18,15 @@ type ImagesListLogic struct {
 }
 
 type Info struct {
-	Id         string `json:"id"`
-	Name       string `json:"name"`
-	Tag        string `json:"tag"`
-	Size       string `json:"size"`
-	InUsed     bool   `json:"inUsed"`
-	CreateTime string `json:"createTime"`
+	Id               string `json:"id"`
+	Name             string `json:"name"`
+	Tag              string `json:"tag"`
+	Size             string `json:"size"`
+	InUsed           bool   `json:"inUsed"`
+	CreateTime       string `json:"createTime"`
+	CleanupCandidate bool   `json:"cleanupCandidate"`
+	CleanupReason    string `json:"cleanupReason"`
+	MultiRef         bool   `json:"multiRef"`
 }
 
 func NewImagesListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ImagesListLogic {
@@ -53,6 +56,9 @@ func (l *ImagesListLogic) ImagesList() (resp *types.Resp, err error) {
 		imageInfo.Tag = v.ImageTag
 		imageInfo.Size = v.SizeFormat
 		imageInfo.InUsed = v.InUsed
+		imageInfo.CleanupCandidate = v.CleanupCandidate
+		imageInfo.CleanupReason = v.CleanupReason
+		imageInfo.MultiRef = v.MultiRef
 		t := time.Unix(v.Created, 0)
 		imageInfo.CreateTime = t.Format("2006-01-02 15:04:05")
 		imageInfoList = append(imageInfoList, imageInfo)

@@ -8,7 +8,7 @@ import { Icons } from './components/Icons.jsx'
 import { About } from './components/About.jsx'
 import { Bot } from './components/Bot.jsx'
 import { LogsPage } from './components/Logs.jsx'
-import { ThemeProvider } from './hooks/useTheme.jsx'
+import { ThemeProvider, useTheme } from './hooks/useTheme.jsx'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { cn } from './utils/cn.js'
 
@@ -25,6 +25,7 @@ const queryClient = new QueryClient({
 })
 
 function AppContent() {
+  const { appearance } = useTheme()
   const [isAuthenticated, setIsAuthenticated] = useState(false)
   const [activeTab, setActiveTab] = useState('#containers')
   const [windowWidth, setWindowWidth] = useState(typeof window !== 'undefined' ? window.innerWidth : 1024)
@@ -157,7 +158,12 @@ function AppContent() {
   }
 
   return (
-    <div className="flex min-h-screen bg-gray-50 dark:bg-gray-900 transition-colors duration-300 flex-col lg:flex-row">
+    <div className={cn(
+      'flex min-h-screen transition-colors duration-300 flex-col lg:flex-row',
+      appearance === 'aurora' && 'bg-[radial-gradient(circle_at_top_left,_rgba(56,189,248,0.14),_transparent_32%),radial-gradient(circle_at_bottom_right,_rgba(168,85,247,0.14),_transparent_34%),linear-gradient(180deg,_#f8fbff_0%,_#f6f7fb_100%)] dark:bg-[radial-gradient(circle_at_top_left,_rgba(34,211,238,0.14),_transparent_30%),radial-gradient(circle_at_bottom_right,_rgba(147,51,234,0.16),_transparent_34%),linear-gradient(180deg,_#0b1220_0%,_#111827_100%)]',
+      appearance === 'night_sail' && 'bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.08),_transparent_26%),linear-gradient(180deg,_#eef4ff_0%,_#e8eef8_100%)] dark:bg-[radial-gradient(circle_at_top,_rgba(14,165,233,0.15),_transparent_26%),linear-gradient(180deg,_#020617_0%,_#0f172a_58%,_#111827_100%)]',
+      appearance === 'mist' && 'bg-[linear-gradient(180deg,_#fafaf9_0%,_#f1f5f9_100%)] dark:bg-[linear-gradient(180deg,_#111827_0%,_#0f172a_100%)]'
+    )}>
       <Sidebar
         activeTab={activeTab}
         onTabChange={handleTabChange}
@@ -178,8 +184,19 @@ function AppContent() {
               ? 'ml-20'
               : 'ml-64'
       )}>
-        <div className="flex-1 p-2 sm:p-4 lg:p-4 pt-4 sm:pt-4">
-          {renderContent()}
+        <div className={cn(
+          "flex-1 pt-4 sm:pt-4",
+          isSidebarCollapsed && windowWidth >= 1024
+            ? (activeTab === '#logs' ? 'px-2 sm:px-3 lg:px-3' : 'px-4 sm:px-6 lg:px-8 xl:px-10')
+            : 'p-2 sm:p-4 lg:p-4'
+        )}>
+          <div className={cn(
+            isSidebarCollapsed && windowWidth >= 1024 && activeTab !== '#logs'
+              ? 'w-full'
+              : 'w-full'
+          )}>
+            {renderContent()}
+          </div>
         </div>
       </main>
       <MobileBottomNav

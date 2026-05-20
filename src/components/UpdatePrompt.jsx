@@ -1,5 +1,5 @@
 import React, { useState } from 'react'
-import { AlertCircle, Download, RefreshCw, Upload, X } from 'lucide-react'
+import { AlertCircle, Download, RefreshCw, Upload, X, FolderUp } from 'lucide-react'
 import { cn } from '../utils/cn.js'
 
 /**
@@ -23,7 +23,18 @@ export function UpdatePrompt({
   onRefreshNow,
   onUploadProgram
 }) {
+  const [isDragging, setIsDragging] = useState(false)
+  const [pendingFile, setPendingFile] = useState(null)
   if (!isVisible) return null
+
+  const handlePickedFile = (file) => {
+    if (file) setPendingFile(file)
+  }
+
+  const confirmUpload = () => {
+    if (pendingFile && onUploadProgram) onUploadProgram(pendingFile)
+    setPendingFile(null)
+  }
 
   return (
     <>
@@ -95,12 +106,34 @@ export function UpdatePrompt({
             </div>
 
             {updateMessage && (
-              <div className="p-3 rounded-xl border border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-sm text-gray-700 dark:text-gray-200">
-                {updateMessage}
+              <div className={cn("p-3 rounded-xl border text-sm font-medium", postUpdateNeedsRefresh ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-300' : 'border-gray-200 dark:border-slate-700 bg-gray-50 dark:bg-slate-800/60 text-gray-700 dark:text-gray-200')}>
+{postUpdateNeedsRefresh ? '更新已完成，请刷新页面！' : updateMessage}
               </div>
             )}
 
-            <div className="rounded-2xl border border-dashed border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/10 p-4 sm:p-5">
+            <div
+              className={cn(
+                "rounded-2xl border border-dashed p-4 sm:p-5 transition-all",
+                isDragging
+                  ? 'border-indigo-500 bg-indigo-100/80 dark:bg-indigo-900/25'
+                  : 'border-indigo-300 dark:border-indigo-700 bg-indigo-50/70 dark:bg-indigo-900/10'
+              )}
+              onDragOver={(e) => {
+                e.preventDefault()
+                if (!isUpdating) setIsDragging(true)
+              }}
+              onDragLeave={(e) => {
+                e.preventDefault()
+                setIsDragging(false)
+              }}
+              onDrop={(e) => {
+                e.preventDefault()
+                setIsDragging(false)
+                if (isUpdating) return
+                const file = e.dataTransfer?.files?.[0]
+                handlePickedFile(file)
+              }}
+            >
               <div className="flex items-start gap-3 text-sm text-indigo-800 dark:text-indigo-200 mb-4">
                 <Upload className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
@@ -108,27 +141,61 @@ export function UpdatePrompt({
                   <div className="text-xs mt-1 text-indigo-700/80 dark:text-indigo-300/80">请上传与当前机器架构匹配的 Linux dockerCopilot 二进制或 tar.gz 更新包，例如 amd64 / x86_64 与 arm64 / aarch64 不可混用；后端会再次校验架构。</div>
                 </div>
               </div>
-              <label className={cn(
-                "inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all",
-                isUpdating
-                  ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
-                  : 'bg-white dark:bg-slate-900 text-indigo-700 dark:text-indigo-300 border-indigo-300 dark:border-indigo-700 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 cursor-pointer'
-              )}>
-                <Upload className="h-4 w-4" />
-                选择文件并更新
-                <input
-                  type="file"
-                  className="hidden"
-                  disabled={isUpdating}
-                  accept=".gz,.tgz,.tar.gz,application/gzip,application/x-gzip,application/octet-stream"
-                  onChange={(e) => {
-                    const file = e.target.files?.[0]
-                    e.target.value = ''
-                    if (file && onUploadProgram) onUploadProgram(file)
-                  }}
-                />
-              </label>
+
+              <div className="mb-4 rounded-xl border border-dashed border-indigo-300/80 dark:border-indigo-700/80 bg-white/60 dark:bg-slate-900/30 px-4 py-5 text-center text-sm text-indigo-700 dark:text-indigo-300">
+                <FolderUp className="mx-auto mb-2 h-5 w-5" />
+                <div className="font-medium">可直接把文件拖到这里上传</div>
+                <div className="mt-1 text-xs opacity-80">支持 dockerCopilot Linux 二进制、tar.gz、tgz</div>
+              </div>
+
+              <div className="flex flex-wrap gap-3">
+                <label className={cn(
+                  "inline-flex items-center justify-center gap-2 px-3 py-2 rounded-lg text-sm font-medium border transition-all",
+                  isUpdating
+                    ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
+                    : 'bg-indigo-600 text-white border-indigo-600 hover:bg-indigo-700 cursor-pointer'
+                )}>
+                  <FolderUp className="h-4 w-4" />
+                  选择文件上传
+                  <input
+                    type="file"
+                    className="hidden"
+                    disabled={isUpdating}
+                    accept=".gz,.tgz,.tar.gz,application/gzip,application/x-gzip,application/octet-stream"
+                    onChange={(e) => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      handlePickedFile(file)
+                    }}
+                  />
+                </label>
+              </div>
             </div>
+
+            {pendingFile && !isUpdating && (
+              <div className="rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-700/60 dark:bg-indigo-900/20 dark:text-indigo-200">
+                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <div className="font-medium">已选择更新文件</div>
+                    <div className="mt-1 text-xs opacity-80 break-all">{pendingFile.name}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setPendingFile(null)}
+                      className="inline-flex items-center justify-center rounded-lg border border-indigo-300 bg-white px-3 py-2 text-sm font-medium text-indigo-700 hover:bg-indigo-50 dark:border-indigo-700 dark:bg-slate-900 dark:text-indigo-300 dark:hover:bg-indigo-900/20"
+                    >
+                      取消
+                    </button>
+                    <button
+                      onClick={confirmUpload}
+                      className="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-700"
+                    >
+                      确认更新
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
 
             {isUpdating && (
               <div>
@@ -175,7 +242,7 @@ export function UpdatePrompt({
                 ) : postUpdateNeedsRefresh ? (
                   <>
                     <RefreshCw className="h-4 w-4" />
-                    刷新状态
+                    刷新页面
                   </>
                 ) : (
                   <>

@@ -1,9 +1,16 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus, Gauge } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus, Gauge, CircleHelp } from 'lucide-react'
 import { imageAPI, botAPI, progressAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
+
+function stripEnglishConflictPrefix(rawMsg) {
+  const msg = String(rawMsg || '').trim()
+  if (!msg) return ''
+  const lines = msg.split('\n').map(s => s.trim()).filter(Boolean)
+  return lines.length > 1 ? lines.join('\n') : ''
+}
 
 // 安全的图片组件
 function SafeImage({ src, alt, className, fallback }) {
@@ -25,6 +32,65 @@ function SafeImage({ src, alt, className, fallback }) {
 
 const MIN_REFRESH_VISIBLE_MS = 500
 
+function humanizeImageDeleteError(rawMsg, image, force) {
+  const msg = String(rawMsg || '').trim()
+  if (!msg) return force ? '强制删除镜像失败' : '删除镜像失败'
+  const lower = msg.toLowerCase()
+  let human = `删除失败：${msg}`
+  if (lower.includes('conflict') && lower.includes('container')) {
+    human = '删除失败：这个镜像仍被容器引用，Docker 不允许直接删除。请先删除/替换相关容器，或改用“强制删除”。'
+  } else if (lower.includes('conflict') && (lower.includes('repository reference') || lower.includes('must be forced'))) {
+    human = '删除失败：这个镜像还有多个标签或仓库引用，普通删除不会生效。请改用“强制删除”。'
+  } else if (lower.includes('image is being used by running container')) {
+    human = '删除失败：这个镜像正被运行中的容器使用，必须先停掉或替换容器，或使用“强制删除”。'
+  } else if (lower.includes('no such image')) {
+    human = '删除失败：这个镜像已经不存在了，刷新列表后再看一下。'
+  }
+  const raw = stripEnglishConflictPrefix(msg)
+  return raw ? `${raw}\n\n${human}` : human
+}
+
+function imageRiskHints(image) {
+  const hints = []
+  if (image?.multiRef) {
+    hints.push('这是多引用镜像：同一个镜像 ID 仍挂着多个 tag 或多个仓库引用。')
+    hints.push('普通删除可能失败，因为 Docker 往往只允许在无额外引用时直接删除。')
+    hints.push('如果普通删除失败，可改用“强制删除”。')
+  }
+  return hints
+}
+
+function ImageRiskHint({ image }) {
+  const hints = imageRiskHints(image)
+  const [open, setOpen] = useState(false)
+
+  if (!image?.multiRef || image?.inUsed || hints.length === 0) return null
+
+  return (
+    <div className="relative inline-flex items-center">
+      <button
+        type="button"
+        onClick={(e) => {
+          e.stopPropagation()
+          setOpen(v => !v)
+        }}
+        className="inline-flex h-5 w-5 items-center justify-center rounded-full text-amber-600 hover:bg-amber-50 hover:text-amber-700 dark:text-amber-300 dark:hover:bg-amber-900/20 dark:hover:text-amber-200"
+        title="查看镜像说明"
+      >
+        <CircleHelp className="h-4 w-4" />
+      </button>
+      {open && (
+        <div className="absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-xl border border-amber-200 bg-white p-3 text-left shadow-xl dark:border-amber-800 dark:bg-gray-900">
+          <div className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">镜像说明</div>
+          <div className="space-y-1.5 text-xs leading-5 text-gray-700 dark:text-gray-200">
+            {hints.map((hint, idx) => <div key={idx}>{hint}</div>)}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export function Images() {
   const [images, setImages] = useState([])
   const [isLoading, setIsLoading] = useState(true)
@@ -35,6 +101,7 @@ export function Images() {
   const [filterStatus, setFilterStatus] = useState(null) // null 表示显示全部
   const [pruneModal, setPruneModal] = useState({ isOpen: false, type: null, images: [] })
   const [successModal, setSuccessModal] = useState({ isOpen: false, message: '' })
+  const [confirmBatchDeleteModal, setConfirmBatchDeleteModal] = useState({ isOpen: false, images: [], force: false })
   const [viewMode, setViewMode] = useState(() => localStorage.getItem('docker_copilot_images_view_mode') || 'card')
   const [searchKeyword, setSearchKeyword] = useState('')
   const [selectedImages, setSelectedImages] = useState([])
@@ -185,16 +252,19 @@ export function Images() {
   const handleDeleteImage = async (imageId, force = false) => {
     try {
       setIsLoading(true)
+      setError(null)
+      const currentImage = images.find(img => img.id === imageId) || deleteModal.image
       setDeleteModal({ isOpen: false, image: null })
 
       await imageAPI.deleteImage(imageId, force)
 
-      setSuccessModal({ isOpen: true, message: '镜像删除成功' })
+      setSuccessModal({ isOpen: true, message: force ? '镜像已强制删除' : '镜像删除成功' })
       fetchImages()
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
     } catch (error) {
-      const errorMsg = error.response?.data?.msg || error.message || '删除镜像失败'
-      setError(errorMsg)
+      const rawMsg = error.response?.data?.msg || error.message || '删除镜像失败'
+      const currentImage = images.find(img => img.id === imageId) || deleteModal.image
+      setError(humanizeImageDeleteError(rawMsg, currentImage, force))
       setIsLoading(false)
     }
   }
@@ -215,6 +285,11 @@ export function Images() {
     setPruneModal({ isOpen: true, type: 'selected', images: selected })
   }
 
+  const openConfirmBatchDelete = (force = false) => {
+    const selected = images.filter(img => selectedImages.includes(img.id))
+    setConfirmBatchDeleteModal({ isOpen: true, images: selected, force })
+  }
+
   const handleBatchDelete = async (imagesToDelete, force = false) => {
     try {
       setIsLoading(true)
@@ -225,14 +300,15 @@ export function Images() {
         return
       }
       await Promise.all(imagesToDelete.map(image => imageAPI.deleteImage(image.id, force)))
-      setSuccessModal({ isOpen: true, message: `成功删除 ${imagesToDelete.length} 个镜像` })
+      setSuccessModal({ isOpen: true, message: `成功${force ? '强制删除' : '删除'} ${imagesToDelete.length} 个镜像` })
       setSelectedImages([])
       setIsBatchMode(false)
       fetchImages()
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
     } catch (error) {
-      const errorMsg = error.response?.data?.msg || error.message || '批量删除镜像失败'
-      setError(errorMsg)
+      const firstImage = imagesToDelete[0]
+      const rawMsg = error.response?.data?.msg || error.message || '批量删除镜像失败'
+      setError(humanizeImageDeleteError(rawMsg, firstImage, force))
       setIsLoading(false)
     }
   }
@@ -425,69 +501,6 @@ export function Images() {
             <h2 className="text-2xl font-bold text-gray-900 dark:text-white">镜像管理</h2>
             <p className="text-gray-600 dark:text-gray-400 mt-1">查看和管理Docker镜像</p>
           </div>
-          <div className="flex flex-wrap items-center justify-end gap-2 sm:max-w-[78%]">
-            {(viewMode === 'card' || isBatchMode || selectedImages.length > 0) && (
-              <button
-                onClick={() => {
-                  setIsBatchMode(!isBatchMode)
-                  if (isBatchMode) setSelectedImages([])
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
-              >
-                <CheckSquare className="h-4 w-4" />
-                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
-              </button>
-            )}
-            <button
-              onClick={toggleSelectAllImages}
-              disabled={isLoading || filteredImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <span>{filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id)) ? '取消全选' : '全选'}</span>
-            </button>
-            <button
-              onClick={openBatchDelete}
-              disabled={isLoading || selectedImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span>删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
-            </button>
-            <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-1">
-              <button
-                onClick={() => setViewMode('card')}
-                className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                title="卡片视图"
-              >
-                <LayoutGrid className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setViewMode('table')}
-                className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                title="表格视图"
-              >
-                <LayoutList className="h-4 w-4" />
-              </button>
-            </div>
-            <button
-              onClick={handleRefresh}
-              disabled={isLoading || isRefreshing}
-              className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span>刷新</span>
-            </button>
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <input
-                type="text"
-                value={searchKeyword}
-                onChange={(e) => setSearchKeyword(e.target.value)}
-                placeholder="搜索镜像/Tag/ID"
-                className="w-48 sm:w-60 pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
-              />
-            </div>
-          </div>
         </div>
       </div>
 
@@ -655,6 +668,83 @@ export function Images() {
             </div>
           </button>
         </div>
+
+        <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            {(viewMode === 'card' || isBatchMode || selectedImages.length > 0) && (
+              <button
+                onClick={() => {
+                  setIsBatchMode(!isBatchMode)
+                  if (isBatchMode) setSelectedImages([])
+                }}
+                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+              >
+                <CheckSquare className="h-4 w-4" />
+                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
+              </button>
+            )}
+            <button
+              onClick={toggleSelectAllImages}
+              disabled={isLoading || filteredImages.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
+            >
+              <span>{filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id)) ? '取消全选' : '全选'}</span>
+            </button>
+            <button
+              onClick={openBatchDelete}
+              disabled={isLoading || selectedImages.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
+            </button>
+            <button
+              onClick={() => openConfirmBatchDelete(true)}
+              disabled={isLoading || selectedImages.length === 0}
+              className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200 rounded-lg hover:bg-orange-200 dark:hover:bg-orange-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
+            >
+              <Trash2 className="h-4 w-4" />
+              <span>强制删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
+            </button>
+
+            <div className="ml-auto flex flex-wrap items-center gap-2">
+              <div className="relative min-w-[220px] flex-1 sm:flex-none sm:w-60">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
+                <input
+                  type="text"
+                  value={searchKeyword}
+                  onChange={(e) => setSearchKeyword(e.target.value)}
+                  placeholder="搜索镜像/Tag/ID"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                />
+              </div>
+              <button
+                onClick={handleRefresh}
+                disabled={isLoading || isRefreshing}
+                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span>刷新</span>
+              </button>
+              <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-1">
+                <button
+                  onClick={() => setViewMode('card')}
+                  className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                  title="卡片视图"
+                >
+                  <LayoutGrid className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={() => setViewMode('table')}
+                  className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
+                  title="表格视图"
+                >
+                  <LayoutList className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
 
       {/* 筛选/批量提示 */}
@@ -734,7 +824,14 @@ export function Images() {
                               fallback={<HardDrive className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
                             />
                           </div>
-                          <span className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px]" title={image.name}>{image.name}</span>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1 min-w-0">
+                              <div className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px]" title={image.name}>{image.name}</div>
+                              <ImageRiskHint image={image} />
+                            </div>
+                            <div className="mt-1 flex flex-wrap items-center gap-1">
+                            </div>
+                          </div>
                         </div>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>{image.tag}</td>
@@ -753,8 +850,10 @@ export function Images() {
                         </button>
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
-                        {image.inUsed && <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="ml-1 px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 whitespace-nowrap min-w-[64px]">强制删除</button>}
+                        <div className="flex items-center gap-2">
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
+                          <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 whitespace-nowrap min-w-[64px]">强制删除</button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -794,8 +893,9 @@ export function Images() {
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm">
-                        {image.name}
+                      <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm flex items-center gap-1">
+                        <span className="truncate">{image.name}</span>
+                        <ImageRiskHint image={image} />
                       </h4>
                       <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center justify-between gap-2">
                         <span className="truncate">{image.tag}</span>
@@ -836,16 +936,14 @@ export function Images() {
                       <Trash2 className="h-3.5 w-3.5" />
                       <span>删除</span>
                     </button>
-                    {image.inUsed && (
-                      <button
-                        onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
-                        className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-gray-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 hover:border-orange-200 dark:hover:border-orange-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95"
-                        title="强制删除正在使用的镜像"
-                      >
-                        <Trash2 className="h-3.5 w-3.5" />
-                        <span>强制删除</span>
-                      </button>
-                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
+                      className="flex-1 flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-gray-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 hover:border-orange-200 dark:hover:border-orange-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95"
+                      title="强制删除镜像"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      <span>强制删除</span>
+                    </button>
                   </div>
                 </div>
               ))}
@@ -992,6 +1090,63 @@ export function Images() {
         </div>
       )}
 
+      {/* 批量强制删除确认弹窗 */}
+      {confirmBatchDeleteModal.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-xl w-full overflow-hidden transform transition-all duration-300 scale-100">
+            <div className="h-1 bg-gradient-to-r from-orange-400 via-red-500 to-orange-600"></div>
+            <div className="p-6">
+              <div className="flex items-start gap-4 mb-5">
+                <div className="relative h-12 w-12 bg-gradient-to-br from-orange-50 to-red-50 dark:from-orange-900/30 dark:to-red-900/30 rounded-full flex items-center justify-center flex-shrink-0 border border-orange-200 dark:border-orange-700">
+                  <AlertCircle className="h-6 w-6 text-orange-600 dark:text-orange-400" />
+                </div>
+                <div className="flex-1">
+                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">批量强制删除镜像</h3>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">此操作不可恢复，请再次确认</p>
+                </div>
+              </div>
+              <div className="text-sm leading-relaxed text-gray-600 dark:text-gray-300 mb-6">
+                确定要强制删除 <span className="font-semibold text-orange-600 dark:text-orange-300">{confirmBatchDeleteModal.images.length}</span> 个镜像吗？
+                <span className="block mt-2 text-orange-600 dark:text-orange-300">强制删除会跳过常规保护，适合处理多标签/多仓库引用或普通删除冲突的镜像。</span>
+              </div>
+              <div className="max-h-40 overflow-auto rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-3 text-xs text-gray-600 dark:text-gray-300 mb-6">
+                <div className="space-y-1.5">
+                  {confirmBatchDeleteModal.images.slice(0, 12).map(img => (
+                    <div key={img.id} className="flex items-center justify-between gap-3">
+                      <span className="truncate">{img.name}:{img.tag}</span>
+                      <span className="font-mono text-[11px] text-gray-400">{String(img.id || '').slice(0, 12)}</span>
+                    </div>
+                  ))}
+                  {confirmBatchDeleteModal.images.length > 12 && (
+                    <div className="text-gray-400">… 还有 {confirmBatchDeleteModal.images.length - 12} 个镜像</div>
+                  )}
+                </div>
+              </div>
+              <div className="flex gap-3">
+                <button
+                  onClick={() => setConfirmBatchDeleteModal({ isOpen: false, images: [], force: false })}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 transition-all border border-gray-200 dark:border-gray-600"
+                >
+                  取消
+                </button>
+                <button
+                  onClick={() => {
+                    const imgs = confirmBatchDeleteModal.images
+                    const force = confirmBatchDeleteModal.force
+                    setConfirmBatchDeleteModal({ isOpen: false, images: [], force: false })
+                    handleBatchDelete(imgs, force)
+                  }}
+                  disabled={isLoading}
+                  className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-xl transition-all disabled:opacity-50 shadow-lg"
+                >
+                  确认强制删除
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 删除确认弹窗 */}
       {deleteModal.isOpen && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
@@ -1022,13 +1177,16 @@ export function Images() {
                   <>
                     确定要强制删除镜像{' '}
                     <span className="font-semibold text-red-600 dark:text-red-400">"{deleteModal.image?.name}"</span>
-                    {' '}吗？这将删除正在使用的镜像！
+                    {' '}吗？这会跳过常规保护，适合处理“多标签/多仓库引用”或普通删除冲突的镜像。
                   </>
                 ) : (
                   <>
                     确定要删除镜像{' '}
                     <span className="font-semibold text-red-600 dark:text-red-400">"{deleteModal.image?.name}"</span>
                     {' '}吗？
+                    {!deleteModal.image?.inUsed && deleteModal.image?.multiRef && (
+                      <span className="block mt-2 text-orange-600 dark:text-orange-300">这个镜像存在多引用，普通删除很可能失败，建议直接使用“强制删除”。</span>
+                    )}
                   </>
                 )}
               </div>
