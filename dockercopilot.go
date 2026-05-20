@@ -218,6 +218,7 @@ func SetupLog(logDir string) error {
 		KeepDays: 7,
 		Compress: true,
 		Mode:     "file",
+		Encoding: "plain",
 	}
 	logx.MustSetup(logConf)
 	logx.AddWriter(logx.NewWriter(os.Stdout))

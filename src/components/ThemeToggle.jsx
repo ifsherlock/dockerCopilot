@@ -38,21 +38,21 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
   const CurrentModeIcon = currentMode.value === 'system' ? Monitor : (actualTheme === 'dark' ? Moon : Sun)
   const currentAppearance = appearances.find(item => item.value === appearance) || appearances[0]
 
-  const baseIconButton = 'inline-flex h-10 w-10 items-center justify-center rounded-xl transition-colors'
+  const baseIconButton = 'inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent transition-colors'
 
   if (collapsed) {
     return (
       <div className="flex flex-col items-center gap-2">
         <button
           onClick={nextTheme}
-          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          className="inline-flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-transparent text-gray-600 hover:bg-transparent dark:text-gray-300 dark:hover:bg-transparent transition-colors"
           title={`当前明暗：${currentMode.label}，点击切换`}
         >
           <CurrentModeIcon className="h-4.5 w-4.5" />
         </button>
         <button
           onClick={nextAppearance}
-          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-600 hover:bg-gray-50 dark:border-gray-700 dark:bg-gray-800 dark:text-gray-300 dark:hover:bg-gray-700 transition-colors"
+          className="relative inline-flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-transparent text-gray-600 hover:bg-transparent dark:text-gray-300 dark:hover:bg-transparent transition-colors"
           title={`当前外观：${currentAppearance.label}，点击切换`}
         >
           <span className={cn('absolute inset-1 rounded-md bg-gradient-to-br opacity-90', currentAppearance.swatch)} />
@@ -65,13 +65,13 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
   return (
     <div className={cn(
       'flex items-center gap-2',
-      embedded ? 'bg-transparent p-0' : 'rounded-2xl border border-gray-200/60 bg-white/52 p-2 shadow-sm backdrop-blur dark:border-gray-700/60 dark:bg-gray-800/38'
+      embedded ? 'bg-transparent p-0' : 'rounded-2xl border-0 bg-transparent p-2 shadow-none backdrop-blur-0 dark:border-0 dark:bg-transparent'
     )}>
       <button
         onClick={nextTheme}
         className={cn(
           baseIconButton,
-          'text-gray-600 hover:bg-white/65 hover:text-gray-900 dark:text-gray-300 dark:hover:bg-white/10 dark:hover:text-white'
+          'text-gray-600 hover:bg-transparent hover:text-gray-900 dark:text-gray-300 dark:hover:bg-transparent dark:hover:text-white'
         )}
         title={`当前明暗：${currentMode.label}，点击切换`}
       >
@@ -82,7 +82,7 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
         onClick={nextAppearance}
         className={cn(
           baseIconButton,
-          'relative text-gray-600 hover:bg-white/65 dark:text-gray-300 dark:hover:bg-white/10'
+          'relative text-gray-600 hover:bg-transparent dark:text-gray-300 dark:hover:bg-transparent'
         )}
         title={`当前外观：${currentAppearance.label}，点击切换`}
       >

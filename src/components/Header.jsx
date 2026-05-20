@@ -259,8 +259,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                     className={cn(
                       'absolute left-0 bottom-0 flex h-14 w-full items-center justify-center border-t transition-colors',
                       appearance === 'night_sail'
-                        ? 'border-slate-200/80 bg-white/55 text-slate-500 hover:bg-white/75 hover:text-slate-700 dark:border-slate-700/70 dark:bg-slate-900/55 dark:text-slate-400 dark:hover:bg-slate-800/75 dark:hover:text-slate-200'
-                        : 'border-white/70 bg-white/45 text-slate-500 hover:bg-white/65 hover:text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-400 dark:hover:bg-white/10 dark:hover:text-slate-200'
+                        ? 'border-slate-200/80 bg-transparent text-slate-500 hover:bg-transparent hover:text-slate-700 dark:border-slate-700/70 dark:bg-transparent dark:text-slate-400 dark:hover:bg-transparent dark:hover:text-slate-200'
+                        : 'border-white/70 bg-transparent text-slate-500 hover:bg-transparent hover:text-slate-700 dark:border-white/10 dark:bg-transparent dark:text-slate-400 dark:hover:bg-transparent dark:hover:text-slate-200'
                     )}
                     title="展开侧边栏"
                   >
@@ -356,7 +356,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                   </button>
                 </>
               ) : (
-                <div className={cn("w-full px-4 py-2.5", softPanel)}>
+                <div className={cn("w-full px-4 py-2.5", 'border-0 bg-transparent shadow-none')}>
                   <div className="flex items-center gap-4">
                     <div className="inline-flex w-[18px] flex-shrink-0" />
                     <div className="flex items-center gap-4">
