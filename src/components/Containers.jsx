@@ -1118,20 +1118,36 @@ export function Containers() {
     const isBusy = actionState?.loading
     const progressPercent = Math.max(0, Math.min(100, Math.round(actionState?.percentage || 0)))
     const progressLabel = actionState?.progress || ''
+    const isUpdateAction = actionState?.action === 'update'
+    const showProgressState = isUpdateAction && (isBusy || actionState?.done)
 
-    const progressOverlay = (isBusy || actionState?.done) ? (
-      <div className="pointer-events-none absolute inset-y-0 left-0 overflow-hidden rounded-lg">
+    const progressOverlay = showProgressState ? (
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg">
         <div
           className={cn(
-            "h-full rounded-lg transition-all duration-500",
+            "absolute inset-y-0 left-0 transition-all duration-500 ease-out",
             actionState?.done
-              ? "bg-emerald-200/55 dark:bg-emerald-500/20"
-              : "bg-sky-200/70 dark:bg-sky-400/20"
+              ? "bg-gradient-to-r from-emerald-400/30 via-emerald-300/35 to-emerald-400/30 dark:from-emerald-500/20 dark:via-emerald-400/25 dark:to-emerald-500/20"
+              : "bg-gradient-to-r from-sky-400/30 via-sky-300/35 to-sky-400/30 dark:from-sky-500/20 dark:via-sky-400/25 dark:to-sky-500/20"
           )}
           style={{ width: `${progressPercent}%` }}
-        />
+        >
+          <div
+            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
+            style={{
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 2s infinite linear'
+            }}
+          />
+        </div>
       </div>
     ) : null
+
+    const progressText = showProgressState
+      ? (actionState?.done
+          ? (progressLabel || '更新完成')
+          : `${progressLabel || '更新中'}${typeof actionState?.percentage === 'number' ? ` ${progressPercent}%` : ''}`)
+      : ''
 
     return (
       <div className="min-w-[250px]">
@@ -1172,9 +1188,9 @@ export function Containers() {
             <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
           )}
         </div>
-        {progressLabel && (isBusy || actionState?.done) && (
-          <div className={cn("mt-1 pl-1 text-[11px] truncate", actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300")} title={progressLabel}>
-            {progressLabel}
+        {progressText && (
+          <div className={cn("mt-1 pl-1 text-[11px] truncate", actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300")} title={progressText}>
+            {progressText}
           </div>
         )}
       </div>
