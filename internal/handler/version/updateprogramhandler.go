@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -27,6 +28,18 @@ func UpdateProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.WriteJson(w, resp.Code, resp)
 		}
 	}
+}
+
+func scheduleSelfRestart(after time.Duration) error {
+	seconds := int(after / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	pid := os.Getpid()
+	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("sleep %d; kill -TERM %d >/dev/null 2>&1 || true", seconds, pid))
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	return cmd.Start()
 }
 
 func UploadProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
@@ -82,11 +95,11 @@ func UploadProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新失败", DetailMsg: runErr.Error(), IsDone: true})
 				return
 			}
-			svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新完成，正在重启服务...", DetailMsg: "上传包已应用，即将自动重启并恢复连接", IsDone: true})
-			// 给前端一次机会拿到 100% 完成态，再触发自重启。
-			time.Sleep(1500 * time.Millisecond)
-			// 与在线更新保持一致：让启动脚本切换 dockerCopilot-new
-			os.Exit(1)
+			if err := scheduleSelfRestart(5 * time.Second); err != nil {
+				svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新失败", DetailMsg: "更新包已应用，但调度服务重启失败: " + err.Error(), IsDone: true})
+				return
+			}
+			svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新完成，5 秒后重启服务...", DetailMsg: "上传包已应用，服务将自动重启并恢复连接", IsDone: true})
 		}()
 
 		httpx.WriteJson(w, http.StatusOK, map[string]interface{}{"code": 200, "msg": "success", "data": map[string]interface{}{"updated": true, "taskID": taskID}})

@@ -298,12 +298,18 @@ export function useVersionCheck() {
       console.error('上传更新失败:', error)
       const status = error?.response?.status
       const serverMsg = error?.response?.data?.msg
+      const networkLike = !status && (String(error?.message || '').toLowerCase().includes('network error') || String(error?.code || '').includes('ERR_NETWORK') || String(error?.code || '').includes('ECONNRESET'))
       if (status === 413) {
         setUpdateMessage('上传失败：文件过大，当前服务上传上限过小，请升级到已放宽上传限制的版本后重试')
+        setIsUpdating(false)
+      } else if (networkLike) {
+        setUpdateMessage('上传请求已发送，服务可能正在切换新程序并重启；正在等待恢复连接...')
+        setUpdateProgress((prev) => Math.max(prev || 0, 90))
+        startReconnectCheck()
       } else {
         setUpdateMessage(serverMsg || error.message || '上传更新失败，请检查文件架构后重试')
+        setIsUpdating(false)
       }
-      setIsUpdating(false)
     }
   }, [clearPolling, clearReconnect, pollUpdateTask, startReconnectCheck])
 
