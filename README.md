@@ -50,15 +50,15 @@ DockerCopilot 是一个主打便捷的 Docker 容器管理工具，支持通过 
 
 
 
+## 镜像
+
 DockerHub：
 
 ```text
 jaysherlock/dockercopilot:latest
-jaysherlock/dockercopilot:v2.1.6
+```
 
-
-jaysherlock/dockercopilot-bot:latest
-
+> 推荐统一使用 `jaysherlock/dockercopilot:latest`。主程序已内置 Telegram Bot（Go + telego），不再需要单独拉取 Bot 镜像。
 
 ## 主程序 docker-compose.yaml
 
@@ -75,7 +75,7 @@ nano docker-compose.yaml
 ```yaml
 services:
   dockercopilot:
-    image: ifsherlock/dockercopilot:latest
+    image: jaysherlock/dockercopilot:latest
     container_name: dockercopilot
     restart: always
     privileged: true
@@ -188,27 +188,29 @@ Bot 配置会持久化到：
 
 那么 Bot 配置、更新黑名单等都会在容器重建后保留。
 
-## 单独部署 Telegram Bot
+## 独立 Bot / 多实例部署说明
 
-如果你不想把 Bot 跑在主程序容器里，可以单独部署 `dockercopilot-bot`。
+当前推荐统一使用主程序镜像：
 
-适用场景：
+```text
+jaysherlock/dockercopilot:latest
+```
 
-- 主程序和 Bot 分开升级
-- 一个 Bot 管理多个 DockerCopilot 实例
-- Bot 需要独立代理网络
-- 主程序容器只负责 Web/API
+Telegram Bot 已内置在主程序中（Go + telego）。如果需要一个 Bot 管理多个 DockerCopilot 实例，可以单独启动同一个镜像，并通过 `DOCKERCOPILOT_API_URLS` 指向外部实例。
 
 示例 `docker-compose.bot.yaml`：
 
 ```yaml
 services:
   dockercopilot-bot:
-    image: ghcr.io/ifsherlock/dockercopilot-bot:latest
+    image: jaysherlock/dockercopilot:latest
     container_name: dockercopilot-bot
     restart: always
+    ports:
+      - "12713:12712"
     environment:
       - TZ=Asia/Shanghai
+      - secretKey=请改成这个 Bot 实例自己的强密码
 
       # Telegram Bot
       - TELEGRAM_BOT_TOKEN=你的_bot_token
@@ -217,9 +219,9 @@ services:
 
       # DockerCopilot 实例
       # 格式：实例名::API地址::secretKey
-      # 如果 Bot 和主程序在同一个 compose 网络内，可以使用 http://dockercopilot:12712
+      # 如果目标主程序和这个 Bot 在同一个 compose 网络内，可以使用 http://dockercopilot:12712
       # 如果是外部主机，请填写可访问地址，例如 http://192.168.1.10:12712
-      - DOCKERCOPILOT_API_URLS=local::http://192.168.1.10:12712::你的_dockercopilot_secretKey
+      - DOCKERCOPILOT_API_URLS=home::http://192.168.1.10:12712::你的_dockercopilot_secretKey
 
       # 更新通知/自动任务
       - TELEGRAM_UPDATE_CHECK_CRON=0 18 * * *
@@ -237,8 +239,8 @@ services:
       - TELEGRAM_PROXY_USERNAME=
       - TELEGRAM_PROXY_PASSWORD=
     volumes:
-      # 保存 Bot 运行时配置
       - ./bot-config:/app/config
+      - ./bot-data:/data
 ```
 
 启动：
@@ -247,7 +249,7 @@ services:
 docker compose -f docker-compose.bot.yaml up -d
 ```
 
-> 注意：独立 Bot 可以通过 API 管理 DockerCopilot 实例；更新黑名单的最终同步能力取决于目标 DockerCopilot API。建议优先在 DockerCopilot Web「交互」页面维护黑名单。
+> 注意：独立 Bot 仍然使用 `jaysherlock/dockercopilot:latest`，不再推荐单独的 `dockercopilot-bot` 镜像。
 
 ## 多实例配置格式
 
@@ -401,7 +403,7 @@ npm run build
 rm -rf front
 cp -a dist front
 go build -o dc-back/dist/linux/amd64/dockerCopilot ./dockercopilot.go
-docker build -f docker/Dockerfile -t ghcr.io/ifsherlock/dockercopilot:latest .
+docker build -f docker/Dockerfile -t jaysherlock/dockercopilot:latest .
 ```
 
 ## License
