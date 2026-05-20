@@ -75,7 +75,7 @@ nano docker-compose.yaml
 ```yaml
 services:
   dockercopilot:
-    image: ifsherlock/dockercopilot:latest
+    image: jaysherlock/dockercopilot:latest
     container_name: dockercopilot
     restart: always
     privileged: true
