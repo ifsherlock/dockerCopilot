@@ -623,8 +623,8 @@ export function LogsPage() {
           <div ref={logRef} style={{ fontSize: `${fontSize}px` }} className={`${darkTheme ? 'dc-log-grid bg-[#0b0f14] text-white' : 'dc-log-grid-light bg-[#f8fafc] text-slate-800'} ${containerPaneCollapsed ? 'h-[78vh]' : 'h-[70vh]'} overflow-auto p-4 font-mono leading-6 ${wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
             {loadingLogs ? '正在读取日志...' : (processedLines.length > 0
               ? processedLines.map((line, idx) => (
-                <div key={idx} className="flex gap-2 text-white dark:text-white">
-                  {showTimestamps && <span className="flex-shrink-0 text-gray-500">{line.timestamp || '--'}</span>}
+                <div key={idx} className={`flex gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>
+                  {showTimestamps && <span className={`flex-shrink-0 ${darkTheme ? 'text-gray-500' : 'text-slate-500'}`}>{line.timestamp || '--'}</span>}
                   {showContainerPrefix && <span className="flex-shrink-0 text-cyan-300">{line.containerPrefix || (selectedContainer?.name || '--')}</span>}
                   <span className="min-w-0">{renderHighlightedLine(line, idx)}</span>
                 </div>

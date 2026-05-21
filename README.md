@@ -4,73 +4,80 @@
   <img alt="License: AGPLv3" src="https://shields.io/badge/License-AGPL%20v3-blue.svg">
 </a>
 
-DockerCopilot 是一个主打便捷的 Docker 容器管理工具，支持通过 Web 页面和 Telegram Bot 管理容器、镜像、备份和更新。
+DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 **Web 面板 + Telegram Bot** 双入口，适合在 NAS、Linux 主机、家庭服务器上统一管理容器、镜像、日志、备份与更新。
 
-> 当前维护版：`2.1.7` / `v2.1.7`
+> 当前维护版：`2.1.8`
 
-## 功能概览
+---
 
-- 容器管理
-  - 查看运行中/已停止容器
-  - 启动、停止、重启、重命名容器
-  - 单个/批量更新容器
-  - 更新进度查看
-  - 容器详情卡片
-  - 容器搜索、卡片/表格视图
-- 镜像管理
-  - 镜像列表卡片/表格视图
-  - 删除无 Tag 镜像、删除未使用镜像
-  - 批量选择/批量删除
-  - 镜像拉取/加速拉取与操作日志
-- 更新检测
-  - 基于容器创建镜像和运行镜像 digest 检测更新
-  - 支持同一镜像运行多个容器的更新识别
-  - 避免把本地 tag、`latest` tag 或 `sha256:...` 误当作容器原始镜像
-  - 容器列表优先返回本地 Docker 状态，更新检测异步刷新缓存，避免 DockerHub/GHCR/私有仓库网络问题拖慢页面
-- 更新黑名单
-  - 支持容器/镜像维度忽略更新
-  - 黑名单持久化到 `/app/config/config.json` 的 `telegram.update_blacklist`
-  - Web 容器页、交互页和 Telegram Bot 使用同一份黑名单
-- 备份恢复
-  - 备份容器配置
-  - 恢复容器配置
-  - 支持定时备份
-- Telegram Bot
-  - 内置 Bot，可随主容器启动
-  - 支持代理（none / socks5 / http）
-  - 支持更新通知、自动更新、镜像清理
-  - 支持多 DockerCopilot 实例配置
-  - 提供独立 Bot 镜像，适合单独部署
-- UI 优化
-  - 中文界面
-  - 容器/镜像搜索
-  - 容器和镜像表格视图
-  - 批量操作按钮增强
-  - 镜像大小颜色提示
+## 这版重点能力
 
+### 1. 容器管理更完整
+- 容器列表 / 卡片双视图
+- 启动、停止、重启、重命名
+- 单个 / 批量更新容器
+- 更新进度反馈
+- 容器详情查看
+- 容器 WebUI 链接自动生成
+- 支持宿主机 IP / 容器专属 WebUI 地址覆盖
 
+### 2. 镜像管理更实用
+- 镜像列表 / 卡片双视图
+- 批量选择、批量删除、强制删除
+- 镜像拉取 / 加速拉取
+- 镜像来源链接跳转（Docker Hub / GHCR）
+- 镜像使用状态区分：
+  - `running`：有运行中的容器正在使用
+  - `stopped`：仅被已停止容器使用
+  - `unused`：未被任何容器使用
+
+### 3. 定时任务能力更明确
+- **定时检查更新**
+- **定时自动更新容器**
+- **定时自动清理无用镜像**
+- **定时备份 JSON / Compose 配置**
+- 支持 Cron 配置
+- 支持更新黑名单，避免误更新关键容器
+
+### 4. Telegram Bot 操控是核心能力之一
+- Bot 可直接操控容器：启动 / 停止 / 重启 / 更新
+- 支持查看可更新容器列表
+- 支持镜像管理、容器管理、更新确认
+- 支持更新通知、自动更新、自动清理
+- 支持代理：`none / socks5 / http`
+- 支持 **多实例管理**：一个 Bot 管多个 DockerCopilot
+
+### 5. 日志 / 配置 / 备份都更适合长期使用
+- 容器日志查看、过滤、高亮、复制、下载
+- 配置页统一管理 Bot / 多实例 / 代理 / 定时策略
+- 备份与恢复入口集中
+- 关键配置持久化到 `/app/config/config.json`
+
+---
 
 ## 镜像
 
-DockerHub：
+推荐镜像：
 
 ```text
 jaysherlock/dockercopilot:latest
 ```
 
-> 推荐统一使用 `jaysherlock/dockercopilot:latest`。主程序已内置 Telegram Bot（Go + telego），不再需要单独拉取 Bot 镜像。
+> 当前主程序镜像已内置 Telegram Bot，不需要再额外部署旧的独立 bot 子进程方案。
 
-## 主程序 docker-compose.yaml
+---
 
-推荐创建目录后部署，例如：
+## 推荐部署方式：host 网络
 
-```bash
-mkdir -p /opt/dockercopilot/{data,config}
-cd /opt/dockercopilot
-nano docker-compose.yaml
-```
+**推荐优先使用 `host` 模式运行。**
 
-写入：
+原因：
+- 容器 WebUI 链接更直观
+- 不容易拿到 `172.*` 这类容器内网地址
+- 更适合 NAS / 家用服务器 / 反向代理前的本地部署
+- 配置更简单，排障成本更低
+
+### docker-compose.yaml
 
 ```yaml
 services:
@@ -79,23 +86,36 @@ services:
     container_name: dockercopilot
     restart: always
     privileged: true
-    # 推荐优先使用 host 模式，容器页链接展示最直接，宿主网络也更好理解
     network_mode: host
     volumes:
-      # 必填：用于管理宿主机 Docker
       - /var/run/docker.sock:/var/run/docker.sock
-      # 数据目录：备份文件、图标等
       - ./data:/data
-      # 配置目录：保存 Bot 配置、更新黑名单等
       - ./config:/app/config
     environment:
       - TZ=Asia/Shanghai
       - DOCKER_HOST=unix:///var/run/docker.sock
-      # 登录密钥：不少于 8 位
       - secretKey=请改成你的强密码
-      # 备份目录，默认也可不填
       - BACKUP_DIR=/data/backups
       - WORKDIR=/app
+
+      # 可选：Telegram Bot
+      - TELEGRAM_BOT_TOKEN=
+      - TELEGRAM_CHAT_IDS=
+      - TELEGRAM_UPDATE_CHECK_CRON=0 18 * * *
+      - TELEGRAM_NOTIFY_ON_UPDATE=true
+
+      # 可选：自动任务
+      - TELEGRAM_AUTO_CLEAN_IMAGES=false
+      - TELEGRAM_CLEAN_IMAGES_CRON=3 2 * * *
+      - TELEGRAM_AUTO_UPDATE_CONTAINERS=false
+      - TELEGRAM_UPDATE_CONTAINERS_CRON=0 */6 * * *
+
+      # 可选：代理
+      - TELEGRAM_PROXY_TYPE=none
+      - TELEGRAM_PROXY_HOST=
+      - TELEGRAM_PROXY_PORT=
+      - TELEGRAM_PROXY_USERNAME=
+      - TELEGRAM_PROXY_PASSWORD=
 ```
 
 启动：
@@ -110,21 +130,13 @@ docker compose up -d
 http://服务器IP:12712/manager
 ```
 
-### 网络模式建议
+---
 
-**推荐：`network_mode: host`**
+## 如果你必须使用 bridge
 
-- 容器页里的 Web 链接最直观，不容易出现容器内网 IP（如 `172.*`）误导
-- 适合大多数家用 NAS / Linux 宿主机场景
-- 不需要再额外关心 Docker bridge 地址换算
+可以运行，但建议同时配置宿主机局域网 IP。
 
-如果你必须使用 `bridge`，也可以，但建议同时在 Web「交互 / Bot 配置」里设置：
-
-- `HOST_LAN_IP` / `hostLanIp`
-
-这样容器页生成的 Web 链接会优先使用你手动指定的局域网 IP，而不是优先落到 Docker 内网地址。
-
-`bridge + HOST_LAN_IP` 示例：
+### bridge 示例
 
 ```yaml
 services:
@@ -147,149 +159,35 @@ services:
       - HOST_LAN_IP=192.168.1.10
 ```
 
-> `HOST_LAN_IP` 请填写当前宿主机在局域网里实际可访问的 IP，比如 `192.168.1.10`。
+说明：
+- `HOST_LAN_IP` 建议填写宿主机真实局域网 IP
+- 这样容器页生成的 WebUI 链接会优先使用这个地址
+- 否则在 bridge 模式下，某些场景可能显示成 Docker 内网地址
 
-如果只允许本机反代访问，可以保持 `12712:12712`；如果需要局域网直接访问，可改为：
+---
 
-```yaml
-ports:
-  - "0.0.0.0:12712:12712"
-```
+## 常用环境变量
 
-### 环境变量说明
+| 变量 | 说明 |
+| --- | --- |
+| `secretKey` | Web 登录密钥，建议不少于 8 位 |
+| `TZ` | 时区，建议 `Asia/Shanghai` |
+| `DOCKER_HOST` | Docker socket 地址，通常为 `unix:///var/run/docker.sock` |
+| `BACKUP_DIR` | 备份目录，建议 `/data/backups` |
+| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
+| `TELEGRAM_CHAT_IDS` | 允许接收通知的 chat id，多个用逗号分隔 |
+| `TELEGRAM_UPDATE_CHECK_CRON` | 定时检查更新 |
+| `TELEGRAM_AUTO_CLEAN_IMAGES` | 是否自动清理无用镜像 |
+| `TELEGRAM_CLEAN_IMAGES_CRON` | 自动清理镜像 Cron |
+| `TELEGRAM_AUTO_UPDATE_CONTAINERS` | 是否自动更新容器 |
+| `TELEGRAM_UPDATE_CONTAINERS_CRON` | 自动更新容器 Cron |
+| `TELEGRAM_PROXY_TYPE` | `none / socks5 / http` |
+| `HOST_LAN_IP` | bridge 模式下推荐设置的宿主机局域网 IP |
+| `DOCKERCOPILOT_API_URLS` | 多实例 Bot 管理列表 |
 
-| 变量 | 必填 | 说明 |
-| --- | --- | --- |
-| `secretKey` | 是 | Web 登录密钥，不少于 8 位 |
-| `TZ` | 否 | 时区，建议 `Asia/Shanghai` |
-| `DOCKER_HOST` | 否 | Docker socket 地址，默认使用 `unix:///var/run/docker.sock` |
-| `BACKUP_DIR` | 否 | 备份文件目录，建议 `/data/backups` |
-| `WORKDIR` | 否 | 容器工作目录，默认 `/app` |
-| `TELEGRAM_BOT_TOKEN` | 否 | 填写后主容器会启动内置 Telegram Bot |
-| `TELEGRAM_CHAT_IDS` | 否 | 允许接收通知的 chat id，多个用英文逗号分隔 |
-| `TELEGRAM_PROXY_TYPE` | 否 | Telegram 代理类型：`none` / `socks5` / `http` |
-| `DOCKERCOPILOT_API_URLS` | 否 | Bot 管理实例列表，格式见下方 |
+---
 
-## 内置 Telegram Bot 配置
-
-如果希望主程序容器同时启动 Telegram Bot，可在主程序 compose 的 `environment` 中补充：
-
-```yaml
-environment:
-  - TZ=Asia/Shanghai
-  - DOCKER_HOST=unix:///var/run/docker.sock
-  - secretKey=请改成你的强密码
-
-  # ===== Telegram Bot 配置（可选）=====
-  - TELEGRAM_BOT_TOKEN=你的_bot_token
-  - TELEGRAM_CHAT_IDS=你的_chat_id,另一个_chat_id
-  - TELEGRAM_POLLING_INTERVAL=1
-  - TELEGRAM_UPDATE_CHECK_CRON=0 18 * * *
-  - TELEGRAM_NOTIFY_ON_UPDATE=true
-
-  # 更新黑名单，建议也可以在 Web「交互」页面维护
-  - TELEGRAM_UPDATE_BLACKLIST=postgresql,redis,mysql
-
-  # 自动清理镜像
-  - TELEGRAM_AUTO_CLEAN_IMAGES=false
-  - TELEGRAM_CLEAN_IMAGES_CRON=3 2 * * *
-
-  # 自动更新容器
-  - TELEGRAM_AUTO_UPDATE_CONTAINERS=false
-  - TELEGRAM_UPDATE_CONTAINERS_CRON=0 */6 * * *
-
-  # ===== Telegram Bot 代理配置（可选）=====
-  # 支持 none / socks5 / http
-  - TELEGRAM_PROXY_TYPE=none
-  - TELEGRAM_PROXY_HOST=
-  - TELEGRAM_PROXY_PORT=
-  - TELEGRAM_PROXY_USERNAME=
-  - TELEGRAM_PROXY_PASSWORD=
-
-  # ===== Bot 管理 DockerCopilot 实例 =====
-  # 格式：实例名::API地址::secretKey
-  # 多实例用 | 分隔
-  - DOCKERCOPILOT_API_URLS=local::http://127.0.0.1:12712::请改成你的强密码
-```
-
-Bot 配置会持久化到：
-
-```text
-/app/config/config.json
-```
-
-只要挂载了：
-
-```yaml
-- ./config:/app/config
-```
-
-那么 Bot 配置、更新黑名单等都会在容器重建后保留。
-
-## 独立 Bot / 多实例部署说明
-
-当前推荐统一使用主程序镜像：
-
-```text
-jaysherlock/dockercopilot:latest
-```
-
-Telegram Bot 已内置在主程序中（Go + telego）。如果需要一个 Bot 管理多个 DockerCopilot 实例，可以单独启动同一个镜像，并通过 `DOCKERCOPILOT_API_URLS` 指向外部实例。
-
-示例 `docker-compose.bot.yaml`：
-
-```yaml
-services:
-  dockercopilot-bot:
-    image: jaysherlock/dockercopilot:latest
-    container_name: dockercopilot-bot
-    restart: always
-    ports:
-      - "12713:12712"
-    environment:
-      - TZ=Asia/Shanghai
-      - secretKey=请改成这个 Bot 实例自己的强密码
-
-      # Telegram Bot
-      - TELEGRAM_BOT_TOKEN=你的_bot_token
-      - TELEGRAM_CHAT_IDS=你的_chat_id
-      - TELEGRAM_POLLING_INTERVAL=1
-
-      # DockerCopilot 实例
-      # 格式：实例名::API地址::secretKey
-      # 如果目标主程序和这个 Bot 在同一个 compose 网络内，可以使用 http://dockercopilot:12712
-      # 如果是外部主机，请填写可访问地址，例如 http://192.168.1.10:12712
-      - DOCKERCOPILOT_API_URLS=home::http://192.168.1.10:12712::你的_dockercopilot_secretKey
-
-      # 更新通知/自动任务
-      - TELEGRAM_UPDATE_CHECK_CRON=0 18 * * *
-      - TELEGRAM_NOTIFY_ON_UPDATE=true
-      - TELEGRAM_UPDATE_BLACKLIST=
-      - TELEGRAM_AUTO_CLEAN_IMAGES=false
-      - TELEGRAM_CLEAN_IMAGES_CRON=3 2 * * *
-      - TELEGRAM_AUTO_UPDATE_CONTAINERS=false
-      - TELEGRAM_UPDATE_CONTAINERS_CRON=0 */6 * * *
-
-      # 代理：none / socks5 / http
-      - TELEGRAM_PROXY_TYPE=none
-      - TELEGRAM_PROXY_HOST=
-      - TELEGRAM_PROXY_PORT=
-      - TELEGRAM_PROXY_USERNAME=
-      - TELEGRAM_PROXY_PASSWORD=
-    volumes:
-      - ./bot-config:/app/config
-      - ./bot-data:/data
-```
-
-启动：
-
-```bash
-docker compose -f docker-compose.bot.yaml up -d
-```
-
-> 注意：独立 Bot 仍然使用 `jaysherlock/dockercopilot:latest`，不再推荐单独的 `dockercopilot-bot` 镜像。
-
-## 多实例配置格式
+## 多实例 Bot 配置
 
 `DOCKERCOPILOT_API_URLS` 格式：
 
@@ -297,152 +195,139 @@ docker compose -f docker-compose.bot.yaml up -d
 实例名::API地址::secretKey
 ```
 
-多个实例使用 `|` 分隔：
+多个实例用 `|` 分隔：
 
 ```text
 home::http://192.168.1.10:12712::home_secret|nas::http://192.168.1.20:12712::nas_secret
 ```
 
-## 更新黑名单
+适合：
+- 一台 Bot 管多台 DockerCopilot
+- 多 NAS / 多主机统一通知与操控
 
-更新黑名单用于跳过不希望自动更新/提示更新的容器或镜像。
+---
 
-推荐在 Web 页面维护：
+## 更新与自更新说明
+
+DockerCopilot 支持两类更新：
+
+### 容器更新
+- 检查容器所用镜像是否有新版本
+- 支持 Web 更新
+- 支持 Telegram Bot 更新
+- 支持批量更新
+- 支持更新黑名单
+
+### DockerCopilot 自更新
+DockerCopilot 自己不会走普通的“删容器重建”流程，而是走：
+
+1. 检查远端版本
+2. 下载对应架构 release 二进制包
+3. 写入新的 `dockerCopilot-new`
+4. 主进程退出后自动替换
+5. 容器重启完成升级
+
+这样可以避免“先把自己停掉，更新流程也一起停掉”的问题。
+
+---
+
+## 配置与持久化
+
+主要配置文件：
 
 ```text
-交互 -> 更新黑名单
+/app/config/config.json
 ```
 
-保存位置：
+建议始终挂载：
 
-```text
-/app/config/config.json -> telegram.update_blacklist
+```yaml
+- ./config:/app/config
 ```
 
-匹配规则：
+这样这些内容都能保留：
+- Bot 配置
+- 更新黑名单
+- 自动任务设置
+- 多实例配置
+- 宿主机 IP 配置
+- 容器专属 WebUI 覆盖配置
 
-- 支持容器名
-- 支持镜像名
-- 自动规范化 Docker Hub 前缀，例如：
-  - `docker.io/library/nginx:latest`
-  - `library/nginx:latest`
-  - `nginx:latest`
-- 未填写 tag 时按 `:latest` 处理
-- 容器页、交互页和 Telegram Bot 共用同一份规则
-
-## 更新检测说明
-
-DockerCopilot 会优先使用容器创建时的镜像引用，例如：
-
-```text
-vaultwarden/server:1.35.8
-jaysherlock/dc-update-test:latest
-```
-
-再结合当前运行镜像的 `RepoDigests` 与远端 registry digest 比较。
-
-这样可以避免：
-
-- 同一个镜像运行多个容器时漏检
-- 容器 `usingImage` 变成 `sha256:...` 后无法更新
-- 本地 `latest` tag 和容器创建 tag 不一致导致误报
-- 私有仓库、无权限仓库、无 `RepoDigest` 的本地镜像拖垮容器列表
-
-容器列表接口会优先返回本地容器状态，更新检测在后台异步刷新缓存。
-
-## 程序自更新说明
-
-DockerCopilot 左下角版本信息会同时读取：
-
-- 本地运行版本
-- 远端 `latest/version` 版本
-
-当远端版本高于本地版本时，页面会提示有新版本。
-
-### DockerCopilot 自身容器如何更新？
-
-DockerCopilot 自己这个容器不会走普通容器的“拉镜像 -> 停止 -> 重建容器”流程。
-
-原因很简单：如果先把自己停掉，更新流程也就中断了。
-
-因此自身更新会改走 **程序自更新**：
-
-1. 读取远端 `latest/version`
-2. 从 GitHub Release 下载对应架构的 `dockerCopilot-<arch>.tar.gz`
-3. 解压出新的 `dockerCopilot-new` 二进制
-4. 将其写入容器工作目录中的 `./dockerCopilot-new`
-5. 主进程退出后，容器重启
-6. `start.sh` 检测到 `./dockerCopilot-new`，自动替换为 `./dockerCopilot`
-
-这样容器版就可以通过**仅替换二进制文件**完成自更新，而不需要先把容器删除重建。
-
-### 什么时候不会执行自更新？
-
-如果本地版本已经等于远端版本，界面会直接提示：
-
-- `当前已是最新版本`
-
-此时不会重复下载，也不会触发重启。
+---
 
 ## 常见问题
 
-### 登录提示失败
-
-请检查：
-
-- `secretKey` 是否和 compose 中一致
-- `secretKey` 是否不少于 8 位且非纯数字
-- 容器是否正常启动：`docker logs dockercopilot`
-
-### 页面看不到容器
-
-请检查是否挂载 Docker socket：
+### 1. 页面看不到容器
+请确认已挂载 Docker socket：
 
 ```yaml
-volumes:
-  - /var/run/docker.sock:/var/run/docker.sock
+- /var/run/docker.sock:/var/run/docker.sock
 ```
 
-以及环境变量：
+并设置：
 
 ```yaml
-environment:
-  - DOCKER_HOST=unix:///var/run/docker.sock
+- DOCKER_HOST=unix:///var/run/docker.sock
 ```
 
-### Telegram Bot 不启动
+### 2. 容器 WebUI 链接不对
+优先建议：
+- 使用 `host` 网络模式
 
-请检查：
+如果必须 bridge：
+- 配置 `HOST_LAN_IP`
+- 或在 Web 配置页填写宿主机 IP
 
-- `TELEGRAM_BOT_TOKEN` 是否填写
-- `TELEGRAM_CHAT_IDS` 是否正确
-- 如果网络需要代理，是否配置了 `TELEGRAM_PROXY_TYPE/HOST/PORT`
-- 查看日志：`docker logs dockercopilot` 或 `docker logs dockercopilot-bot`
+### 3. Telegram Bot 没反应
+检查：
+- `TELEGRAM_BOT_TOKEN`
+- `TELEGRAM_CHAT_IDS`
+- 代理配置是否正确
+- 容器日志中是否有 Telegram 连接错误
 
-### Bot 退出会不会影响主程序？
+### 4. 自动更新 / 自动清理不执行
+检查：
+- 对应开关是否开启
+- Cron 是否填写正确
+- 时区是否正确
+- 更新黑名单是否把目标过滤掉了
 
-不会。主程序后端是容器生命周期的权威进程；Telegram Bot 是可选辅助进程，Bot 退出不会导致 DockerCopilot 后端退出。
+---
 
-## 开发环境
+## 开发构建
 
-- Go：`1.21+`
-- Node.js：建议 `20+`
-- 前端构建：
+前端：
 
 ```bash
 npm install
 npm run build
 ```
 
-本项目运行镜像使用嵌入式前端资源，完整构建链路为：
+如果需要重新打包嵌入式前端：
 
 ```bash
 npm run build
 rm -rf front
 cp -a dist front
-go build -o dc-back/dist/linux/amd64/dockerCopilot ./dockercopilot.go
-docker build -f docker/Dockerfile -t jaysherlock/dockercopilot:latest .
 ```
+
+后端 / 镜像再按项目发布流程继续构建。
+
+---
+
+## 致谢
+
+本项目基于原作者的优秀工作持续演进，特别感谢原作者：
+
+- 原作者仓库：<https://github.com/onlyLTY/dockerCopilot>
+
+维护版在此基础上持续补充了：
+- Telegram Bot 深化操控
+- 定时更新 / 定时清理 / 定时备份
+- 多实例管理
+- 更适合中文用户与 NAS 场景的前后端体验优化
+
+---
 
 ## License
 
