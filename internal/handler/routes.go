@@ -109,6 +109,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 			},
 			{
 				Method:  http.MethodPost,
+				Path:    "/container/:id/endpoint",
+				Handler: container.SaveEndpointConfigHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
 				Path:    "/containers/check-update",
 				Handler: container.CheckUpdateHandler(serverCtx),
 			},
@@ -167,6 +172,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodDelete,
 				Path:    "/image/:id",
 				Handler: image.RemoveHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/image/:id/retag",
+				Handler: image.RetagHandler(serverCtx),
 			},
 			{
 				Method:  http.MethodPost,

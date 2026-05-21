@@ -43,6 +43,7 @@ type remoteImage struct {
 	Size             string `json:"size"`
 	CreateTime       string `json:"createTime"`
 	InUsed           bool   `json:"inUsed"`
+	UsageState       string `json:"usageState"`
 	CleanupCandidate bool   `json:"cleanupCandidate"`
 	CleanupReason    string `json:"cleanupReason"`
 	MultiRef         bool   `json:"multiRef"`

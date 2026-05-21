@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
-import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus, Gauge, CircleHelp } from 'lucide-react'
+import { HardDrive, Trash2, RefreshCw, Link, X, AlertCircle, CheckCircle, LayoutGrid, Search, CheckSquare, LayoutList, Zap, Logs, Plus, Gauge, CircleHelp, Pencil, ExternalLink } from 'lucide-react'
 import { imageAPI, botAPI, progressAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getImageLogo } from '../config/imageLogos.js'
@@ -112,6 +112,8 @@ export function Images() {
   const [defaultAccelerator, setDefaultAccelerator] = useState('')
   const [acceleratorLatency, setAcceleratorLatency] = useState({})
   const [testingAccelerators, setTestingAccelerators] = useState(false)
+  const [editImageModal, setEditImageModal] = useState({ isOpen: false, image: null, name: '', tag: '', saving: false })
+  const [confirmRemoveAccelerator, setConfirmRemoveAccelerator] = useState({ isOpen: false, source: '' })
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -277,7 +279,9 @@ export function Images() {
     const ids = filteredImages.map(img => img.id)
     const allSelected = ids.length > 0 && ids.every(id => selectedImages.includes(id))
     setSelectedImages(allSelected ? selectedImages.filter(id => !ids.includes(id)) : Array.from(new Set([...selectedImages, ...ids])))
-    setIsBatchMode(!allSelected && ids.length > 0)
+    if (viewMode === 'card' && !allSelected && ids.length > 0) {
+      setIsBatchMode(true)
+    }
   }
 
   const openBatchDelete = () => {
@@ -302,7 +306,6 @@ export function Images() {
       await Promise.all(imagesToDelete.map(image => imageAPI.deleteImage(image.id, force)))
       setSuccessModal({ isOpen: true, message: `成功${force ? '强制删除' : '删除'} ${imagesToDelete.length} 个镜像` })
       setSelectedImages([])
-      setIsBatchMode(false)
       fetchImages()
       setTimeout(() => setSuccessModal({ isOpen: false, message: '' }), 3000)
     } catch (error) {
@@ -425,6 +428,20 @@ export function Images() {
     await persistAccelerators(next, defaultAccelerator || value)
   }
 
+  const removeAccelerator = async (source) => {
+    const sourceText = String(source || '').trim()
+    if (!sourceText) return
+    if (accelerators.length <= 1) {
+      setError('至少保留一个加速源，避免误删后无法使用')
+      return
+    }
+    const next = accelerators.filter(item => item !== sourceText)
+    const nextDefault = defaultAccelerator === sourceText ? (next[0] || '') : defaultAccelerator
+    await persistAccelerators(next, nextDefault)
+    setConfirmRemoveAccelerator({ isOpen: false, source: '' })
+    setSuccess('加速源已删除')
+  }
+
   const openAcceleratorModal = (imageName = '') => {
     setAcceleratorModal({ isOpen: true, imageName, taskId: '', logs: '', selectedSource: defaultAccelerator || accelerators[0] || '' })
   }
@@ -475,7 +492,84 @@ export function Images() {
   })
 
   const shortImageId = (id) => (id || '').replace(/^sha256:/, '').slice(0, 12)
-  const dockerHubUrl = (name) => name && name !== 'None' ? `https://hub.docker.com/r/${name}` : '#'
+  const canonicalRepoLink = (image) => {
+    const name = String(image?.name || '').trim()
+    if (!name || name === 'None') return ''
+    if (name.startsWith('ghcr.io/')) {
+      const parts = name.split('/').filter(Boolean)
+      if (parts.length >= 3) {
+        const owner = parts[1]
+        const pkg = parts.slice(2).join('/')
+        return `https://github.com/users/${owner}/packages/container/package/${pkg}`
+      }
+      return image?.repoLinks?.github || ''
+    }
+    return image?.repoLinks?.dockerHub || `https://hub.docker.com/r/${name.includes('/') ? name : `library/${name}`}`
+  }
+
+  const openImageRefLink = (image) => {
+    const target = canonicalRepoLink(image)
+    if (target) {
+      window.open(target, '_blank', 'noopener,noreferrer')
+    }
+  }
+
+  useEffect(() => {
+    if (viewMode === 'table') {
+      setIsBatchMode(false)
+    }
+  }, [viewMode])
+
+  const openImageEditModal = (image) => {
+    if (!image) return
+    if (image.inUsed) {
+      setError('该镜像正被容器引用（包括已停止容器），请先处理相关容器再修改')
+      return
+    }
+    setEditImageModal({
+      isOpen: true,
+      image,
+      name: image.name || '',
+      tag: image.tag && image.tag !== 'None' ? image.tag : 'latest',
+      saving: false,
+    })
+  }
+
+  const saveImageRetag = async () => {
+    const image = editImageModal.image
+    if (!image) return
+    const name = String(editImageModal.name || '').trim()
+    const tag = String(editImageModal.tag || '').trim() || 'latest'
+    if (!name) {
+      setError('镜像名不能为空')
+      return
+    }
+    if (image.inUsed) {
+      setError('该镜像正在被容器使用，请先关闭相关容器再修改')
+      return
+    }
+    try {
+      setEditImageModal(prev => ({ ...prev, saving: true }))
+      setError(null)
+      const res = await imageAPI.retagImage(image.id, {
+        name,
+        tag,
+        oldName: image.name,
+        oldTag: image.tag,
+      })
+      const warning = res.data?.data?.warning
+      setEditImageModal({ isOpen: false, image: null, name: '', tag: '', saving: false })
+      if (warning) {
+        setSuccess(warning)
+      } else {
+        setSuccess('镜像名称 / Tag 修改成功')
+      }
+      fetchImages()
+    } catch (e) {
+      setError(e.response?.data?.msg || e.message || '修改镜像名称 / Tag 失败')
+      setEditImageModal(prev => ({ ...prev, saving: false }))
+    }
+  }
 
   if (isLoading && images.length === 0) {
     return (
@@ -671,7 +765,7 @@ export function Images() {
 
         <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
           <div className="flex flex-wrap items-center gap-2">
-            {(viewMode === 'card' || isBatchMode || selectedImages.length > 0) && (
+            {viewMode === 'card' && (
               <button
                 onClick={() => {
                   setIsBatchMode(!isBatchMode)
@@ -683,13 +777,30 @@ export function Images() {
                 <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
               </button>
             )}
-            <button
-              onClick={toggleSelectAllImages}
-              disabled={isLoading || filteredImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <span>{filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id)) ? '取消全选' : '全选'}</span>
-            </button>
+            {(() => {
+              const allVisibleSelected = filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))
+              return (
+                <>
+                  <button
+                    onClick={toggleSelectAllImages}
+                    disabled={isLoading || filteredImages.length === 0 || (viewMode === 'card' && !isBatchMode)}
+                    className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
+                  >
+                    <span>{allVisibleSelected ? '取消全选' : '全选'}</span>
+                  </button>
+                  {!allVisibleSelected && selectedImages.length > 0 && (
+                    <button
+                      onClick={() => setSelectedImages([])}
+                      disabled={isLoading}
+                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 text-sm font-medium"
+                    >
+                      <X className="h-4 w-4" />
+                      <span>取消选择</span>
+                    </button>
+                  )}
+                </>
+              )
+            })()}
             <button
               onClick={openBatchDelete}
               disabled={isLoading || selectedImages.length === 0}
@@ -768,9 +879,6 @@ export function Images() {
               </button>}
               </div>
               <div className="flex items-center gap-2">
-                <button onClick={toggleSelectAllImages} className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 bg-blue-100 dark:bg-blue-800/50 rounded transition-colors">全选结果</button>
-                <button onClick={openBatchDelete} disabled={selectedImages.length === 0} className="px-2 py-0.5 text-xs font-medium text-red-600 dark:text-red-300 hover:text-red-800 dark:hover:text-red-100 bg-red-100 dark:bg-red-800/50 rounded transition-colors disabled:opacity-50">删除所选</button>
-                {selectedImages.length > 0 && <button onClick={() => setSelectedImages([])} className="px-2 py-0.5 text-xs font-medium text-gray-600 dark:text-gray-300 hover:text-gray-800 dark:hover:text-gray-100 bg-gray-100 dark:bg-gray-700 rounded transition-colors">取消选择</button>}
               </div>
             </div>
           </div>
@@ -826,7 +934,11 @@ export function Images() {
                           </div>
                           <div className="min-w-0">
                             <div className="flex items-center gap-1 min-w-0">
-                              <div className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px]" title={image.name}>{image.name}</div>
+                              <button
+                                onClick={(e) => { e.stopPropagation(); openImageRefLink(image) }}
+                                className="font-semibold text-gray-900 dark:text-white truncate max-w-[320px] hover:text-sky-600 dark:hover:text-sky-400 text-left"
+                                title={canonicalRepoLink(image) || image.name}
+                              >{image.name}</button>
                               <ImageRiskHint image={image} />
                             </div>
                             <div className="mt-1 flex flex-wrap items-center gap-1">
@@ -834,16 +946,48 @@ export function Images() {
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>{image.tag}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" title={image.tag}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openImageEditModal(image) }}
+                          className="inline-flex items-center gap-1 rounded-md px-2 py-1 hover:bg-gray-100 dark:hover:bg-gray-700"
+                          title={image.inUsed ? '该镜像正被容器引用（包括已停止容器），不能直接修改，请先处理相关容器' : '修改镜像名和 Tag'}
+                        >
+                          <span>{image.tag}</span>
+                          <Pencil className="h-3.5 w-3.5 text-gray-400" />
+                        </button>
+                      </td>
                       <td className={cn('px-4 py-3 text-sm font-semibold whitespace-nowrap', getSizeColor(image.size))}>{formatImageSize(image.size)}</td>
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <span className={cn('inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium', image.inUsed ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300')}>
-                          <span className={cn('h-2 w-2 rounded-full', image.inUsed ? 'bg-green-500' : 'bg-gray-400')} />
-                          {image.inUsed ? '使用中' : '未使用'}
+                        <span className={cn(
+                          'inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium',
+                          image.usageState === 'running'
+                            ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                            : image.usageState === 'stopped'
+                              ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                              : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                        )}>
+                          <span className={cn(
+                            'h-2 w-2 rounded-full',
+                            image.usageState === 'running'
+                              ? 'bg-green-500'
+                              : image.usageState === 'stopped'
+                                ? 'bg-gray-400'
+                                : 'bg-gray-400'
+                          )} />
+                          {image.usageState === 'running' ? '使用中' : image.usageState === 'stopped' ? '使用中（已停止容器）' : '未使用'}
                         </span>
                       </td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{image.createTime || '-'}</td>
-                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap" title={image.id}>{shortImageId(image.id)}</td>
+                      <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 font-mono whitespace-nowrap" title={image.id}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openImageRefLink(image) }}
+                          className="inline-flex items-center gap-1 text-sky-600 dark:text-sky-400 hover:underline"
+                          title={canonicalRepoLink(image) || image.name}
+                        >
+                          <span>{shortImageId(image.id)}</span>
+                          <ExternalLink className="h-3.5 w-3.5" />
+                        </button>
+                      </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         <button onClick={(e) => { e.stopPropagation(); openAcceleratorModal(image.name) }} className="inline-flex items-center gap-1 text-sm text-sky-600 dark:text-sky-400 hover:underline">
                           加速 <Zap className="h-3.5 w-3.5" />
@@ -865,7 +1009,7 @@ export function Images() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
             {filteredImages
               .map((image) => (
-                <div key={image.id} onClick={() => isBatchMode && toggleImageSelection(image.id)} className={cn("group card p-4 rounded-2xl hover:shadow-lg transition-all cursor-pointer", selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20")}>
+                <div key={image.id} className={cn("group card p-4 rounded-2xl hover:shadow-lg transition-all", selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20")}>
                   {isBatchMode && (
                     <div className="flex justify-end mb-2">
                       <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} onClick={(e) => e.stopPropagation()} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
@@ -884,24 +1028,37 @@ export function Images() {
 
                     {/* 竖线状态指示器 */}
                     <div className="flex flex-col items-center justify-center h-10">
-                      {image.inUsed && (
+                      {image.usageState === 'running' && (
                         <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full flex-shrink-0" />
                       )}
-                      {!image.inUsed && (
+                      {image.usageState === 'stopped' && (
+                        <div className="w-1 h-6 bg-gray-400 dark:bg-gray-500 rounded-full flex-shrink-0" />
+                      )}
+                      {(!image.usageState || image.usageState === 'unused') && (
                         <div className="w-1 h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex-shrink-0" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
                       <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm flex items-center gap-1">
-                        <span className="truncate">{image.name}</span>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openImageEditModal(image) }}
+                          className="truncate text-left hover:underline"
+                          title={image.inUsed ? '该镜像正被容器引用（包括已停止容器），不能直接修改，请先处理相关容器' : '修改镜像名和 Tag'}
+                        >
+                          {image.name}
+                        </button>
                         <ImageRiskHint image={image} />
                       </h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center justify-between gap-2">
-                        <span className="truncate">{image.tag}</span>
-                        <span className={cn("font-semibold flex-shrink-0 whitespace-nowrap", getSizeColor(image.size))}>
-                          大小: {formatImageSize(image.size)}
-                        </span>
+                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2">
+                        <button
+                          onClick={(e) => { e.stopPropagation(); openImageEditModal(image) }}
+                          className="truncate inline-flex items-center gap-1 hover:text-primary-600 dark:hover:text-primary-400"
+                          title={image.inUsed ? '该镜像正被容器引用（包括已停止容器），不能直接修改，请先处理相关容器' : '修改镜像名和 Tag'}
+                        >
+                          <span className="truncate">{image.tag}</span>
+                          <Pencil className="h-3 w-3 flex-shrink-0" />
+                        </button>
                       </p>
                     </div>
 
@@ -919,11 +1076,39 @@ export function Images() {
 
                   {/* 镜像信息 */}
                   <div className="space-y-2 text-xs mb-4">
+                    <div className="flex items-center justify-between gap-3">
+                      <span className={cn(
+                        'inline-flex items-center gap-2 px-2 py-1 rounded-full text-xs font-medium',
+                        image.usageState === 'running'
+                          ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+                          : image.usageState === 'stopped'
+                            ? 'bg-gray-100 text-gray-500 dark:bg-gray-700 dark:text-gray-400'
+                            : 'bg-gray-100 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                      )}>
+                        <span className={cn(
+                          'h-2 w-2 rounded-full',
+                          image.usageState === 'running'
+                            ? 'bg-green-500'
+                            : image.usageState === 'stopped'
+                              ? 'bg-gray-400'
+                              : 'bg-gray-400'
+                        )} />
+                        {image.usageState === 'running' ? '使用中' : image.usageState === 'stopped' ? '使用中（已停止容器）' : '未使用'}
+                      </span>
+                      <span className={cn('font-semibold flex-shrink-0 whitespace-nowrap', getSizeColor(image.size))}>
+                        大小: {formatImageSize(image.size)}
+                      </span>
+                    </div>
                     <div className="flex items-center gap-2">
                       <span className="text-gray-500 dark:text-gray-400 flex-shrink-0">ID:</span>
-                      <span className="font-mono text-gray-700 dark:text-gray-300 truncate text-xs">
-                        {image.id}
-                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); openImageRefLink(image) }}
+                        className="font-mono text-sky-600 dark:text-sky-400 truncate text-xs hover:underline inline-flex items-center gap-1"
+                        title={canonicalRepoLink(image) || image.name}
+                      >
+                        <span className="truncate">{image.id}</span>
+                        <ExternalLink className="h-3.5 w-3.5 flex-shrink-0" />
+                      </button>
                     </div>
                   </div>
 
@@ -1072,10 +1257,20 @@ export function Images() {
                   <button onClick={addAccelerator} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 flex items-center gap-1"><Plus className="h-4 w-4" />添加</button>
                 </div>
                 <div className="flex flex-wrap gap-2 mt-3">
-                  {accelerators.map(src => <button key={src} onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: src }))} className={cn("px-2 py-1 text-xs rounded-lg border flex items-center gap-1", acceleratorModal.selectedSource === src ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>
-                    <span>{src}</span>
-                    <span className={cn("font-mono", latencyClassName(src))}>{formatLatency(src)}</span>
-                  </button>)}
+                  {accelerators.map(src => <div key={src} className={cn("px-2 py-1 text-xs rounded-lg border flex items-center gap-2", acceleratorModal.selectedSource === src ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>
+                    <button type="button" onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: src }))} className="inline-flex items-center gap-1">
+                      <span>{src}</span>
+                      <span className={cn("font-mono", latencyClassName(src))}>{formatLatency(src)}</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setConfirmRemoveAccelerator({ isOpen: true, source: src })}
+                      className="rounded p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
+                      title="删除这个加速源"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </div>)}
                 </div>
               </div>
               <div>
@@ -1085,6 +1280,64 @@ export function Images() {
                 </div>
                 <pre className="h-56 overflow-auto rounded-2xl bg-gray-950 text-green-300 text-xs p-4 whitespace-pre-wrap">{acceleratorModal.logs || '等待开始拉取...'}</pre>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {confirmRemoveAccelerator.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="w-full max-w-md rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 shadow-2xl p-6">
+            <div className="flex items-start justify-between gap-4">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">删除加速源</h3>
+                <p className="mt-1 text-sm text-gray-500 dark:text-gray-400">确认后会从配置里移除这个镜像加速源。</p>
+              </div>
+              <button onClick={() => setConfirmRemoveAccelerator({ isOpen: false, source: '' })} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200">
+                <X className="h-5 w-5" />
+              </button>
+            </div>
+            <div className="mt-4 rounded-2xl border border-amber-200 dark:border-amber-800 bg-amber-50 dark:bg-amber-900/20 p-4 text-sm text-amber-800 dark:text-amber-200">
+              确定删除加速源 <span className="font-mono font-semibold break-all">{confirmRemoveAccelerator.source}</span> 吗？删错了可以稍后再手动添加回来。
+            </div>
+            <div className="mt-6 flex gap-3">
+              <button onClick={() => setConfirmRemoveAccelerator({ isOpen: false, source: '' })} className="flex-1 px-4 py-2.5 text-sm font-medium rounded-xl border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800">取消</button>
+              <button onClick={() => removeAccelerator(confirmRemoveAccelerator.source)} className="flex-1 px-4 py-2.5 text-sm font-semibold rounded-xl bg-gradient-to-r from-red-500 to-orange-500 text-white hover:from-red-600 hover:to-orange-600 shadow-lg">确认删除</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editImageModal.isOpen && (
+        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-lg w-full overflow-hidden">
+            <div className="h-1 bg-gradient-to-r from-sky-400 via-blue-500 to-cyan-500"></div>
+            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
+              <div>
+                <h3 className="text-lg font-bold text-gray-900 dark:text-white">修改镜像名 / Tag</h3>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">仅允许修改未使用的镜像；如果镜像正在被容器使用，请先关闭相关容器。</p>
+              </div>
+              <button onClick={() => setEditImageModal({ isOpen: false, image: null, name: '', tag: '', saving: false })} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="h-5 w-5" /></button>
+            </div>
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">镜像名</label>
+                <input value={editImageModal.name} onChange={(e) => setEditImageModal(prev => ({ ...prev, name: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="例如 nginx / ghcr.io/owner/repo" />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">Tag</label>
+                <input value={editImageModal.tag} onChange={(e) => setEditImageModal(prev => ({ ...prev, tag: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm" placeholder="例如 latest / 1.27 / dev" />
+              </div>
+              <div className="rounded-2xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/40 p-4 text-xs space-y-1 text-gray-600 dark:text-gray-300">
+                <div>当前镜像：<span className="font-mono">{editImageModal.image?.name}:{editImageModal.image?.tag}</span></div>
+                <div>来源链接：<span className="font-mono break-all">{canonicalRepoLink(editImageModal.image) || '无'}</span></div>
+              </div>
+            </div>
+            <div className="p-6 border-t border-gray-200 dark:border-gray-700 flex gap-3">
+              <button onClick={() => setEditImageModal({ isOpen: false, image: null, name: '', tag: '', saving: false })} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gray-100 dark:bg-gray-700 text-gray-700 dark:text-gray-300 rounded-xl hover:bg-gray-200 dark:hover:bg-gray-600 border border-gray-200 dark:border-gray-600">取消</button>
+              <button onClick={saveImageRetag} disabled={editImageModal.saving} className="flex-1 px-4 py-2.5 text-sm font-semibold bg-gradient-to-r from-sky-500 to-blue-500 hover:from-sky-600 hover:to-blue-600 text-white rounded-xl transition-all disabled:opacity-50 shadow-lg">
+                {editImageModal.saving ? '保存中...' : '保存修改'}
+              </button>
             </div>
           </div>
         </div>

@@ -66,6 +66,7 @@ export function Bot() {
     proxyPort: '',
     proxyUsername: '',
     proxyPassword: '',
+    hostLanIp: '',
     multiInstanceEnabled: false,
     defaultInstance: 'local',
     instances: JSON.stringify([{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]),
@@ -99,8 +100,9 @@ export function Bot() {
         ? dockercopilot.instances
         : [{ name: 'local', api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
       const defaultInstance = dockercopilot.default_instance || instances[0]?.name || 'local'
+      const effectiveMultiInstance = Boolean((dockercopilot.multi_instance_enabled ?? false) || instances.length > 1)
       setBlacklistInstance(defaultInstance)
-      setShowInstanceSettings(Boolean(dockercopilot.multi_instance_enabled))
+      setShowInstanceSettings(effectiveMultiInstance)
       setConfig(prev => ({
         ...prev,
         botToken: telegram.bot_token || '',
@@ -118,6 +120,7 @@ export function Bot() {
         proxyPort: proxy.port ? String(proxy.port) : '',
         proxyUsername: proxy.username || '',
         proxyPassword: proxy.password || '',
+        hostLanIp: dockercopilot.host_lan_ip || '',
         multiInstanceEnabled: dockercopilot.multi_instance_enabled ?? false,
         defaultInstance,
         instances: JSON.stringify(instances, null, 2),
@@ -177,6 +180,7 @@ export function Bot() {
   const addInstance = () => {
     const next = [...parsedInstances, { name: `instance-${parsedInstances.length + 1}`, api_url: 'http://127.0.0.1:12712', secret_key: '', timeout: 30 }]
     handleChange('instances', JSON.stringify(next, null, 2))
+    if (next.length > 1) setShowInstanceSettings(true)
   }
 
   const removeInstance = (index) => {
@@ -184,6 +188,7 @@ export function Bot() {
     if (name === 'local') return
     const next = parsedInstances.filter((_, i) => i !== index)
     handleChange('instances', JSON.stringify(next, null, 2))
+    if (next.length <= 1) setShowInstanceSettings(false)
     if (!next.some(inst => inst.name === config.defaultInstance)) {
       handleChange('defaultInstance', next[0]?.name || '')
     }
@@ -303,6 +308,7 @@ export function Bot() {
     proxyPort: config.proxyPort || '',
     proxyUsername: config.proxyUsername || '',
     proxyPassword: config.proxyPassword || '',
+    hostLanIp: config.hostLanIp || '',
     multiInstanceEnabled: !!showInstanceSettings,
     instances: config.instances || '[]',
     autoBackupJson: !!config.autoBackupJson,
@@ -344,6 +350,7 @@ export function Bot() {
       proxyPort: raw?.proxyPort ? String(raw.proxyPort) : '',
       proxyUsername: raw?.proxyUsername ?? '',
       proxyPassword: raw?.proxyPassword ?? '',
+      hostLanIp: raw?.hostLanIp ?? '',
       defaultInstance: (() => {
         try {
           const list = JSON.parse(raw?.instances || '[]')
@@ -367,13 +374,15 @@ export function Bot() {
       backupMaxFiles: raw?.backupMaxFiles ?? 20,
     }
     setConfig(next)
-    setShowInstanceSettings(!!raw?.multiInstanceEnabled)
     try {
       const list = JSON.parse(next.instances || '[]')
       if (Array.isArray(list) && list.length > 0) {
         setBlacklistInstance(list[0]?.name || 'local')
       }
-    } catch {}
+      setShowInstanceSettings(Boolean(raw?.multiInstanceEnabled || (Array.isArray(list) && list.length > 1)))
+    } catch {
+      setShowInstanceSettings(!!raw?.multiInstanceEnabled)
+    }
     setDirty(true)
     setMessage('配置文件已导入，请点击“保存配置”写入后端。')
   }
@@ -389,6 +398,59 @@ export function Bot() {
       setMessage(`配置文件导入失败：${error.message || 'JSON 格式错误'}`)
     } finally {
       if (event.target) event.target.value = ''
+    }
+  }
+
+  const handleSaveHostLanIpOnly = async () => {
+    try {
+      setSaving(true)
+      setMessage('')
+      const cleanConfig = {
+        ...config,
+        multiInstanceEnabled: showInstanceSettings || parsedInstances.length > 1,
+        defaultInstance: parsedInstances[0]?.name || 'local',
+        updateCheckCron: normalizeCronExpression(config.updateCheckCron),
+        cleanImagesCron: normalizeCronExpression(config.cleanImagesCron),
+        updateContainersCron: normalizeCronExpression(config.updateContainersCron),
+        hostLanIp: String(config.hostLanIp || '').trim(),
+      }
+      const res = await botAPI.saveConfig(cleanConfig)
+      if (res.data?.code >= 200 && res.data?.code < 300) {
+        setConfig(cleanConfig)
+        setDirty(false)
+        setMessage('宿主机 IP 已保存到 /app/config/config.json 的 dockercopilot.host_lan_ip。')
+        await loadConfig({ silent: true })
+      } else {
+        setMessage(`保存失败：${res.data?.msg || '未知错误'}`)
+      }
+    } catch (error) {
+      setMessage(`保存失败：${error.response?.data?.msg || error.message}`)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleSaveInstancesOnly = async () => {
+    try {
+      setSaving(true)
+      setMessage('')
+      const cleanConfig = {
+        multiInstanceEnabled: showInstanceSettings || parsedInstances.length > 1,
+        defaultInstance: parsedInstances[0]?.name || 'local',
+        instances: config.instances || '[]',
+      }
+      const res = await botAPI.saveConfig(cleanConfig)
+      if (res.data?.code >= 200 && res.data?.code < 300) {
+        setDirty(false)
+        setMessage('多实例配置已保存。')
+        await loadConfig({ silent: true })
+      } else {
+        setMessage(`保存失败：${res.data?.msg || '未知错误'}`)
+      }
+    } catch (error) {
+      setMessage(`保存失败：${error.response?.data?.msg || error.message}`)
+    } finally {
+      setSaving(false)
     }
   }
 
@@ -410,11 +472,12 @@ export function Bot() {
       setMessage('')
       const cleanConfig = {
         ...config,
-        multiInstanceEnabled: showInstanceSettings,
+        multiInstanceEnabled: showInstanceSettings || parsedInstances.length > 1,
         defaultInstance: parsedInstances[0]?.name || 'local',
         updateCheckCron: normalizeCronExpression(config.updateCheckCron),
         cleanImagesCron: normalizeCronExpression(config.cleanImagesCron),
         updateContainersCron: normalizeCronExpression(config.updateContainersCron),
+        hostLanIp: String(config.hostLanIp || '').trim(),
       }
       setConfig(cleanConfig)
       const res = await botAPI.saveConfig(cleanConfig)
@@ -435,10 +498,7 @@ export function Bot() {
     <div className="max-w-7xl mx-auto w-full space-y-6 px-2 sm:px-6 py-4 pt-4 sm:pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-white flex items-center gap-3">
-            <BotIcon className="h-7 w-7 text-primary-600 dark:text-primary-400" />
-            TG配置与管理
-          </h2>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-white">配置与管理</h2>
           <p className="text-gray-600 dark:text-gray-400 mt-1">Telegram Bot、多实例、代理与更新策略统一配置</p>
         </div>
         <button
@@ -659,7 +719,7 @@ export function Bot() {
                 <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">按镜像维度勾选，避免被自动更新</p>
               </div>
             </div>
-            <div className="text-xs text-gray-500 dark:text-gray-400">双列勾选</div>
+            
           </div>
           <div className={cardBodyClass}>
             <div className="space-y-4">
@@ -730,6 +790,44 @@ export function Bot() {
         <div className={cn(cardClass, 'xl:col-span-2')}>
           <div className={cardHeaderClass}>
             <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-cyan-100 text-cyan-700 dark:bg-cyan-900/30 dark:text-cyan-300">
+                <Globe className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">宿主机 IP</h3>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">host 或原生运行可不填，bridge 必填</p>
+              </div>
+            </div>
+          </div>
+          <div className={cardBodyClass}>
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="宿主机 IP / HOST_LAN_IP" full>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <input
+                    value={config.hostLanIp}
+                    onChange={(e) => handleChange('hostLanIp', e.target.value)}
+                    placeholder="例如 192.168.1.10"
+                    className={cn(inputClass, 'font-mono flex-1')}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleSaveHostLanIpOnly}
+                    disabled={saving}
+                    className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white hover:bg-blue-700 disabled:opacity-50"
+                  >
+                    {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                    <span>保存</span>
+                  </button>
+                </div>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">容器页的 Web 链接、详情页 ip:port 会优先使用这里的值。保存位置：/app/config/config.json → dockercopilot.host_lan_ip</p>
+              </Field>
+            </div>
+          </div>
+        </div>
+
+        <div className={cn(cardClass, 'xl:col-span-2')}>
+          <div className={cardHeaderClass}>
+            <div className="flex items-center gap-3">
               <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-amber-100 text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">
                 <Server className="h-5 w-5" />
               </div>
@@ -738,7 +836,17 @@ export function Bot() {
                 <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">默认实例在左，右侧用卡片维护实例</p>
               </div>
             </div>
-            <SectionToggle checked={showInstanceSettings} onChange={() => { setShowInstanceSettings(!showInstanceSettings); setDirty(true) }} textOn="多实例开启" textOff="多实例关闭" />
+            <div className="flex items-center gap-3">
+              <button
+                onClick={handleSaveInstancesOnly}
+                disabled={saving}
+                className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-blue-700 disabled:opacity-50"
+              >
+                {saving ? <RefreshCw className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+                <span>保存多实例</span>
+              </button>
+              <SectionToggle checked={showInstanceSettings} onChange={() => { setShowInstanceSettings(!showInstanceSettings); setDirty(true) }} textOn="多实例开启" textOff="多实例关闭" />
+            </div>
           </div>
           <div className={cardBodyClass}>
             <div className="grid grid-cols-1 gap-5 xl:grid-cols-[minmax(0,1fr)]">

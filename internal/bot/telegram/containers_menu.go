@@ -177,7 +177,7 @@ func (r *Runtime) updateAllContainersOnPage(ctx context.Context, chatID int64, m
 		started = append(started, name)
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("⬆️ 本页更新结果（第 %d 页）\n", page+1))
+	b.WriteString(fmt.Sprintf("🆙 本页更新结果（第 %d 页）\n", page+1))
 	if len(started) > 0 {
 		b.WriteString("\n✅ 已提交:\n")
 		for _, name := range started {

@@ -1,19 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
 import { containerAPI } from '../api/client.js'
 import { getImageLogo } from '../config/imageLogos.js'
-import { Search, RefreshCw, Copy, Download, WrapText, ArrowDownToLine, Filter, Eraser, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Type, Activity, CircleDot, Moon, Sun, Box, Star, AlertTriangle } from 'lucide-react'
+import { Search, RefreshCw, Copy, Download, WrapText, ArrowDownToLine, Filter, Eraser, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Type, Activity, CircleDot, Moon, Sun, Box, Star, AlertTriangle, Clock3, Tags } from 'lucide-react'
 
 function LogoOrFallback({ src, alt, active, collapsed }) {
   const [failed, setFailed] = useState(false)
+  const sizeClass = collapsed ? 'h-8 w-8' : 'h-3.5 w-3.5'
   if (!src || failed) {
-    return <Box className={`flex-shrink-0 ${collapsed ? 'h-4 w-4' : 'h-3.5 w-3.5'} ${active ? 'text-blue-600 dark:text-blue-300' : 'text-emerald-500 dark:text-emerald-400'}`} />
+    return <Box className={`flex-shrink-0 ${collapsed ? 'h-8 w-8' : 'h-3.5 w-3.5'} ${active ? 'text-blue-600 dark:text-blue-300' : 'text-emerald-500 dark:text-emerald-400'}`} />
   }
   return (
     <img
       src={src}
       alt={alt}
       onError={() => setFailed(true)}
-      className={`${collapsed ? 'h-4 w-4' : 'h-3.5 w-3.5'} rounded object-cover flex-shrink-0 ${active ? 'ring-1 ring-blue-400/60' : ''}`}
+      className={`${sizeClass} rounded object-contain flex-shrink-0 ${active ? 'ring-1 ring-blue-400/60' : ''}`}
     />
   )
 }
@@ -41,6 +42,7 @@ export function LogsPage() {
       return []
     }
   })
+  const [draggingFavoriteId, setDraggingFavoriteId] = useState('')
   const [wordWrap, setWordWrap] = useState(true)
   const [fontSize, setFontSize] = useState(12)
   const [searchQuery, setSearchQuery] = useState('')
@@ -49,6 +51,13 @@ export function LogsPage() {
   const [message, setMessage] = useState('')
   const [currentMatchIndex, setCurrentMatchIndex] = useState(0)
   const [logTheme, setLogTheme] = useState(() => localStorage.getItem('docker_copilot_logs_theme') || 'dark')
+  const [showTimestamps, setShowTimestamps] = useState(() => localStorage.getItem('docker_copilot_logs_show_timestamps') !== 'false')
+  const [showContainerPrefix, setShowContainerPrefix] = useState(() => localStorage.getItem('docker_copilot_logs_show_container_prefix') === 'true')
+
+  const wrapAsCodeBlock = (value) => {
+    const text = String(value || '').replace(/\s+$/g, '')
+    return text ? `\`\`\`log\n${text}\n\`\`\`` : ''
+  }
   const logRef = useRef(null)
   const searchInputRef = useRef(null)
   const lastLogRef = useRef('')
@@ -112,6 +121,20 @@ export function LogsPage() {
   }, [selectedId, tail])
 
   useEffect(() => {
+    if (!logRef.current) return
+    const root = logRef.current
+    const onCopy = (event) => {
+      const selection = window.getSelection?.()
+      const selectedText = selection ? String(selection).trim() : ''
+      if (!selectedText || !root.contains(selection?.anchorNode)) return
+      event.preventDefault()
+      event.clipboardData?.setData('text/plain', wrapAsCodeBlock(selectedText))
+    }
+    root.addEventListener('copy', onCopy)
+    return () => root.removeEventListener('copy', onCopy)
+  }, [logs])
+
+  useEffect(() => {
     if (!autoRefresh || !selectedId) return
     const timer = setInterval(() => loadLogs(selectedId, tail, { silent: true }), 3000)
     return () => clearInterval(timer)
@@ -120,6 +143,14 @@ export function LogsPage() {
   useEffect(() => {
     localStorage.setItem('docker_copilot_logs_theme', logTheme)
   }, [logTheme])
+
+  useEffect(() => {
+    localStorage.setItem('docker_copilot_logs_show_timestamps', String(showTimestamps))
+  }, [showTimestamps])
+
+  useEffect(() => {
+    localStorage.setItem('docker_copilot_logs_show_container_prefix', String(showContainerPrefix))
+  }, [showContainerPrefix])
 
   useEffect(() => {
     localStorage.setItem('docker_copilot_logs_container_pane', containerPaneCollapsed ? 'collapsed' : 'expanded')
@@ -153,9 +184,12 @@ export function LogsPage() {
         )
 
     return [...filtered].sort((a, b) => {
-      const aFav = favoriteContainerIds.includes(a.id) ? 1 : 0
-      const bFav = favoriteContainerIds.includes(b.id) ? 1 : 0
-      if (aFav !== bFav) return bFav - aFav
+      const aFavIndex = favoriteContainerIds.indexOf(a.id)
+      const bFavIndex = favoriteContainerIds.indexOf(b.id)
+      const aFav = aFavIndex >= 0
+      const bFav = bFavIndex >= 0
+      if (aFav !== bFav) return aFav ? -1 : 1
+      if (aFav && bFav && aFavIndex !== bFavIndex) return aFavIndex - bFavIndex
       return String(a.name || a.id).localeCompare(String(b.name || b.id), 'zh-Hans-CN')
     })
   }, [containers, keyword, favoriteContainerIds])
@@ -168,9 +202,20 @@ export function LogsPage() {
       : [...prev, containerId])
   }
 
+  const moveFavoriteBefore = (dragId, targetId) => {
+    if (!dragId || !targetId || dragId === targetId) return
+    setFavoriteContainerIds(prev => {
+      const favs = prev.filter(id => id !== dragId)
+      const targetIndex = favs.indexOf(targetId)
+      if (targetIndex < 0) return prev
+      favs.splice(targetIndex, 0, dragId)
+      return favs
+    })
+  }
+
   const copyLogs = async () => {
     try {
-      const text = logs || ''
+      const text = logs ? `\`\`\`log\n${logs}\n\`\`\`` : ''
       if (navigator?.clipboard?.writeText) {
         await navigator.clipboard.writeText(text)
       } else {
@@ -200,17 +245,44 @@ export function LogsPage() {
     URL.revokeObjectURL(url)
   }
 
+  const normalizeLevel = (line) => {
+    const text = String(line || '')
+    const upper = text.toUpperCase()
+    if (/\[(ERROR|ERR)\]|\b(ERROR|ERR)\b/.test(upper)) return 'error'
+    if (/\[(WARN|WARNING)\]|\b(WARN|WARNING)\b/.test(upper)) return 'warn'
+    if (/\[(DEBUG|DBG)\]|\b(DEBUG|DBG)\b/.test(upper)) return 'debug'
+    if (/\[(INFO|INF)\]|\b(INFO|INF)\b/.test(upper)) return 'info'
+    return 'other'
+  }
+
+  const parseLogLine = (line) => {
+    const raw = String(line || '')
+    const timestampMatch = raw.match(/^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/)
+    const timestamp = timestampMatch?.[1] || ''
+    let rest = timestamp ? raw.slice(timestamp.length).trim() : raw
+
+    let containerPrefix = ''
+    const prefixMatch = rest.match(/^([a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)?)\s*\|\s*(.+)$/)
+    if (prefixMatch) {
+      containerPrefix = prefixMatch[1]
+      rest = prefixMatch[2]
+    }
+
+    const level = normalizeLevel(rest)
+    return { raw, timestamp, containerPrefix, level, message: rest || raw }
+  }
+
+
   const processedLines = useMemo(() => {
     const raw = String(logs || '')
     const query = searchQuery.trim()
-    let lines = raw.split('\n')
+    let lines = raw.split('\n').map(parseLogLine)
     if (levelFilter !== 'all') {
-      const levelNeedle = `[${String(levelFilter).toUpperCase()}]`
-      lines = lines.filter(line => String(line || '').toUpperCase().includes(levelNeedle))
+      lines = lines.filter(line => line.level === levelFilter)
     }
     if (filterMode === 'only-match' && query) {
       const re = new RegExp(escapeRegExp(query), 'i')
-      lines = lines.filter(line => re.test(line))
+      lines = lines.filter(line => re.test(line.raw) || re.test(line.message) || re.test(line.timestamp) || re.test(line.containerPrefix))
     }
     return lines
   }, [logs, searchQuery, filterMode, levelFilter])
@@ -219,7 +291,7 @@ export function LogsPage() {
     const query = searchQuery.trim()
     if (!query) return 0
     const re = new RegExp(escapeRegExp(query), 'gi')
-    return processedLines.reduce((count, line) => count + ((line.match(re) || []).length), 0)
+    return processedLines.reduce((count, line) => count + (((line.raw || '').match(re) || []).length), 0)
   }, [processedLines, searchQuery])
 
   useEffect(() => {
@@ -254,17 +326,33 @@ export function LogsPage() {
 
   const renderHighlightedLine = (line, lineIndex) => {
     const query = searchQuery.trim()
-    if (!query) return <React.Fragment key={lineIndex}>{line || ' '}</React.Fragment>
-    const re = new RegExp(`(${escapeRegExp(query)})`, 'gi')
-    const parts = String(line).split(re)
+    const content = line?.message ?? line?.raw ?? ''
+    const levelChipClass = line?.level === 'error'
+      ? 'border border-red-500/30 bg-red-500/12 text-red-300'
+      : line?.level === 'warn'
+        ? 'border border-amber-500/30 bg-amber-500/12 text-amber-300'
+        : line?.level === 'info'
+          ? 'border border-sky-500/30 bg-sky-500/12 text-sky-300'
+          : line?.level === 'debug'
+            ? 'border border-violet-500/30 bg-violet-500/12 text-violet-300'
+            : ''
+
+    const renderText = (text) => {
+      if (!query) return <React.Fragment>{text || ' '}</React.Fragment>
+      const re = new RegExp(`(${escapeRegExp(query)})`, 'gi')
+      const parts = String(text).split(re)
+      return parts.map((part, idx) => {
+        const isMatch = part && part.toLowerCase() === query.toLowerCase()
+        return isMatch
+          ? <mark key={idx} className="dc-log-match rounded bg-amber-300/30 px-0.5 text-amber-100">{part}</mark>
+          : <React.Fragment key={idx}>{part || ''}</React.Fragment>
+      })
+    }
+
     return (
       <React.Fragment key={lineIndex}>
-        {parts.map((part, idx) => {
-          const isMatch = part && part.toLowerCase() === query.toLowerCase()
-          return isMatch
-            ? <mark key={idx} className="dc-log-match rounded bg-amber-300/30 px-0.5 text-amber-100">{part}</mark>
-            : <React.Fragment key={idx}>{part || ''}</React.Fragment>
-        })}
+        {line?.level && line.level !== 'other' ? <span className={`mr-2 inline-flex rounded px-1.5 py-0.5 text-[11px] font-semibold uppercase ${levelChipClass}`}>{line.level}</span> : null}
+        {renderText(content)}
       </React.Fragment>
     )
   }
@@ -301,6 +389,10 @@ export function LogsPage() {
         .dc-log-match-current { background: rgba(251, 191, 36, 0.45) !important; color: #fff7d6 !important; box-shadow: 0 0 0 1px rgba(251, 191, 36, 0.45); }
         .dc-log-grid { background-image: linear-gradient(to bottom, rgba(255,255,255,0.02) 1px, transparent 1px); background-size: 100% 24px; }
         .dc-log-grid-light { background-image: linear-gradient(to bottom, rgba(15,23,42,0.05) 1px, transparent 1px); background-size: 100% 24px; }
+        .dc-scrollbar-soft::-webkit-scrollbar { width: 10px; height: 10px; }
+        .dc-scrollbar-soft::-webkit-scrollbar-track { background: transparent; }
+        .dc-scrollbar-soft::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.45); border-radius: 9999px; border: 2px solid transparent; background-clip: padding-box; }
+        .dc-scrollbar-soft::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.72); border: 2px solid transparent; background-clip: padding-box; }
       `}</style>
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
@@ -311,10 +403,26 @@ export function LogsPage() {
         </div>
       </div>
 
-      <div className={`grid grid-cols-1 gap-3 ${containerPaneCollapsed ? 'xl:grid-cols-[64px_minmax(0,1fr)]' : 'xl:grid-cols-[236px_minmax(0,1fr)]'}`}>
+      <div className={`grid grid-cols-1 gap-3 ${containerPaneCollapsed ? 'xl:grid-cols-[88px_minmax(0,1fr)]' : 'xl:grid-cols-[236px_minmax(0,1fr)]'}`}>
         <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-          <div className="mb-3.5 mt-2 flex items-center justify-between gap-2">
-            {!containerPaneCollapsed ? (
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <button
+              onClick={loadContainers}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
+              title="刷新容器列表"
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+            <button
+              onClick={() => setContainerPaneCollapsed(v => !v)}
+              className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
+              title={containerPaneCollapsed ? '展开容器栏' : '收起容器栏'}
+            >
+              {containerPaneCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
+            </button>
+          </div>
+          {!containerPaneCollapsed && (
+            <div className="mb-3.5 mt-2 flex items-center justify-between gap-2">
               <div className="relative flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-gray-400" />
                 <input
@@ -324,25 +432,9 @@ export function LogsPage() {
                   className="w-full rounded-xl border border-gray-200 bg-white py-1.5 pl-9 pr-3 text-xs outline-none ring-0 focus:border-blue-500 dark:border-gray-600 dark:bg-gray-900"
                 />
               </div>
-            ) : <div className="h-8 flex-1" />}
-            <div className="flex items-center gap-2">
-              <button
-                onClick={loadContainers}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
-                title="刷新容器列表"
-              >
-                <RefreshCw className="h-4 w-4" />
-              </button>
-              <button
-                onClick={() => setContainerPaneCollapsed(v => !v)}
-                className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-gray-200 bg-white text-gray-500 hover:bg-gray-50 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200 transition-colors"
-                title={containerPaneCollapsed ? '展开容器栏' : '收起容器栏'}
-              >
-                {containerPaneCollapsed ? <ChevronRight className="h-4 w-4" /> : <ChevronLeft className="h-4 w-4" />}
-              </button>
             </div>
-          </div>
-          <div className={`overflow-auto pr-1 ${containerPaneCollapsed ? 'max-h-[76vh] space-y-1.5' : 'max-h-[70vh] space-y-1'}`}>
+          )}
+          <div className={`dc-scrollbar-soft overflow-auto pr-1 ${containerPaneCollapsed ? 'max-h-[76vh] space-y-2' : 'max-h-[70vh] space-y-1'}`}>
             {loadingContainers ? (
               <div className="py-8 text-center text-sm text-gray-500 dark:text-gray-400">正在读取容器列表...</div>
             ) : filteredContainers.length === 0 ? (
@@ -355,8 +447,20 @@ export function LogsPage() {
               return (
                 <button
                   key={item.id}
+                  draggable={favorite}
+                  onDragStart={() => setDraggingFavoriteId(item.id)}
+                  onDragOver={(e) => {
+                    if (!favorite || !draggingFavoriteId || draggingFavoriteId === item.id) return
+                    e.preventDefault()
+                  }}
+                  onDrop={(e) => {
+                    e.preventDefault()
+                    moveFavoriteBefore(draggingFavoriteId, item.id)
+                    setDraggingFavoriteId('')
+                  }}
+                  onDragEnd={() => setDraggingFavoriteId('')}
                   onClick={() => setSelectedId(item.id)}
-                  className={`relative w-full rounded-xl border text-left transition ${containerPaneCollapsed ? 'px-2 py-2.5 flex items-center justify-center' : 'px-2.5 py-2'} ${active ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/20' : 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40'}`}
+                  className={`relative w-full border text-left transition ${containerPaneCollapsed ? 'h-[52px] min-h-[52px] rounded-2xl px-0 py-2 flex items-center justify-center overflow-visible' : 'rounded-2xl px-2.5 py-2'} ${active ? 'border-blue-500 bg-blue-50 dark:border-blue-400 dark:bg-blue-900/20' : 'border-gray-200 hover:bg-gray-50 dark:border-gray-700 dark:hover:bg-gray-700/40'} ${favorite && draggingFavoriteId === item.id ? 'opacity-60' : ''}`}
                   title={containerPaneCollapsed ? (item.name || item.id) : undefined}
                 >
                   <button
@@ -365,13 +469,15 @@ export function LogsPage() {
                       e.stopPropagation()
                       toggleFavorite(item.id)
                     }}
-                    className={`absolute right-2 top-2 inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors ${favorite ? 'text-yellow-400 hover:text-yellow-300' : 'text-gray-300 hover:text-yellow-400 dark:text-gray-500 dark:hover:text-yellow-400'}`}
+                    className={`absolute ${containerPaneCollapsed ? 'right-1.5 top-1.5' : 'right-2 top-2'} inline-flex h-5 w-5 items-center justify-center rounded-full transition-colors ${favorite ? 'text-yellow-400 hover:text-yellow-300' : 'text-gray-300 hover:text-yellow-400 dark:text-gray-500 dark:hover:text-yellow-400'}`}
                     title={favorite ? '取消置顶' : '置顶该容器'}
                   >
                     <Star className={`h-3.5 w-3.5 ${favorite ? 'fill-current' : ''}`} />
                   </button>
                   {containerPaneCollapsed ? (
-                    <LogoOrFallback src={logoSrc} alt={item.name || item.id} active={active} collapsed />
+                    <div className={`relative flex h-[52px] w-[52px] min-h-[52px] min-w-[52px] max-h-[52px] max-w-[52px] items-center justify-center rounded-2xl border flex-shrink-0 overflow-hidden ${active ? 'border-blue-400 bg-blue-100/80 dark:border-blue-400 dark:bg-blue-900/30' : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60'}`}>
+                      <LogoOrFallback src={logoSrc} alt={item.name || item.id} active={active} collapsed />
+                    </div>
                   ) : (
                     <>
                       <div className="flex items-center gap-1.5 min-w-0 pr-6">
@@ -434,6 +540,12 @@ export function LogsPage() {
                 </button>
                 <button onClick={() => setWordWrap(v => !v)} className={iconBtn(wordWrap, 'amber')} title="自动换行">
                   <WrapText className="h-4 w-4" />
+                </button>
+                <button onClick={() => setShowTimestamps(v => !v)} className={iconBtn(showTimestamps, 'sky')} title="显示时间戳">
+                  <Clock3 className="h-4 w-4" />
+                </button>
+                <button onClick={() => setShowContainerPrefix(v => !v)} className={iconBtn(showContainerPrefix, 'emerald')} title="显示容器名前缀">
+                  <Tags className="h-4 w-4" />
                 </button>
                 <button onClick={() => setFilterMode(v => v === 'only-match' ? 'highlight' : 'only-match')} className={iconBtn(filterMode === 'only-match', 'emerald')} title={filterMode === 'only-match' ? '仅看命中行' : '高亮模式'}>
                   <Filter className="h-4 w-4" />
@@ -508,9 +620,15 @@ export function LogsPage() {
 
           {message && <div className={`mx-4 mt-3 rounded-xl px-3 py-2 text-sm ${darkTheme ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>{message}</div>}
 
-          <div ref={logRef} style={{ fontSize: `${fontSize}px` }} className={`${darkTheme ? 'dc-log-grid bg-[#0b0f14] text-green-300' : 'dc-log-grid-light bg-[#f8fafc] text-slate-800'} ${containerPaneCollapsed ? 'h-[78vh]' : 'h-[70vh]'} overflow-auto p-4 font-mono leading-6 ${wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
+          <div ref={logRef} style={{ fontSize: `${fontSize}px` }} className={`${darkTheme ? 'dc-log-grid bg-[#0b0f14] text-white' : 'dc-log-grid-light bg-[#f8fafc] text-slate-800'} ${containerPaneCollapsed ? 'h-[78vh]' : 'h-[70vh]'} overflow-auto p-4 font-mono leading-6 ${wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
             {loadingLogs ? '正在读取日志...' : (processedLines.length > 0
-              ? processedLines.map((line, idx) => <div key={idx}>{renderHighlightedLine(line, idx)}</div>)
+              ? processedLines.map((line, idx) => (
+                <div key={idx} className="flex gap-2 text-white dark:text-white">
+                  {showTimestamps && <span className="flex-shrink-0 text-gray-500">{line.timestamp || '--'}</span>}
+                  {showContainerPrefix && <span className="flex-shrink-0 text-cyan-300">{line.containerPrefix || (selectedContainer?.name || '--')}</span>}
+                  <span className="min-w-0">{renderHighlightedLine(line, idx)}</span>
+                </div>
+              ))
               : '暂无日志输出')}
           </div>
         </div>

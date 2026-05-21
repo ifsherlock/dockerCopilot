@@ -127,6 +127,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Ensure base release is published
+        run: |
+          gh release edit ${{ env.release_version }} --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload FNOS asset for ${{ matrix.arch }} to base release
         run: |
           gh release upload ${{ env.release_version }} dockerCopilot-fnos-${{ matrix.arch }}.tar.gz --clobber

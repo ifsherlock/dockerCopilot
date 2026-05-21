@@ -125,6 +125,12 @@ func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 		resp.Data = map[string]interface{}{}
 		return resp, nil
 	}
+	if cfg.Dockercopilot == nil {
+		cfg.Dockercopilot = map[string]interface{}{}
+	}
+	if _, ok := cfg.Dockercopilot["host_lan_ip"]; !ok {
+		cfg.Dockercopilot["host_lan_ip"] = ""
+	}
 	resp.Code = 200
 	resp.Msg = "success"
 	resp.Data = cfg
@@ -312,6 +318,41 @@ func requestOrExisting(value string, m map[string]interface{}, key string, fallb
 	return existingString(m, key, fallback)
 }
 
+func requestBoolOrExisting(submitted bool, m map[string]interface{}, key string, fallback bool, preserveWhenAbsent bool) bool {
+	if !preserveWhenAbsent {
+		return submitted
+	}
+	if value, ok := m[key]; ok {
+		return toBool(value, fallback)
+	}
+	return fallback
+}
+
+func hasAnyConfigPayload(req *types.BotConfigReq) bool {
+	return strings.TrimSpace(req.BotToken) != "" ||
+		strings.TrimSpace(req.ChatIds) != "" ||
+		strings.TrimSpace(req.UpdateCheckCron) != "" ||
+		strings.TrimSpace(req.UpdateBlacklist) != "" ||
+		strings.TrimSpace(req.CleanImagesCron) != "" ||
+		strings.TrimSpace(req.UpdateContainersCron) != "" ||
+		strings.TrimSpace(req.BackupJsonCron) != "" ||
+		strings.TrimSpace(req.BackupComposeCron) != "" ||
+		req.BackupMaxFiles > 0 ||
+		strings.TrimSpace(req.ImageAccelerators) != "" ||
+		strings.TrimSpace(req.DefaultImageAccelerator) != "" ||
+		strings.TrimSpace(req.ProxyType) != "" ||
+		strings.TrimSpace(req.ProxyHost) != "" ||
+		req.ProxyPort > 0 ||
+		strings.TrimSpace(req.ProxyUsername) != "" ||
+		strings.TrimSpace(req.ProxyPassword) != "" ||
+		strings.TrimSpace(req.HostLanIP) != "" ||
+		strings.TrimSpace(req.DefaultInstance) != "" ||
+		strings.TrimSpace(req.Instances) != "" ||
+		strings.TrimSpace(req.ThemeMode) != "" ||
+		strings.TrimSpace(req.ThemeAppearance) != "" ||
+		req.NotifyOnUpdate || req.InteractiveEnabled || req.AutoCleanImages || req.AutoUpdateContainers || req.AutoBackupJson || req.AutoBackupCompose || req.MultiInstanceEnabled
+}
+
 func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
 	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
@@ -323,8 +364,9 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	}
 
 	// SaveConfig is used by multiple pages. Some pages only submit their own fields,
-	// so missing cron fields must be merged from the current runtime config instead of
+	// so missing fields must be merged from the current runtime config instead of
 	// being treated as empty values or overwriting existing config.
+	preserveExisting := hasAnyConfigPayload(req)
 	updateCheckCronReq := requestOrExisting(req.UpdateCheckCron, cfg.Telegram, "update_check_cron", "0 18 * * *")
 	cleanImagesCronReq := requestOrExisting(req.CleanImagesCron, cfg.Telegram, "clean_images_cron", "3 2 * * *")
 	updateContainersCronReq := requestOrExisting(req.UpdateContainersCron, cfg.Telegram, "update_containers_cron", "0 */6 * * *")
@@ -381,31 +423,33 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	}
 
 	chatIDs := splitLinesOrComma(req.ChatIds)
-	cfg.Telegram["bot_token"] = req.BotToken
+	if len(chatIDs) == 0 {
+		if raw, ok := cfg.Telegram["chat_ids"]; ok {
+			b, _ := json.Marshal(raw)
+			_ = json.Unmarshal(b, &chatIDs)
+		}
+	}
+	cfg.Telegram["bot_token"] = requestOrExisting(req.BotToken, cfg.Telegram, "bot_token", "")
 	cfg.Telegram["chat_ids"] = chatIDs
 	cfg.Telegram["update_check_cron"] = updateCheckCron
-	cfg.Telegram["notify_on_update"] = req.NotifyOnUpdate
-	cfg.Telegram["interactive_enabled"] = req.InteractiveEnabled
+	cfg.Telegram["notify_on_update"] = requestBoolOrExisting(req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true, preserveExisting)
+	cfg.Telegram["interactive_enabled"] = requestBoolOrExisting(req.InteractiveEnabled, cfg.Telegram, "interactive_enabled", true, preserveExisting)
 	if strings.TrimSpace(req.UpdateBlacklist) != "" {
 		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
 	} else if _, ok := cfg.Telegram["update_blacklist"]; !ok {
 		cfg.Telegram["update_blacklist"] = []string{}
 	}
-	cfg.Telegram["auto_clean_images"] = req.AutoCleanImages
+	cfg.Telegram["auto_clean_images"] = requestBoolOrExisting(req.AutoCleanImages, cfg.Telegram, "auto_clean_images", false, preserveExisting)
 	cfg.Telegram["clean_images_cron"] = cleanImagesCron
-	cfg.Telegram["auto_update_containers"] = req.AutoUpdateContainers
+	cfg.Telegram["auto_update_containers"] = requestBoolOrExisting(req.AutoUpdateContainers, cfg.Telegram, "auto_update_containers", false, preserveExisting)
 	cfg.Telegram["update_containers_cron"] = updateContainersCron
 	backupFieldsPresent := strings.TrimSpace(req.BackupJsonCron) != "" || strings.TrimSpace(req.BackupComposeCron) != "" || req.BackupMaxFiles > 0
 	if backupFieldsPresent {
 		cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
 		cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
 	} else {
-		if _, ok := cfg.Telegram["auto_backup_json"]; !ok {
-			cfg.Telegram["auto_backup_json"] = false
-		}
-		if _, ok := cfg.Telegram["auto_backup_compose"]; !ok {
-			cfg.Telegram["auto_backup_compose"] = false
-		}
+		cfg.Telegram["auto_backup_json"] = requestBoolOrExisting(req.AutoBackupJson, cfg.Telegram, "auto_backup_json", false, true)
+		cfg.Telegram["auto_backup_compose"] = requestBoolOrExisting(req.AutoBackupCompose, cfg.Telegram, "auto_backup_compose", false, true)
 	}
 	cfg.Telegram["backup_json_cron"] = backupJSONCron
 	cfg.Telegram["backup_compose_cron"] = backupComposeCron
@@ -421,11 +465,19 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		cfg.Telegram["default_image_accelerator"] = ""
 	}
 	cfg.Telegram["proxy"] = map[string]interface{}{
-		"type":     req.ProxyType,
-		"host":     req.ProxyHost,
-		"port":     req.ProxyPort,
-		"username": req.ProxyUsername,
-		"password": req.ProxyPassword,
+		"type":     requestOrExisting(req.ProxyType, existingMap(cfg.Telegram, "proxy"), "type", "http"),
+		"host":     requestOrExisting(req.ProxyHost, existingMap(cfg.Telegram, "proxy"), "host", ""),
+		"port":     requestIntOrExisting(req.ProxyPort, existingMap(cfg.Telegram, "proxy"), "port", 0),
+		"username": requestOrExisting(req.ProxyUsername, existingMap(cfg.Telegram, "proxy"), "username", ""),
+		"password": requestOrExisting(req.ProxyPassword, existingMap(cfg.Telegram, "proxy"), "password", ""),
+	}
+	if cfg.Dockercopilot == nil {
+		cfg.Dockercopilot = map[string]interface{}{}
+	}
+	if strings.TrimSpace(req.HostLanIP) != "" || !preserveExisting {
+		cfg.Dockercopilot["host_lan_ip"] = strings.TrimSpace(req.HostLanIP)
+	} else if _, ok := cfg.Dockercopilot["host_lan_ip"]; !ok {
+		cfg.Dockercopilot["host_lan_ip"] = ""
 	}
 	themeMode := strings.TrimSpace(req.ThemeMode)
 	if themeMode == "" {
@@ -448,7 +500,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	if strings.TrimSpace(req.DefaultInstance) != "" {
 		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
 	}
-	cfg.Dockercopilot["multi_instance_enabled"] = req.MultiInstanceEnabled
+	cfg.Dockercopilot["multi_instance_enabled"] = requestBoolOrExisting(req.MultiInstanceEnabled, cfg.Dockercopilot, "multi_instance_enabled", false, preserveExisting)
 	if strings.TrimSpace(req.Instances) != "" {
 		var instances []map[string]interface{}
 		if err := json.Unmarshal([]byte(req.Instances), &instances); err != nil {
@@ -580,6 +632,49 @@ func toString(v interface{}) string {
 	default:
 		return fmt.Sprint(t)
 	}
+}
+
+func existingMap(m map[string]interface{}, key string) map[string]interface{} {
+	if value, ok := m[key]; ok {
+		if mm, ok := value.(map[string]interface{}); ok && mm != nil {
+			return mm
+		}
+	}
+	return map[string]interface{}{}
+}
+
+func requestIntOrExisting(value int, m map[string]interface{}, key string, fallback int) int {
+	if value > 0 {
+		return value
+	}
+	if raw, ok := m[key]; ok {
+		return toInt(raw, fallback)
+	}
+	return fallback
+}
+
+func toBool(v interface{}, fallback bool) bool {
+	switch t := v.(type) {
+	case bool:
+		return t
+	case string:
+		s := strings.TrimSpace(strings.ToLower(t))
+		if s == "true" || s == "1" || s == "yes" || s == "on" {
+			return true
+		}
+		if s == "false" || s == "0" || s == "no" || s == "off" {
+			return false
+		}
+	case float64:
+		return t != 0
+	case int:
+		return t != 0
+	case json.Number:
+		if n, err := t.Int64(); err == nil {
+			return n != 0
+		}
+	}
+	return fallback
 }
 
 func toInt(v interface{}, fallback int) int {

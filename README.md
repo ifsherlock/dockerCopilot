@@ -79,9 +79,8 @@ services:
     container_name: dockercopilot
     restart: always
     privileged: true
-    network_mode: bridge
-    ports:
-      - "12712:12712"
+    # 推荐优先使用 host 模式，容器页链接展示最直接，宿主网络也更好理解
+    network_mode: host
     volumes:
       # 必填：用于管理宿主机 Docker
       - /var/run/docker.sock:/var/run/docker.sock
@@ -110,6 +109,45 @@ docker compose up -d
 ```text
 http://服务器IP:12712/manager
 ```
+
+### 网络模式建议
+
+**推荐：`network_mode: host`**
+
+- 容器页里的 Web 链接最直观，不容易出现容器内网 IP（如 `172.*`）误导
+- 适合大多数家用 NAS / Linux 宿主机场景
+- 不需要再额外关心 Docker bridge 地址换算
+
+如果你必须使用 `bridge`，也可以，但建议同时在 Web「交互 / Bot 配置」里设置：
+
+- `HOST_LAN_IP` / `hostLanIp`
+
+这样容器页生成的 Web 链接会优先使用你手动指定的局域网 IP，而不是优先落到 Docker 内网地址。
+
+`bridge + HOST_LAN_IP` 示例：
+
+```yaml
+services:
+  dockercopilot:
+    image: jaysherlock/dockercopilot:latest
+    container_name: dockercopilot
+    restart: always
+    privileged: true
+    network_mode: bridge
+    ports:
+      - "12712:12712"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - ./config:/app/config
+    environment:
+      - TZ=Asia/Shanghai
+      - DOCKER_HOST=unix:///var/run/docker.sock
+      - secretKey=请改成你的强密码
+      - HOST_LAN_IP=192.168.1.10
+```
+
+> `HOST_LAN_IP` 请填写当前宿主机在局域网里实际可访问的 IP，比如 `192.168.1.10`。
 
 如果只允许本机反代访问，可以保持 `12712:12712`；如果需要局域网直接访问，可改为：
 

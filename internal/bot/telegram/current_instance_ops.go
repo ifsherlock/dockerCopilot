@@ -34,6 +34,7 @@ type imageView struct {
 	Size             string
 	CreateTime       string
 	InUsed           bool
+	UsageState       string
 	CleanupCandidate bool
 	CleanupReason    string
 	MultiRef         bool
@@ -120,7 +121,7 @@ func (r *Runtime) listCurrentImages(ctx context.Context, chatID int64) ([]imageV
 		for _, item := range items {
 			views = append(views, imageView{
 				ID: item.Id, Name: item.Name, Tag: item.Tag, Size: item.Size, CreateTime: item.CreateTime,
-				InUsed: item.InUsed, CleanupCandidate: item.CleanupCandidate, CleanupReason: item.CleanupReason, MultiRef: item.MultiRef,
+				InUsed: item.InUsed, UsageState: item.UsageState, CleanupCandidate: item.CleanupCandidate, CleanupReason: item.CleanupReason, MultiRef: item.MultiRef,
 			})
 		}
 		sort.Slice(views, func(i, j int) bool {
@@ -139,7 +140,7 @@ func (r *Runtime) listCurrentImages(ctx context.Context, chatID int64) ([]imageV
 	for _, item := range items {
 		views = append(views, imageView{
 			ID: item.ID, Name: item.Name, Tag: item.Tag, Size: item.Size, CreateTime: item.CreateTime,
-			InUsed: item.InUsed, CleanupCandidate: item.CleanupCandidate, CleanupReason: item.CleanupReason, MultiRef: item.MultiRef,
+			InUsed: item.InUsed, UsageState: item.UsageState, CleanupCandidate: item.CleanupCandidate, CleanupReason: item.CleanupReason, MultiRef: item.MultiRef,
 		})
 	}
 	sort.Slice(views, func(i, j int) bool {

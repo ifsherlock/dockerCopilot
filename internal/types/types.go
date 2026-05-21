@@ -40,6 +40,12 @@ type GetContainerLogsReq struct {
 	Tail string `form:"tail,optional"`
 }
 
+type ContainerEndpointConfigReq struct {
+	Id     string `path:"id"`
+	HostIP string `json:"hostIP,optional"`
+	Port   string `json:"port,optional"`
+}
+
 type PullImageReq struct {
 	ImageName   string `json:"imageName"`
 	Source      string `json:"source"`
@@ -48,6 +54,14 @@ type PullImageReq struct {
 
 type IdReq struct {
 	Id string `path:"id"`
+}
+
+type ImageRetagReq struct {
+	Id      string `path:"id"`
+	Name    string `json:"name"`
+	Tag     string `json:"tag"`
+	OldName string `json:"oldName,optional"`
+	OldTag  string `json:"oldTag,optional"`
 }
 
 type LoginReq struct {
@@ -124,6 +138,7 @@ type BotConfigReq struct {
 	ProxyPort               int    `json:"proxyPort,optional"`
 	ProxyUsername           string `json:"proxyUsername,optional"`
 	ProxyPassword           string `json:"proxyPassword,optional"`
+	HostLanIP               string `json:"hostLanIp,optional"`
 	DefaultInstance         string `json:"defaultInstance,optional"`
 	MultiInstanceEnabled    bool   `json:"multiInstanceEnabled,optional"`
 	Instances               string `json:"instances,optional"`

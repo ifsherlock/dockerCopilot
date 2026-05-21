@@ -2,14 +2,13 @@ package container
 
 import (
 	"context"
-	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"os"
 	"strings"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
-
+	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -20,15 +19,16 @@ type ContainersListLogic struct {
 }
 
 type Info struct {
-	Id          string `json:"id"`
-	Status      string `json:"status"`
-	Name        string `json:"name"`
-	UsingImage  string `json:"usingImage"`
-	CreateImage string `json:"createImage"`
-	CreateTime  string `json:"createTime"`
-	RunningTime string `json:"runningTime"`
-	HaveUpdate  bool   `json:"haveUpdate"`
-	IsSelf      bool   `json:"isSelf"`
+	Id           string                      `json:"id"`
+	Status       string                      `json:"status"`
+	Name         string                      `json:"name"`
+	UsingImage   string                      `json:"usingImage"`
+	CreateImage  string                      `json:"createImage"`
+	CreateTime   string                      `json:"createTime"`
+	RunningTime  string                      `json:"runningTime"`
+	HaveUpdate   bool                        `json:"haveUpdate"`
+	IsSelf       bool                        `json:"isSelf"`
+	EndpointLink types.ContainerEndpointLink `json:"endpointLink"`
 }
 
 func NewContainersListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ContainersListLogic {
@@ -40,7 +40,6 @@ func NewContainersListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Co
 }
 
 func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
-	// 获取所有容器（包括停止的容器）
 	resp = &types.Resp{}
 	list, err := utiles.GetContainerList(l.svcCtx)
 	if err != nil {
@@ -51,9 +50,6 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 	}
 	resp.Msg = "success"
 	var containerInfoList []Info
-	// 容器列表必须优先稳定返回本地 Docker 状态。
-	// 远端镜像更新检测会访问 DockerHub/GHCR/私有仓库，遇到无权限、无 RepoDigest 或网络慢时会阻塞页面，
-	// 因此不能在 /api/containers 同步执行。这里仅复用已有缓存；后台会带 30 分钟冷却异步刷新缓存。
 	if l.svcCtx.TryStartUpdateCheck(30 * time.Minute) {
 		checkList := append([]types.Container(nil), list...)
 		go func() {
@@ -68,8 +64,7 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		containerInfo.Id = v.ID
 		containerInfo.Status = v.State
 		if len(v.Names) > 0 {
-			ContainerName := v.Names[0][1:]
-			containerInfo.Name = ContainerName
+			containerInfo.Name = strings.TrimPrefix(v.Names[0], "/")
 		} else {
 			containerInfo.Name = "get container name error"
 			l.Error("get container name error" + v.ID)
@@ -84,12 +79,11 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		if err != nil {
 			containerInfo.CreateImage = ""
 			l.Error("get image name error" + v.ID)
+		} else {
+			containerInfo.CreateImage = containerInspect.Config.Image
+			containerInfo.EndpointLink = utiles.BuildContainerEndpointLink(v.Container, containerInspect, l.svcCtx.DockerClient)
 		}
-		containerInfo.CreateImage = containerInspect.Config.Image
 		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
-			// /api/containers must stay local-fast.
-			// Never re-check remote registries synchronously while rendering the page;
-			// just reuse cached update state and let the background refresh update it.
 			v.Update = cached
 		}
 		t := time.Unix(v.Created, 0)
@@ -99,6 +93,7 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 		containerInfo.IsSelf = selfID != "" && (v.ID == selfID || strings.HasPrefix(v.ID, selfID) || strings.HasPrefix(selfID, v.ID))
 		containerInfoList = append(containerInfoList, containerInfo)
 	}
+	resp.Code = 200
 	resp.Data = containerInfoList
 	return resp, nil
 }

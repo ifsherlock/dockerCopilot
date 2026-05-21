@@ -3,11 +3,14 @@ package utiles
 import (
 	"context"
 	"fmt"
+	"sort"
+	"strings"
+
+	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/image"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	MyType "github.com/onlyLTY/dockerCopilot/internal/types"
 	"log"
-	"strings"
 )
 
 func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
@@ -23,6 +26,7 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 			ImageName:        "",
 			ImageTag:         "",
 			InUsed:           false,
+			UsageState:       "unused",
 			SizeFormat:       "",
 			CleanupCandidate: false,
 			CleanupReason:    "",
@@ -40,23 +44,85 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 
 func splitImageNameAndTag(imagesList []MyType.Image) []MyType.Image {
 	for i, imageInfo := range imagesList {
-		if len(imageInfo.RepoTags) != 0 {
-			parts := strings.SplitN(imageInfo.RepoTags[0], ":", 2)
-			imagesList[i].ImageName = parts[0]
-			if len(parts) > 1 {
-				imagesList[i].ImageTag = parts[1]
-			} else {
-				imagesList[i].ImageTag = "None"
-			}
-		} else if len(imageInfo.RepoDigests) != 0 {
-			imagesList[i].ImageName = strings.Split(imageInfo.RepoDigests[0], "@")[0]
-			imagesList[i].ImageTag = "None"
-		} else {
-			imagesList[i].ImageName = "None"
-			imagesList[i].ImageTag = "None"
-		}
+		name, tag := primaryImageNameAndTag(imageInfo.RepoTags, imageInfo.RepoDigests)
+		imagesList[i].ImageName = name
+		imagesList[i].ImageTag = tag
 	}
 	return imagesList
+}
+
+func primaryImageNameAndTag(repoTags []string, repoDigests []string) (string, string) {
+	bestTag := choosePreferredRepoTag(repoTags)
+	if bestTag != "" {
+		parts := strings.SplitN(bestTag, ":", 2)
+		name := strings.TrimSpace(parts[0])
+		tag := "None"
+		if len(parts) > 1 && strings.TrimSpace(parts[1]) != "" {
+			tag = strings.TrimSpace(parts[1])
+		}
+		if name == "" {
+			name = "None"
+		}
+		return name, tag
+	}
+	for _, digest := range repoDigests {
+		digest = strings.TrimSpace(digest)
+		if digest == "" || strings.Contains(digest, "<none>") {
+			continue
+		}
+		return strings.Split(digest, "@")[0], "None"
+	}
+	return "None", "None"
+}
+
+func choosePreferredRepoTag(repoTags []string) string {
+	if len(repoTags) == 0 {
+		return ""
+	}
+	candidates := make([]string, 0, len(repoTags))
+	for _, tag := range repoTags {
+		tag = strings.TrimSpace(tag)
+		lower := strings.ToLower(tag)
+		if tag == "" || lower == "<none>:<none>" || lower == "none:none" {
+			continue
+		}
+		candidates = append(candidates, tag)
+	}
+	if len(candidates) == 0 {
+		return ""
+	}
+	sort.SliceStable(candidates, func(i, j int) bool {
+		a := strings.ToLower(candidates[i])
+		b := strings.ToLower(candidates[j])
+		aScore := preferredRepoTagScore(a)
+		bScore := preferredRepoTagScore(b)
+		if aScore != bScore {
+			return aScore < bScore
+		}
+		return a < b
+	})
+	return candidates[0]
+}
+
+func PrimaryRepoTagFromInspect(inspect dockerTypes.ImageInspect) (string, string) {
+	return primaryImageNameAndTag(inspect.RepoTags, inspect.RepoDigests)
+}
+
+func preferredRepoTagScore(tag string) int {
+	score := 100
+	if strings.Contains(tag, "/") {
+		score -= 10
+	}
+	if strings.Contains(tag, ":latest") {
+		score -= 20
+	}
+	if strings.Contains(tag, "docker.io/") || strings.HasPrefix(tag, "library/") {
+		score += 10
+	}
+	if strings.Contains(tag, "sha256") {
+		score += 40
+	}
+	return score
 }
 
 func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) ([]MyType.Image, error) {
@@ -65,11 +131,23 @@ func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) 
 		return imageList, err
 	}
 	inUseMap := make(map[string]bool, len(list))
+	runningMap := make(map[string]bool, len(list))
 	for _, v := range list {
 		inUseMap[v.ImageID] = true
+		if strings.EqualFold(strings.TrimSpace(v.State), "running") {
+			runningMap[v.ImageID] = true
+		}
 	}
 	for i, imageInfo := range imageList {
 		imageList[i].InUsed = inUseMap[imageInfo.ID]
+		switch {
+		case runningMap[imageInfo.ID]:
+			imageList[i].UsageState = "running"
+		case inUseMap[imageInfo.ID]:
+			imageList[i].UsageState = "stopped"
+		default:
+			imageList[i].UsageState = "unused"
+		}
 		tag := strings.TrimSpace(strings.ToLower(imageInfo.ImageTag))
 		noTag := tag == "" || tag == "none" || tag == "<none>"
 		multiRef := countMeaningfulRefs(imageInfo) > 1
@@ -77,7 +155,11 @@ func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) 
 		switch {
 		case imageList[i].InUsed:
 			imageList[i].CleanupCandidate = false
-			imageList[i].CleanupReason = "in_use"
+			if imageList[i].UsageState == "stopped" {
+				imageList[i].CleanupReason = "in_use_stopped"
+			} else {
+				imageList[i].CleanupReason = "in_use_running"
+			}
 		case multiRef:
 			imageList[i].CleanupCandidate = false
 			imageList[i].CleanupReason = "multi_ref"

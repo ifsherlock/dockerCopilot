@@ -2,12 +2,11 @@ package image
 
 import (
 	"context"
-	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
-
+	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -17,16 +16,25 @@ type ImagesListLogic struct {
 	svcCtx *svc.ServiceContext
 }
 
+type ImageRepoLinks struct {
+	DockerHub string `json:"dockerHub"`
+	GitHub    string `json:"github"`
+}
+
 type Info struct {
-	Id               string `json:"id"`
-	Name             string `json:"name"`
-	Tag              string `json:"tag"`
-	Size             string `json:"size"`
-	InUsed           bool   `json:"inUsed"`
-	CreateTime       string `json:"createTime"`
-	CleanupCandidate bool   `json:"cleanupCandidate"`
-	CleanupReason    string `json:"cleanupReason"`
-	MultiRef         bool   `json:"multiRef"`
+	Id               string         `json:"id"`
+	Name             string         `json:"name"`
+	Tag              string         `json:"tag"`
+	Size             string         `json:"size"`
+	InUsed           bool           `json:"inUsed"`
+	UsageState       string         `json:"usageState"`
+	CreateTime       string         `json:"createTime"`
+	CleanupCandidate bool           `json:"cleanupCandidate"`
+	CleanupReason    string         `json:"cleanupReason"`
+	MultiRef         bool           `json:"multiRef"`
+	RepoTags         []string       `json:"repoTags,omitempty"`
+	RepoDigests      []string       `json:"repoDigests,omitempty"`
+	RepoLinks        ImageRepoLinks `json:"repoLinks"`
 }
 
 func NewImagesListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ImagesListLogic {
@@ -56,9 +64,16 @@ func (l *ImagesListLogic) ImagesList() (resp *types.Resp, err error) {
 		imageInfo.Tag = v.ImageTag
 		imageInfo.Size = v.SizeFormat
 		imageInfo.InUsed = v.InUsed
+		imageInfo.UsageState = v.UsageState
 		imageInfo.CleanupCandidate = v.CleanupCandidate
 		imageInfo.CleanupReason = v.CleanupReason
 		imageInfo.MultiRef = v.MultiRef
+		imageInfo.RepoTags = append([]string(nil), v.RepoTags...)
+		imageInfo.RepoDigests = append([]string(nil), v.RepoDigests...)
+		imageInfo.RepoLinks = ImageRepoLinks{
+			DockerHub: utiles.BuildImageDockerHubURL(v.ImageName),
+			GitHub:    utiles.BuildImageGitHubURL(v.ImageName),
+		}
 		t := time.Unix(v.Created, 0)
 		imageInfo.CreateTime = t.Format("2006-01-02 15:04:05")
 		imageInfoList = append(imageInfoList, imageInfo)

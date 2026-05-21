@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useMemo, useState } from 'react'
 import {
   Play,
   Square,
@@ -15,7 +15,10 @@ import {
   LayoutGrid,
   Ban,
   Undo2,
-  CheckSquare
+  CheckSquare,
+  Link,
+  ExternalLink,
+  Pencil
 } from 'lucide-react'
 import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
@@ -109,6 +112,19 @@ export function Containers() {
   const [updateBlacklist, setUpdateBlacklist] = useState([])
   const [searchKeyword, setSearchKeyword] = useState('')
   const [isRefreshing, setIsRefreshing] = useState(false)
+  const [linkPopoverId, setLinkPopoverId] = useState('')
+  const [hostLanIp, setHostLanIp] = useState('')
+  const loadHostLanIp = async () => {
+    try {
+      const res = await botAPI.getConfig()
+      const cfg = res.data?.data || {}
+      const value = String(cfg?.dockercopilot?.host_lan_ip || '').trim()
+      setHostLanIp(value)
+    } catch {
+      setHostLanIp('')
+    }
+  }
+
 
   // 自定义确认弹窗状态
   const [confirmModal, setConfirmModal] = useState({
@@ -178,8 +194,13 @@ export function Containers() {
   })
 
   useEffect(() => {
+    loadHostLanIp()
+  }, [])
+
+  useEffect(() => {
     localStorage.setItem('docker_copilot_containers_view_mode', viewMode)
   }, [viewMode])
+
 
   const normalizeImageName = (value) => String(value || '')
     .trim()
@@ -1085,6 +1106,76 @@ export function Containers() {
 
   const getContainerImageRef = (container) => container?.createImage || container?.usingImage || ''
 
+  const getEndpointLink = (container) => {
+    const endpoint = container?.endpointLink || {}
+    const editablePort = String(endpoint.editablePort || '').trim()
+    const configuredHostIp = String(hostLanIp || '').trim()
+    const hostIP = String(endpoint.hostIP || configuredHostIp || '127.0.0.1').trim()
+    const networkMode = String(endpoint.networkMode || '').toLowerCase()
+    const ports = Array.isArray(endpoint.ports) ? endpoint.ports : []
+    const isRunning = Boolean(endpoint.running)
+    const isHost = networkMode === 'host'
+    const mappedPort = !isHost ? (ports.find(p => Number(p?.publicPort) > 0)?.publicPort || '') : ''
+    const chosenPort = editablePort || mappedPort
+    const suggestedURL = hostIP && chosenPort ? `http://${hostIP}:${chosenPort}` : ''
+    return {
+      ...endpoint,
+      hostIP,
+      networkMode,
+      isRunning,
+      isHost,
+      ports,
+      editablePort,
+      chosenPort: String(chosenPort || ''),
+      suggestedURL: suggestedURL || endpoint.suggestedURL || '',
+      displayPorts: ports.length ? ports.map(p => `${p.privatePort || '-'}→${p.publicPort || '-'}`).join(', ') : (editablePort ? `${editablePort}` : '-'),
+    }
+  }
+
+  const canShowLinkIcon = (container) => {
+    if (isBatchMode || selectedContainers.length > 0) return false
+    const endpoint = getEndpointLink(container)
+    return container?.status === 'running' && endpoint?.isRunning
+  }
+
+  const getContainerPortOptions = (container) => {
+    const endpoint = getEndpointLink(container)
+    const options = new Set()
+    ;(endpoint?.ports || []).forEach(p => {
+      if (Number(p?.publicPort) > 0) options.add(String(p.publicPort))
+      if (Number(p?.privatePort) > 0) options.add(String(p.privatePort))
+    })
+    ;(endpoint?.exposedPorts || []).forEach(port => {
+      const value = String(port || '').split('/')[0].trim()
+      if (value) options.add(value)
+    })
+    if (endpoint?.editablePort) options.add(String(endpoint.editablePort))
+    return Array.from(options)
+  }
+
+  const renderEndpointPopover = (container, placement = 'right') => {
+    if (!canShowLinkIcon(container)) return null
+    const endpoint = getEndpointLink(container)
+    if (!endpoint.suggestedURL) return null
+
+    const linkClass = placement === 'top-right'
+      ? 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-sky-600 shadow-sm hover:bg-sky-50 dark:border-gray-700 dark:bg-gray-800 dark:text-sky-400 dark:hover:bg-gray-700'
+      : 'inline-flex h-7 w-7 items-center justify-center rounded-lg border border-gray-200 bg-white text-sky-600 shadow-sm hover:bg-sky-50 dark:border-gray-700 dark:bg-gray-800 dark:text-sky-400 dark:hover:bg-gray-700'
+
+    return (
+      <a
+        href={endpoint.suggestedURL}
+        target="_blank"
+        rel="noreferrer"
+        onClick={(e) => e.stopPropagation()}
+        className={linkClass}
+        title={endpoint.suggestedURL}
+      >
+        <ExternalLink className="h-3.5 w-3.5" />
+      </a>
+    )
+  }
+
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
     const imageRef = getContainerImageRef(container)
     let iconUrl = container.iconUrl
@@ -1246,6 +1337,7 @@ export function Containers() {
                       <div className="min-w-0">
                         <div className="font-semibold text-gray-900 dark:text-white truncate flex items-center gap-2">
                           {container.name}
+                          {canShowLinkIcon(container) && renderEndpointPopover(container, 'right')}
                           {displayedHaveUpdate(container) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-yellow-100 dark:bg-yellow-900/40 text-yellow-700 dark:text-yellow-300">NEW</span>}
                           {isUpdateIgnored(container) && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700 text-gray-500 dark:text-gray-400">忽略</span>}
                         </div>
@@ -1260,8 +1352,12 @@ export function Containers() {
                     </span>
                   </td>
                   <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={getContainerImageRef(container)}>
-                    <button onClick={(e) => { e.stopPropagation(); setSelectedContainer(container) }} className="truncate text-primary-600 dark:text-primary-400 hover:underline font-medium text-left">
-                      {getContainerImageRef(container)}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setSelectedContainer(container) }}
+                      className="truncate inline-flex max-w-full items-center gap-1 text-primary-600 dark:text-primary-400 hover:underline font-medium text-left"
+                    >
+                      <span className="truncate">{getContainerImageRef(container)}</span>
+                      <Pencil className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                     </button>
                   </td>
                   <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
@@ -1499,15 +1595,26 @@ export function Containers() {
               </button>
             )}
 
-            {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (
+            {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (() => {
+              const allVisibleSelected = renderedContainers.length > 0 && renderedContainers.every(c => selectedContainers.includes(c.id))
+              return (
               <>
                 <button
                   className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors text-sm font-medium"
                   onClick={toggleSelectAll}
-                  title={filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
+                  title={allVisibleSelected ? '取消全选' : '全选'}
                 >
-                  <span>{filteredContainers.length > 0 && filteredContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}</span>
+                  <span>{allVisibleSelected ? '取消全选' : '全选'}</span>
                 </button>
+                {!allVisibleSelected && selectedContainers.length > 0 && (
+                  <button
+                    onClick={() => setSelectedContainers([])}
+                    className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                  >
+                    <X className="h-4 w-4" />
+                    <span>取消选择</span>
+                  </button>
+                )}
                 <button className={topButtonClass('bg-primary-600 hover:bg-primary-700 text-white', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('start')} title="启动">
                   <Play className="h-4 w-4" />
                   <span>启动</span>
@@ -1542,7 +1649,7 @@ export function Containers() {
                   <span>{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
                 </button>
             </>
-            )}
+              )})()}
 
             <div className="ml-auto flex flex-wrap items-center gap-2">
               <div className={cn('relative min-w-[220px] flex-1 sm:flex-none sm:w-72')}>
@@ -1647,14 +1754,6 @@ export function Containers() {
                   </>
                 )}
               </div>
-              {selectedContainers.length > 0 && !filterStatus && (
-                <button
-                  onClick={() => setSelectedContainers([])}
-                  className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 bg-blue-100 dark:bg-blue-800/50 rounded transition-colors"
-                >
-                  取消选择
-                </button>
-              )}
             </div>
           </div>
         )}
@@ -1696,6 +1795,11 @@ export function Containers() {
                               className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500"
                             />
                           </label>
+                        </div>
+                      )}
+                      {canShowLinkIcon(container) && (
+                        <div className="absolute top-3 right-3 z-20">
+                          {renderEndpointPopover(container, 'top-right')}
                         </div>
                       )}
                       {/* 背景进度条 */}
@@ -1807,13 +1911,20 @@ export function Containers() {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-start justify-between gap-2">
                             <div className="flex-1 min-w-0">
-                              <div className="flex items-center">
+                              <div className="flex items-center gap-2">
                                 <h3 className="font-semibold text-gray-900 dark:text-white truncate text-base group-hover:text-primary-600 dark:group-hover:text-primary-400 transition-colors">
                                   {container.name}
                                 </h3>
                               </div>
                               <p className="text-xs text-gray-500 dark:text-gray-400 truncate mt-0.5">
-                                {container.usingImage}
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); setSelectedContainer(container) }}
+                                  className="inline-flex max-w-full items-center gap-1 truncate hover:text-primary-600 dark:hover:text-primary-400"
+                                  title={getContainerImageRef(container)}
+                                >
+                                  <span className="truncate">{container.usingImage}</span>
+                                  <Pencil className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
+                                </button>
                               </p>
                             </div>
                           </div>
@@ -1981,7 +2092,25 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
   const [currentContainer, setCurrentContainer] = useState(container)
   const fileInputRef = React.useRef(null)
   const [isUploadingIcon, setIsUploadingIcon] = useState(false)
+  const [globalHostLanIp, setGlobalHostLanIp] = useState('')
+  const [endpointSaveState, setEndpointSaveState] = useState({ saving: false, ok: false, message: '' })
   const ignored = isUpdateIgnored(currentContainer)
+  const endpoint = currentContainer?.endpointLink || {}
+  const detailPortOptions = (() => {
+    const options = new Set()
+    ;(endpoint?.ports || []).forEach(p => {
+      if (Number(p?.publicPort) > 0) options.add(String(p.publicPort))
+      if (Number(p?.privatePort) > 0) options.add(String(p.privatePort))
+    })
+    ;(endpoint?.exposedPorts || []).forEach(port => {
+      const value = String(port || '').split('/')[0].trim()
+      if (value) options.add(value)
+    })
+    if (endpoint?.editablePort) options.add(String(endpoint.editablePort))
+    return Array.from(options)
+  })()
+  const [detailHostIp, setDetailHostIp] = useState(String(container?.endpointLink?.hostIP || '').trim())
+  const [detailPort, setDetailPort] = useState(String(container?.endpointLink?.editablePort || '').trim())
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -1996,12 +2125,28 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     initialData: () => JSON.parse(localStorage.getItem('docker_copilot_image_logos') || '{}'),
   })
 
+  React.useEffect(() => {
+    const loadHostLanIp = async () => {
+      try {
+        const res = await botAPI.getConfig()
+        const cfg = res.data?.data || {}
+        setGlobalHostLanIp(String(cfg?.dockercopilot?.host_lan_ip || '').trim())
+      } catch {
+        setGlobalHostLanIp('')
+      }
+    }
+    loadHostLanIp()
+  }, [])
+
   // 当容器切换时，更新表单字段的值
   React.useEffect(() => {
     setName(container.name)
     setImageNameAndTag(container.usingImage)
     setCurrentContainer(container)
-  }, [container])
+    setEndpointSaveState({ saving: false, ok: false, message: '' })
+    setDetailHostIp(String(container?.endpointLink?.hostIP || globalHostLanIp || '').trim())
+    setDetailPort(String(container?.endpointLink?.editablePort || '').trim())
+  }, [container, globalHostLanIp])
 
   // 实时更新容器状态
   React.useEffect(() => {
@@ -2049,6 +2194,39 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
     return () => clearInterval(interval);
   }, [container.id]);
+
+  const persistDetailEndpoint = async () => {
+    const cleanedHostIp = String(detailHostIp || '').trim()
+    const cleanedPort = String(detailPort || '').replace(/\D+/g, '').slice(0, 5)
+    try {
+      setEndpointSaveState({ saving: true, ok: false, message: '' })
+      const response = await containerAPI.saveEndpointConfig(container.id, {
+        hostIP: cleanedHostIp,
+        port: cleanedPort,
+      })
+      if (response.data?.code !== 200 && response.data?.code !== 0) {
+        throw new Error(response.data?.msg || '保存失败')
+      }
+      const endpointLink = response.data?.data?.endpointLink || {}
+      setDetailHostIp(String(endpointLink.hostIP || cleanedHostIp || '').trim())
+      setDetailPort(String(endpointLink.editablePort || cleanedPort || '').trim())
+      setCurrentContainer(prev => ({
+        ...prev,
+        endpointLink: {
+          ...(prev?.endpointLink || {}),
+          ...endpointLink,
+        }
+      }))
+      await queryClient.invalidateQueries({ queryKey: ['containers'] })
+      setEndpointSaveState({ saving: false, ok: true, message: '修改成功，请刷新' })
+    } catch (error) {
+      setEndpointSaveState({
+        saving: false,
+        ok: false,
+        message: error.response?.data?.msg || error.message || '保存失败',
+      })
+    }
+  }
 
   const handleIconUpload = async (event) => {
     const file = event.target.files[0]
@@ -2399,6 +2577,73 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
                 ) : '重命名'}
               </button>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-1">
+              webui链接(ip:port)
+            </label>
+            <div className="grid grid-cols-1 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] gap-2">
+              <input
+                type="text"
+                value={detailHostIp}
+                onChange={(e) => setDetailHostIp(e.target.value)}
+                className="input font-mono"
+                placeholder="优先使用配置页里的宿主机 IP"
+              />
+              <>
+                <input
+                  list={`container-port-options-${container.id}`}
+                  type="text"
+                  inputMode="numeric"
+                  value={detailPort}
+                  onChange={(e) => setDetailPort(String(e.target.value || '').replace(/\D+/g, '').slice(0, 5))}
+                  className="input flex-1"
+                  placeholder="选择或手填端口"
+                />
+                <datalist id={`container-port-options-${container.id}`}>
+                  {detailPortOptions.map(port => <option key={port} value={port}>{port}</option>)}
+                </datalist>
+              </>
+              <button
+                onClick={persistDetailEndpoint}
+                disabled={endpointSaveState.saving}
+                className={cn(
+                  "px-3 py-2 text-sm rounded-lg transition-all duration-200 flex items-center justify-center min-w-[100px]",
+                  endpointSaveState.saving
+                    ? "bg-primary-500 text-white cursor-wait scale-[0.98]"
+                    : endpointSaveState.ok
+                      ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
+                      : "bg-primary-600 text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+                )}
+              >
+                {endpointSaveState.saving ? <><RefreshCw className="mr-1 h-4 w-4 animate-spin" />保存中</> : endpointSaveState.ok ? '已保存' : '保存'}
+              </button>
+            </div>
+            <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {detailHostIp && detailPort ? (
+                <a
+                  href={`http://${detailHostIp}:${detailPort}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-primary-600 hover:underline dark:text-primary-400"
+                >
+                  预览：http://{detailHostIp}:{detailPort}
+                </a>
+              ) : '容器专属填写优先；否则优先使用配置页宿主机 IP；再回退检测值'}
+            </div>
+            {endpointSaveState.message ? (
+              <div className={cn(
+                'mt-1 text-xs',
+                endpointSaveState.ok ? 'text-emerald-600 dark:text-emerald-300' : 'text-red-600 dark:text-red-300'
+              )}>
+                {endpointSaveState.message}
+              </div>
+            ) : null}
+            {String(detailHostIp || '').startsWith('172.') && (
+              <div className="mt-1 text-xs text-amber-600 dark:text-amber-300 leading-5 whitespace-pre-line">当前 IP疑似容器内网地址，
+建议将docker copilot配置成host模式，或去配置页填写宿主机IP。</div>
+            )}
           </div>
 
           {/* 镜像信息 */}

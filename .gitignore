@@ -38,3 +38,6 @@ front/
 
 # Local temporary build artifacts
 .tmp-*
+build-out/
+dist-*/
+.trash/

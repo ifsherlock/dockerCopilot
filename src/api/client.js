@@ -135,6 +135,7 @@ export const containerAPI = {
   deleteBackup: (filename) => apiClient.delete(`/api/container/backups?filename=${encodeURIComponent(filename)}`),
   backupToCompose: () => apiClient.get('/api/container/backup2compose'),
   getContainerLogs: (id, tail = 300) => apiClient.get(`/api/container/${id}/logs?tail=${tail}`),
+  saveEndpointConfig: (id, payload) => apiClient.post(`/api/container/${id}/endpoint`, payload),
 }
 
 // 镜像相关API
@@ -142,6 +143,7 @@ export const imageAPI = {
   getImages: () => apiClient.get('/api/images'),
   getIcons: () => apiClient.get('/api/icons'),
   deleteImage: (id, force = false) => apiClient.delete(`/api/image/${id}?force=${force}`),
+  retagImage: (id, payload) => apiClient.put(`/api/image/${id}/retag`, payload),
   pullImage: (imageName, source, displayName) => apiClient.post('/api/image/pull', {
     imageName,
     source,

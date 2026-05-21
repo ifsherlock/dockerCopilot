@@ -124,6 +124,12 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Ensure release is published
+        run: |
+          gh release edit ${{ env.version }} --draft=false --latest
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Upload Asset for ${{ matrix.arch }}
         run: |
           gh release upload ${{ env.version }} dockerCopilot-${{ matrix.arch }}.tar.gz --clobber

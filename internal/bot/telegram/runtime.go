@@ -515,7 +515,7 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 			}
 			label := prefix + " " + trimButtonLabel(item.Name)
 			if item.HaveUpdate {
-				label += " ⬆️"
+				label += " 🆙"
 			}
 			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("containers_pick:%d:%d", page, absoluteIdx)))
 		}
@@ -530,7 +530,7 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 		))
 		if selected.HaveUpdate {
 			rows = append(rows, tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("⬆️ 更新当前").WithCallbackData("container_update:"),
+				tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
 			))
 		}
 	} else {
@@ -538,7 +538,7 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 	}
 	rows = append(rows, paginationRow("containers_page", page, totalPages)...)
 	rows = append(rows, tu.InlineKeyboardRow(
-		tu.InlineKeyboardButton("⬆️ 一键更新本页").WithCallbackData("containers_update_all:"+strconv.Itoa(page)),
+		tu.InlineKeyboardButton("🆙 一键更新本页").WithCallbackData("containers_update_all:"+strconv.Itoa(page)),
 		tu.InlineKeyboardButton("❌ 取消退出").WithCallbackData("containers_close:"),
 	))
 	return b.String(), tu.InlineKeyboard(rows...)
@@ -573,7 +573,7 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 	const pageSize = 8
 	page, totalPages, start, end := paginate(len(items), page, pageSize)
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("⬆️ <b>可更新容器列表</b>\n\n"))
+	b.WriteString(fmt.Sprintf("🆙 <b>可更新容器列表</b>\n\n"))
 	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n\n", escapeHTML(instanceName)))
 	b.WriteString(fmt.Sprintf("找到 <b>%d</b> 个可更新的容器\n", len(items)))
 	b.WriteString(fmt.Sprintf("第 %d/%d 页\n\n", page+1, totalPages))
@@ -601,7 +601,7 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
 			absoluteIdx := start + j
-			row = append(row, tu.InlineKeyboardButton("⬆️ "+trimButtonLabel(item.Name)).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
+			row = append(row, tu.InlineKeyboardButton("🆙 "+trimButtonLabel(item.Name)).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
 		}
 		rows = append(rows, row)
 	}
@@ -658,7 +658,12 @@ func (r *Runtime) renderImagesPage(items []imageView, instanceName string, page 
 			fullName += ":" + item.Tag
 		}
 		statusIcon := "✅"
-		if !item.InUsed {
+		switch item.UsageState {
+		case "running":
+			statusIcon = "✅"
+		case "stopped":
+			statusIcon = "⏸"
+		default:
 			statusIcon = "🗑"
 		}
 		buttonText := fmt.Sprintf("%s %s (%s)", statusIcon, trimButtonLabel(fullName), item.Size)
@@ -911,7 +916,7 @@ func (r *Runtime) confirmProgramUpdate(ctx context.Context, chatID int64) {
 	}
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("⬆️ 确认更新服务").WithCallbackData("confirm_program_update:"),
+			tu.InlineKeyboardButton("🆙 确认更新服务").WithCallbackData("confirm_program_update:"),
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	)
@@ -1184,7 +1189,12 @@ func (r *Runtime) sendImageDetail(ctx context.Context, chatID int64, messageID i
 		fullName += ":" + target.Tag
 	}
 	status := "使用中 ✅"
-	if !target.InUsed {
+	switch target.UsageState {
+	case "running":
+		status = "使用中（运行中）✅"
+	case "stopped":
+		status = "使用中（已停止）⏸"
+	default:
 		status = "未使用 🗑"
 	}
 	text := strings.Join([]string{
@@ -1311,7 +1321,7 @@ func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) 
 		return
 	}
 	if taskID == "" {
-		r.replyText(ctx, chatID, fmt.Sprintf("⬆️ 已提交更新任务\n容器: <b>%s</b>", escapeHTML(name)))
+		r.replyText(ctx, chatID, fmt.Sprintf("🆙 已提交更新任务\n容器: <b>%s</b>", escapeHTML(name)))
 		return
 	}
 	r.startTaskProgressWatcher(ctx, chatID, inst, "更新容器: "+name, taskID)
