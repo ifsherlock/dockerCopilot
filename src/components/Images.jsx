@@ -629,164 +629,179 @@ export function Images() {
   const renderImageUpdateButtons = (image, { compact = false, showLightning = true } = {}) => {
     const actionState = getImageUpdateActionState(image)
     const isBusy = actionState?.loading
-    const isUpdateAction = actionState?.action === 'update'
-    const showProgressState = isUpdateAction && (isBusy || actionState?.done)
     const progressPercent = Math.max(0, Math.min(100, Math.round(actionState?.percentage || 0)))
     const progressLabel = actionState?.progress || ''
+    const progressAction = actionState?.action
+    const showProgressState = ['update', 'delete', 'force-delete', 'ignore'].includes(progressAction) && (isBusy || actionState?.done)
     const overlayPercent = actionState?.done ? 100 : progressPercent
-    const progressText = actionState?.done
-      ? (progressLabel || '更新成功')
-      : `更新中 ${progressPercent}%`
 
-    const compactProgressOverlay = compact && showProgressState ? (
+    const progressTone = actionState?.done
+      ? "bg-gradient-to-r from-emerald-400/30 via-emerald-300/35 to-emerald-400/30 dark:from-emerald-500/20 dark:via-emerald-400/25 dark:to-emerald-500/20"
+      : progressAction === 'delete' || progressAction === 'force-delete' || progressAction === 'ignore'
+        ? "bg-gradient-to-r from-red-400/30 via-red-300/35 to-red-400/30 dark:from-red-500/20 dark:via-red-400/25 dark:to-red-500/20"
+        : "bg-gradient-to-r from-sky-400/30 via-sky-300/35 to-sky-400/30 dark:from-sky-500/20 dark:via-sky-400/25 dark:to-sky-500/20"
+
+    const progressOverlay = showProgressState ? (
       <div className={cn(
-        "pointer-events-none relative h-full min-h-0 self-stretch w-[180px] overflow-hidden rounded-2xl border shadow-lg",
-        actionState?.done
-          ? "border-emerald-200/90 bg-white/72 dark:border-emerald-300/35 dark:bg-slate-900/30"
-          : "border-sky-200/90 bg-white/72 dark:border-sky-300/35 dark:bg-slate-900/30"
+        "pointer-events-none absolute inset-0 overflow-hidden rounded-lg",
+        compact ? "rounded-md" : "rounded-lg"
       )}>
         <div
           className={cn(
             "absolute inset-y-0 left-0 transition-all duration-500 ease-out",
-            actionState?.done
-              ? "bg-gradient-to-r from-emerald-500/58 via-emerald-300/64 to-emerald-500/58 dark:from-emerald-400/34 dark:via-emerald-300/40 dark:to-emerald-400/34"
-              : "bg-gradient-to-r from-sky-500/58 via-sky-300/64 to-sky-500/58 dark:from-sky-400/34 dark:via-sky-300/40 dark:to-sky-400/34"
+            progressTone
           )}
           style={{ width: `${overlayPercent}%` }}
         >
           <div
             className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
-            style={{ backgroundSize: '200% 100%', animation: 'shimmer 2s infinite linear' }}
+            style={{
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 2s infinite linear'
+            }}
           />
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center px-3">
-          <div className={cn(
-            "relative z-10 inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm whitespace-nowrap",
-            actionState?.done
-              ? "border-emerald-200/80 bg-white/78 text-emerald-900 dark:border-emerald-200/20 dark:bg-slate-950/40 dark:text-emerald-100"
-              : "border-sky-200/90 bg-white/86 text-sky-700 dark:border-sky-200/20 dark:bg-slate-950/45 dark:text-sky-100"
-          )}>
-            <span className={cn(
-              "inline-flex h-3.5 w-3.5 items-center justify-center",
-              !actionState?.done && "animate-spin"
-            )}>
-              {actionState?.done ? '✓' : '⟳'}
-            </span>
-            <span>{progressText}</span>
-          </div>
         </div>
       </div>
     ) : null
 
-    const cardProgressSlot = !compact && showProgressState ? (
-      <div className={cn(
-        "pointer-events-none relative h-16 w-[180px] overflow-hidden rounded-2xl border shadow-lg",
-        actionState?.done
-          ? "border-amber-200/90 bg-white/78 dark:border-amber-300/35 dark:bg-slate-900/30"
-          : "border-yellow-200/90 bg-white/78 dark:border-yellow-300/35 dark:bg-slate-900/30"
-      )}>
-        <div
-          className={cn(
-            "absolute inset-y-0 left-0 transition-all duration-500 ease-out",
-            actionState?.done
-              ? "bg-gradient-to-r from-amber-500/72 via-yellow-300/78 to-amber-500/74 dark:from-amber-400/42 dark:via-yellow-300/48 dark:to-amber-400/42"
-              : "bg-gradient-to-r from-yellow-300/72 via-yellow-100/82 to-amber-300/74 dark:from-yellow-300/42 dark:via-yellow-100/30 dark:to-amber-300/42"
-          )}
-          style={{ width: `${overlayPercent}%` }}
+    const progressText = showProgressState
+      ? (actionState?.done
+          ? (progressLabel || (progressAction === 'delete' || progressAction === 'force-delete'
+              ? '删除成功'
+              : progressAction === 'ignore'
+                ? '忽略成功'
+                : '更新成功'))
+          : `${progressAction === 'delete' || progressAction === 'force-delete'
+              ? '删除中'
+              : progressAction === 'ignore'
+                ? '忽略中'
+                : '更新中'} ${progressPercent}%`)
+      : ''
+
+    const progressTextClass = actionState?.done
+      ? "text-emerald-600 dark:text-emerald-400"
+      : progressAction === 'delete' || progressAction === 'force-delete' || progressAction === 'ignore'
+        ? "text-red-600 dark:text-red-300"
+        : "text-sky-600 dark:text-sky-300"
+
+    const buttonBase = compact
+      ? "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors whitespace-nowrap bg-white/82 dark:bg-gray-800/82 backdrop-blur-[1px] min-w-[52px]"
+      : "relative z-10 inline-flex items-center justify-center px-2 py-1.5 text-xs rounded-lg border transition-colors active:scale-95 bg-white dark:bg-gray-800 shadow-sm hover:shadow min-w-[52px] whitespace-nowrap"
+
+    const updateButtonClass = cn(
+      buttonBase,
+      image.haveUpdate && !isImageUpdateIgnored(image)
+        ? "text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50/80 dark:hover:bg-amber-900/20"
+        : "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 cursor-not-allowed"
+    )
+
+    const deleteButtonClass = cn(
+      buttonBase,
+      "text-red-600 dark:text-red-400 border-gray-200 dark:border-gray-700 hover:bg-red-50/80 dark:hover:bg-red-900/20"
+    )
+
+    const forceDeleteButtonClass = cn(
+      buttonBase,
+      "text-orange-600 dark:text-orange-400 border-gray-200 dark:border-gray-700 hover:bg-orange-50/80 dark:hover:bg-orange-900/20"
+    )
+
+    const ignoreButtonClass = cn(
+      buttonBase,
+      isImageUpdateIgnored(image)
+        ? "text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50/80 dark:hover:bg-amber-900/20"
+        : "text-gray-700 dark:text-gray-300 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+    )
+
+    const actionButtons = (
+      <>
+        <button
+          onClick={(e) => { e.stopPropagation(); startImageUpdate(image) }}
+          disabled={!image.haveUpdate || isImageUpdateIgnored(image) || isBusy}
+          className={updateButtonClass}
+          title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
         >
-          <div
-            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
-            style={{ backgroundSize: '200% 100%', animation: 'shimmer 2s infinite linear' }}
-          />
-        </div>
-        <div className="absolute inset-0 flex items-center justify-center px-3">
-          <div className={cn(
-            "relative z-10 inline-flex min-w-[132px] items-center justify-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold shadow-sm whitespace-nowrap",
-            actionState?.done
-              ? "border-amber-200/80 bg-white/82 text-amber-900 dark:border-amber-200/20 dark:bg-slate-950/45 dark:text-amber-100"
-              : "border-yellow-200/90 bg-white/88 text-amber-700 dark:border-yellow-200/20 dark:bg-slate-950/45 dark:text-yellow-100"
-          )}>
-            <span className={cn(
-              "inline-flex h-3.5 w-3.5 items-center justify-center",
-              !actionState?.done && "animate-spin"
-            )}>
-              {actionState?.done ? '✓' : '⟳'}
-            </span>
-            <span>{progressText}</span>
-          </div>
-        </div>
-      </div>
-    ) : null
-
-    const updateButtonClass = compact
-      ? cn(
-          "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors whitespace-nowrap bg-white/82 dark:bg-gray-800/82 backdrop-blur-[1px] min-w-[52px]",
-          image.haveUpdate && !isImageUpdateIgnored(image)
-            ? "text-amber-700 dark:text-amber-300 border-amber-300 dark:border-amber-700 hover:bg-amber-50/80 dark:hover:bg-amber-900/20"
-            : "text-gray-400 dark:text-gray-500 cursor-not-allowed border-gray-200 dark:border-gray-700"
-        )
-      : cn(
-          "relative z-10 inline-flex items-center justify-center px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 transition-colors active:scale-95 bg-white dark:bg-gray-800 shadow-sm hover:shadow min-w-[52px] whitespace-nowrap",
-          image.haveUpdate && !isImageUpdateIgnored(image)
-            ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:border-amber-200 dark:hover:border-amber-800"
-            : "text-gray-300 dark:text-gray-600 cursor-not-allowed"
-        )
+          更新
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
+          className={deleteButtonClass}
+        >
+          删除
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
+          className={forceDeleteButtonClass}
+          title="强制删除镜像"
+        >
+          强删
+        </button>
+        <button
+          onClick={(e) => { e.stopPropagation(); (isImageUpdateIgnored(image) ? unignoreImageUpdate(image) : ignoreImageUpdate(image)) }}
+          className={ignoreButtonClass}
+        >
+          {isImageUpdateIgnored(image) ? '取消' : '忽略'}
+        </button>
+      </>
+    )
 
     const lightningButtonClass = compact
       ? "relative z-10 inline-flex items-center justify-center rounded-md p-0 text-amber-500 hover:text-amber-600 dark:hover:text-amber-300 transition-colors active:scale-95"
       : "relative z-10 p-1.5 text-amber-500 hover:text-amber-600 dark:hover:text-amber-300 rounded-md transition-colors active:scale-95 bg-amber-50/90 dark:bg-amber-900/15 border border-amber-300 dark:border-amber-700 min-w-[34px] min-h-[34px] inline-flex items-center justify-center"
 
-    return (
-      <div className="relative inline-flex items-center gap-1.5 rounded-lg">
-          {compact ? (
-            <>
-              {showLightning && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); openAcceleratorModal(buildPullTarget(image) || image.name) }}
-                  className={lightningButtonClass}
-                  title="打开加速拉取面板"
-                >
-                  <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
-                </button>
-              )}
-              {showProgressState ? (
-                compactProgressOverlay
-              ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); startImageUpdate(image) }}
-                  disabled={!image.haveUpdate || isImageUpdateIgnored(image) || isBusy}
-                  className={updateButtonClass}
-                  title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
-                >
-                  更新
-                </button>
-              )}
-            </>
-          ) : (
-            <>
-              {!showProgressState && showLightning && (
-                <button
-                  onClick={(e) => { e.stopPropagation(); openAcceleratorModal(buildPullTarget(image) || image.name) }}
-                  className={lightningButtonClass}
-                  title="打开加速拉取面板"
-                >
-                  <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
-                </button>
-              )}
-              {showProgressState ? (
-                cardProgressSlot
-              ) : (
-                <button
-                  onClick={(e) => { e.stopPropagation(); startImageUpdate(image) }}
-                  disabled={!image.haveUpdate || isImageUpdateIgnored(image) || isBusy}
-                  className={updateButtonClass}
-                  title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
-                >
-                  更新
-                </button>
-              )}
-            </>
+    if (compact) {
+      return (
+        <div className="min-w-[250px]">
+          <div className="flex items-center gap-1.5">
+            {showLightning && (
+              <button
+                onClick={(e) => { e.stopPropagation(); openAcceleratorModal(buildPullTarget(image) || image.name) }}
+                className={lightningButtonClass}
+                title="打开加速拉取面板"
+              >
+                <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
+              </button>
+            )}
+            <div className="relative inline-flex items-stretch gap-2 justify-start rounded-xl flex-1 min-w-0">
+              {progressOverlay}
+              {actionButtons}
+            </div>
+          </div>
+          {progressText && (
+            <div className={cn("mt-1 pl-5 text-[11px] truncate", progressTextClass)} title={progressText}>
+              {progressText}
+            </div>
           )}
+        </div>
+      )
+    }
+
+    const cardUpdateButtonClass = cn(
+      "relative z-10 inline-flex w-full items-center justify-center gap-1 px-2 py-1.5 text-xs rounded-lg border border-gray-200 dark:border-gray-700 transition-colors active:scale-95 bg-white dark:bg-gray-800 shadow-sm hover:shadow min-w-[52px] whitespace-nowrap",
+      image.haveUpdate && !isImageUpdateIgnored(image)
+        ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:border-amber-200 dark:hover:border-amber-800"
+        : "text-gray-300 dark:text-gray-600 cursor-not-allowed"
+    )
+
+    return (
+      <div className="relative inline-flex w-full items-center gap-1.5 rounded-lg min-w-0">
+        {showLightning && (
+          <button
+            onClick={(e) => { e.stopPropagation(); openAcceleratorModal(buildPullTarget(image) || image.name) }}
+            className={lightningButtonClass}
+            title="打开加速拉取面板"
+          >
+            <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
+          </button>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); startImageUpdate(image) }}
+          disabled={!image.haveUpdate || isImageUpdateIgnored(image) || isBusy}
+          className={cardUpdateButtonClass}
+          title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
+        >
+          <RefreshCw className="h-3.5 w-3.5" />
+          <span>更新</span>
+        </button>
       </div>
     )
   }
@@ -1615,34 +1630,17 @@ export function Images() {
                       </td>
                       <td className={cn('px-4 py-3 text-sm font-semibold whitespace-nowrap text-left', getSizeColor(image.size))} style={{ width: `${imageTableWidths.size}px`, minWidth: '110px' }}>{formatImageSize(image.size)}</td>
                       <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" style={{ width: `${imageTableWidths.createTime}px`, minWidth: '170px' }}>{formatTableDateTime(image.createTime)}</td>
-                      <td className={cn("px-4 whitespace-nowrap", showTableProgress ? "py-0" : "py-3")} style={{ width: `${imageTableWidths.actions}px`, minWidth: '260px' }}>
-                        {(() => {
-                          const actionState = getImageUpdateActionState(image)
-                          const showTableProgress = actionState?.action === 'update' && (actionState?.loading || actionState?.done)
-                          return (
+                      {(() => {
+                        const actionState = getImageUpdateActionState(image)
+                        const showTableProgress = ['update', 'delete', 'force-delete', 'ignore'].includes(actionState?.action) && (actionState?.loading || actionState?.done)
+                        return (
+                          <td className={cn("px-4 whitespace-nowrap", showTableProgress ? "py-0" : "py-3")} style={{ width: `${imageTableWidths.actions}px`, minWidth: '260px' }}>
                             <div className="flex items-stretch justify-start gap-1.5 min-w-0 h-full">
                               {renderImageUpdateButtons(image, { compact: true })}
-                              {!showTableProgress && (
-                                <div className="flex items-center gap-2">
-                                  <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }} className="px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700">删除</button>
-                                  <button onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }} className="px-2 py-1 text-xs rounded-md text-orange-600 dark:text-orange-400 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 whitespace-nowrap min-w-[48px]">强删</button>
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); (isImageUpdateIgnored(image) ? unignoreImageUpdate(image) : ignoreImageUpdate(image)) }}
-                                    className={cn(
-                                      "px-2 py-1 text-xs rounded-md border border-gray-200 dark:border-gray-700 whitespace-nowrap",
-                                      isImageUpdateIgnored(image)
-                                        ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20"
-                                        : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
-                                    )}
-                                  >
-                                    {isImageUpdateIgnored(image) ? '取消忽略' : '忽略'}
-                                  </button>
-                                </div>
-                              )}
                             </div>
-                          )
-                        })()}
-                      </td>
+                          </td>
+                        )
+                      })()}
                     </tr>
                   ))}
                 </tbody>
@@ -1690,7 +1688,7 @@ export function Images() {
                     </div>
                   )}
                   {/* 头部:图标、名字、状态指示器和大小 */}
-                  <div className="flex items-start gap-3 mb-4">
+                  <div className="flex items-start gap-3 mb-2">
                     <div className="h-10 w-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                       <SafeImage
                         src={getImageLogo(image.name, customIcons)}
@@ -1734,36 +1732,6 @@ export function Images() {
                           <Pencil className="h-3 w-3 flex-shrink-0" />
                         </button>
                       </p>
-                      <div className="mt-1 inline-flex items-center gap-2 text-xs">
-                        {(() => {
-                          const actionState = getImageUpdateActionState(image)
-                          const showCardProgress = actionState?.action === 'update' && (actionState?.loading || actionState?.done)
-                          if (showCardProgress) {
-                            return (
-                              <p className={cn(
-                                "text-xs truncate flex items-center gap-1",
-                                actionState?.done ? "text-green-600 dark:text-green-400" : "text-blue-600 dark:text-blue-400"
-                              )}>
-                                {actionState?.done
-                                  ? <span className="h-3 w-3 flex-shrink-0 text-center leading-3">✓</span>
-                                  : <RefreshCw className="h-3 w-3 animate-spin flex-shrink-0" />}
-                                <span>{actionState?.progress || (actionState?.done ? '更新成功' : '更新中...')}</span>
-                              </p>
-                            )
-                          }
-                          return (
-                            <span className={cn(
-                              image.usageState === 'running'
-                                ? 'text-green-600 dark:text-green-400'
-                                : image.usageState === 'stopped'
-                                  ? 'text-amber-600 dark:text-amber-400'
-                                  : 'text-gray-500 dark:text-gray-400'
-                            )} title={image.usageState === 'stopped' ? '相关容器已停止' : undefined}>
-                              {image.usageState === 'running' ? '使用中' : image.usageState === 'stopped' ? '已使用' : '未使用'}
-                            </span>
-                          )
-                        })()}
-                      </div>
                     </div>
 
                     <div className="absolute top-0 right-0 z-10">
@@ -1801,20 +1769,10 @@ export function Images() {
                   )}
 
                   {/* 镜像信息 */}
-                  {!isBatchMode && !(() => {
-                    const actionState = getImageUpdateActionState(image)
-                    return actionState?.action === 'update' && (actionState?.loading || actionState?.done)
-                  })() && (
-                    <div className="space-y-2 text-xs mb-4 pl-2 pr-1">
-                      <div className="flex items-center gap-2 text-left">
-                        <span className={cn('inline-flex items-center gap-1', image.usageState === 'running' ? 'text-green-600 dark:text-green-400' : image.usageState === 'stopped' ? 'text-amber-600 dark:text-amber-400' : 'text-gray-500 dark:text-gray-400')} title={image.usageState === 'stopped' ? '相关容器已停止' : undefined}>
-                          <span className="h-2.5 w-2.5 rounded-full bg-current flex-shrink-0" />
-                          <span className="text-sm font-medium">{image.usageState === 'running' ? '使用中' : image.usageState === 'stopped' ? '已使用' : '未使用'}</span>
-                        </span>
-                      </div>
-                      <div className="pt-1">
-                        <div className="text-gray-500 dark:text-gray-400 text-sm">大小:</div>
-                        <div className={cn('text-2xl font-bold leading-none mt-1', getSizeColor(image.size))}>{formatImageSize(image.size)}</div>
+                  {!isBatchMode && (
+                    <div className="space-y-2 text-xs mb-2 ml-[68px] mr-6">
+                      <div className={cn('mt-1 text-xs font-mono truncate', getSizeColor(image.size))}>
+                        占用:{formatImageSize(image.size).replace(/\s+/g, '')}
                       </div>
                       <button
                         onClick={(e) => { e.stopPropagation(); openImageRefLink(image) }}
@@ -1832,37 +1790,63 @@ export function Images() {
                     const actionState = getImageUpdateActionState(image)
                     const showCardProgress = actionState?.action === 'update' && (actionState?.loading || actionState?.done)
                     return !isBatchMode ? (
-                      <div className="flex items-start gap-2 pt-4 pl-2 border-t border-gray-100 dark:border-gray-700">
-                        <div className="inline-flex items-center gap-1.5 min-w-0">
-                          {renderImageUpdateButtons(image, { showLightning: false })}
-                        </div>
-                        {!showCardProgress && (
+                      <div className="flex gap-1 mt-[33px] pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                        {showCardProgress ? (
+                          <div className={cn(
+                            "flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 rounded-lg border whitespace-nowrap",
+                            actionState?.done ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800"
+                          )}>
+                            {actionState?.done ? <span className="h-4 w-4 text-green-600 dark:text-green-400 text-center leading-4">✓</span> : <RefreshCw className="h-4 w-4 animate-spin text-primary-600 dark:text-primary-400" />}
+                            <span className={cn(
+                              "text-xs font-medium",
+                              actionState?.done ? "text-green-600 dark:text-green-400" : "text-primary-600 dark:text-primary-400"
+                            )}>
+                              {actionState?.done ? (actionState?.progress || '更新完成') : `更新中${actionState?.percentage ? ` ${Math.round(actionState.percentage)}%` : ''}`}
+                            </span>
+                          </div>
+                        ) : (
                           <>
                             <button
-                              onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
-                              className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95 min-w-[52px]"
+                              onClick={(e) => { e.stopPropagation(); startImageUpdate(image) }}
+                              disabled={!image.haveUpdate || isImageUpdateIgnored(image)}
+                              className={cn(
+                                "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 border rounded-lg transition-all duration-200 shadow-sm text-xs font-medium whitespace-nowrap",
+                                isImageUpdateIgnored(image)
+                                  ? "text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-70"
+                                  : image.haveUpdate
+                                    ? "text-yellow-600 dark:text-yellow-400 bg-white dark:bg-gray-800 border-yellow-400 dark:border-yellow-600 hover:bg-yellow-50 dark:hover:bg-yellow-900/20 hover:shadow active:scale-95"
+                                    : "text-purple-600 dark:text-purple-400 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-purple-50 dark:hover:bg-purple-900/20 hover:border-purple-200 dark:hover:border-purple-800 hover:shadow active:scale-95"
+                              )}
+                              title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <RefreshCw className="h-4 w-4" />
+                              <span>更新</span>
+                            </button>
+                            <button
+                              onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
+                              className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                            >
+                              <Trash2 className="h-4 w-4" />
                               <span>删除</span>
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
-                              className="inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs text-orange-600 dark:text-orange-400 bg-white dark:bg-gray-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 hover:border-orange-200 dark:hover:border-orange-800 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95 min-w-[52px]"
+                              className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-orange-600 dark:text-orange-400 bg-white dark:bg-gray-800 hover:bg-orange-50 dark:hover:bg-orange-900/20 border border-gray-200 dark:border-gray-700 hover:border-orange-200 dark:hover:border-orange-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                               title="强制删除镜像"
                             >
-                              <Trash2 className="h-3.5 w-3.5" />
+                              <Trash2 className="h-4 w-4" />
                               <span>强删</span>
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); (isImageUpdateIgnored(image) ? unignoreImageUpdate(image) : ignoreImageUpdate(image)) }}
                               className={cn(
-                                "inline-flex items-center justify-center gap-1 px-2 py-1.5 text-xs bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-700 rounded-lg transition-colors shadow-sm hover:shadow active:scale-95 min-w-[52px]",
+                                "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 border rounded-lg transition-all duration-200 shadow-sm text-xs font-medium whitespace-nowrap",
                                 isImageUpdateIgnored(image)
-                                  ? "text-amber-700 dark:text-amber-300 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:border-amber-200 dark:hover:border-amber-800"
-                                  : "text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700/50"
+                                  ? "text-amber-700 dark:text-amber-300 bg-white dark:bg-gray-800 border-amber-400 dark:border-amber-600 hover:bg-amber-50 dark:hover:bg-amber-900/20 hover:shadow active:scale-95"
+                                  : "text-gray-700 dark:text-gray-300 bg-white dark:bg-gray-800 border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-700/50 hover:shadow active:scale-95"
                               )}
                             >
-                              <Ban className="h-3.5 w-3.5" />
+                              <Ban className="h-4 w-4" />
                               <span>{isImageUpdateIgnored(image) ? '取消' : '忽略'}</span>
                             </button>
                           </>
