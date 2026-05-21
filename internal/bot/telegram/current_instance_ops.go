@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	botlogic "github.com/onlyLTY/dockerCopilot/internal/logic/bot"
 	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
 	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
 	versionlogic "github.com/onlyLTY/dockerCopilot/internal/logic/version"
@@ -18,13 +19,14 @@ import (
 )
 
 type containerView struct {
-	ID          string
-	Name        string
-	UsingImage  string
-	CreateImage string
-	Status      string
-	HaveUpdate  bool
-	IsSelf      bool
+	ID            string
+	Name          string
+	UsingImage    string
+	CreateImage   string
+	Status        string
+	HaveUpdate    bool
+	IsSelf        bool
+	UpdateBlocked bool
 }
 
 type imageView struct {
@@ -61,6 +63,7 @@ func (r *Runtime) listCurrentContainers(ctx context.Context, chatID int64) ([]co
 	if err != nil {
 		return nil, instanceConfig{}, err
 	}
+	blacklist, _ := r.updateBlacklistSet(ctx)
 	if inst.Local {
 		logic := containerlogic.NewContainersListLogic(ctx, r.svcCtx)
 		resp, err := logic.ContainersList()
@@ -79,6 +82,7 @@ func (r *Runtime) listCurrentContainers(ctx context.Context, chatID int64) ([]co
 			views = append(views, containerView{
 				ID: item.Id, Name: item.Name, UsingImage: item.UsingImage, CreateImage: item.CreateImage,
 				Status: item.Status, HaveUpdate: item.HaveUpdate, IsSelf: item.IsSelf,
+				UpdateBlocked: isContainerUpdateBlocked(item.Name, item.UsingImage, item.CreateImage, blacklist),
 			})
 		}
 		sort.Slice(views, func(i, j int) bool { return strings.ToLower(views[i].Name) < strings.ToLower(views[j].Name) })
@@ -94,9 +98,98 @@ func (r *Runtime) listCurrentContainers(ctx context.Context, chatID int64) ([]co
 		views = append(views, containerView{
 			ID: item.ID, Name: item.Name, UsingImage: item.UsingImage, CreateImage: item.CreateImage,
 			Status: item.Status, HaveUpdate: item.HaveUpdate, IsSelf: item.IsSelf,
+			UpdateBlocked: isContainerUpdateBlocked(item.Name, item.UsingImage, item.CreateImage, blacklist),
 		})
 	}
 	return views, inst, nil
+}
+
+func (r *Runtime) updateBlacklistSet(ctx context.Context) (map[string]struct{}, error) {
+	logic := botlogic.NewConfigLogic(ctx, r.svcCtx)
+	resp, err := logic.GetUpdateBlacklist()
+	if err != nil {
+		return map[string]struct{}{}, err
+	}
+	if resp == nil || resp.Code != 200 {
+		return map[string]struct{}{}, fmt.Errorf(firstNonEmpty(resp.Msg, "获取更新黑名单失败"))
+	}
+	var list []string
+	if err := decodeRespData(resp.Data, &list); err != nil {
+		return map[string]struct{}{}, err
+	}
+	set := make(map[string]struct{}, len(list))
+	for _, item := range list {
+		v := normalizeBlacklistKey(item)
+		if v == "" {
+			continue
+		}
+		set[v] = struct{}{}
+		if base := stripImageTag(v); base != "" {
+			set[base] = struct{}{}
+		}
+		if tail := imageTail(v); tail != "" {
+			set[tail] = struct{}{}
+		}
+	}
+	return set, nil
+}
+
+func normalizeBlacklistKey(value string) string {
+	v := strings.ToLower(strings.TrimSpace(value))
+	v = strings.TrimPrefix(v, "http://")
+	v = strings.TrimPrefix(v, "https://")
+	for _, prefix := range []string{"registry-1.docker.io/", "docker.io/"} {
+		v = strings.TrimPrefix(v, prefix)
+	}
+	return v
+}
+
+func stripImageTag(value string) string {
+	v := normalizeBlacklistKey(value)
+	if v == "" {
+		return ""
+	}
+	slash := strings.LastIndex(v, "/")
+	colon := strings.LastIndex(v, ":")
+	if colon > slash {
+		v = v[:colon]
+	}
+	if at := strings.Index(v, "@"); at >= 0 {
+		v = v[:at]
+	}
+	return strings.TrimSpace(v)
+}
+
+func imageTail(value string) string {
+	v := stripImageTag(value)
+	if v == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(v, "/"); idx >= 0 && idx+1 < len(v) {
+		return v[idx+1:]
+	}
+	return v
+}
+
+func isContainerUpdateBlocked(name string, usingImage string, createImage string, blacklist map[string]struct{}) bool {
+	candidates := []string{
+		normalizeBlacklistKey(name),
+		normalizeBlacklistKey(usingImage),
+		normalizeBlacklistKey(createImage),
+		stripImageTag(usingImage),
+		stripImageTag(createImage),
+		imageTail(usingImage),
+		imageTail(createImage),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
+			continue
+		}
+		if _, ok := blacklist[candidate]; ok {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *Runtime) listCurrentImages(ctx context.Context, chatID int64) ([]imageView, instanceConfig, error) {

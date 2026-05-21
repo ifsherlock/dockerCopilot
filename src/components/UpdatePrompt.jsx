@@ -1,5 +1,5 @@
-import React, { useState } from 'react'
-import { AlertCircle, Download, RefreshCw, Upload, X, FolderUp } from 'lucide-react'
+import React, { useMemo, useState } from 'react'
+import { AlertCircle, Download, RefreshCw, Upload, X, FolderUp, ExternalLink } from 'lucide-react'
 import { cn } from '../utils/cn.js'
 
 /**
@@ -25,6 +25,14 @@ export function UpdatePrompt({
 }) {
   const [isDragging, setIsDragging] = useState(false)
   const [pendingFile, setPendingFile] = useState(null)
+
+  const releaseLinks = useMemo(() => {
+    const repoBase = 'https://github.com/ifsherlock/dockerCopilot/releases'
+    return {
+      latestUrl: `${repoBase}/latest`,
+    }
+  }, [])
+
   if (!isVisible) return null
 
   const handlePickedFile = (file) => {
@@ -92,6 +100,40 @@ export function UpdatePrompt({
                   )}
                 </div>
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+              <a
+                href={releaseLinks.latestUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+                title="打开 GitHub 最新 Release 页面"
+              >
+                <div className="inline-flex items-center gap-1.5 font-semibold text-blue-700 dark:text-blue-300">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  最新 release 下载
+                </div>
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 break-all">
+                  {releaseLinks.latestUrl}
+                </div>
+              </a>
+
+              <a
+                href="https://github.com/ifsherlock/FnDepot"
+                target="_blank"
+                rel="noreferrer"
+                className="rounded-xl border border-gray-200 bg-gray-50 px-4 py-3 text-sm transition-colors hover:bg-gray-100 dark:border-slate-700 dark:bg-slate-800/60 dark:hover:bg-slate-800"
+                title="打开飞牛套件版仓库"
+              >
+                <div className="inline-flex items-center gap-1.5 font-semibold text-emerald-700 dark:text-emerald-300">
+                  <ExternalLink className="h-3.5 w-3.5" />
+                  推荐飞牛用户使用套件版
+                </div>
+                <div className="mt-1 text-xs text-gray-500 dark:text-gray-400 break-all">
+                  https://github.com/ifsherlock/FnDepot
+                </div>
+              </a>
             </div>
 
             <div className={cn(

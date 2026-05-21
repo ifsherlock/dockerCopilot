@@ -513,8 +513,10 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 			if item.ID == selectedID {
 				prefix = "✅"
 			}
-			label := prefix + " " + trimButtonLabel(item.Name)
-			if item.HaveUpdate {
+			label := prefix + " " + leftAlignPairLabel(trimButtonLabel(item.Name))
+			if item.UpdateBlocked {
+				label += " 🚫"
+			} else if item.HaveUpdate {
 				label += " 🆙"
 			}
 			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("containers_pick:%d:%d", page, absoluteIdx)))
@@ -522,13 +524,18 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 		rows = append(rows, row)
 	}
 	if selected := findSelectedContainer(items, selectedID); selected != nil {
-		b.WriteString(fmt.Sprintf("已选中: <b>%s</b>\n状态: <code>%s</code>\n镜像: <code>%s</code>\n\n", escapeHTML(selected.Name), escapeHTML(selected.Status), escapeHTML(shorten(selected.UsingImage, 90))))
+		b.WriteString(fmt.Sprintf("已选中: <b>%s</b>\n状态: <code>%s</code>\n镜像: <code>%s</code>\n", escapeHTML(selected.Name), escapeHTML(selected.Status), escapeHTML(shorten(selected.UsingImage, 90))))
+		if selected.UpdateBlocked {
+			b.WriteString("更新状态: <code>黑名单中，已禁止更新</code>\n\n")
+		} else {
+			b.WriteString("\n")
+		}
 		rows = append(rows, tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("▶️ 启动").WithCallbackData("container_start:"),
 			tu.InlineKeyboardButton("⏹ 停止").WithCallbackData("container_stop:"),
 			tu.InlineKeyboardButton("🔄 重启").WithCallbackData("container_restart:"),
 		))
-		if selected.HaveUpdate {
+		if selected.HaveUpdate && !selected.UpdateBlocked {
 			rows = append(rows, tu.InlineKeyboardRow(
 				tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
 			))
@@ -556,7 +563,7 @@ func (r *Runtime) sendUpdatesPage(ctx context.Context, chatID int64, messageID i
 	}
 	updates := make([]containerView, 0)
 	for _, item := range items {
-		if item.HaveUpdate {
+		if item.HaveUpdate && !item.UpdateBlocked {
 			updates = append(updates, item)
 		}
 	}
@@ -601,7 +608,8 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
 			absoluteIdx := start + j
-			row = append(row, tu.InlineKeyboardButton("🆙 "+trimButtonLabel(item.Name)).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
+			label := "🆙 " + leftAlignPairLabel(trimButtonLabel(item.Name))
+			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
 		}
 		rows = append(rows, row)
 	}
@@ -771,7 +779,7 @@ func (r *Runtime) sendStatus(ctx context.Context, chatID int64) {
 		if strings.Contains(strings.ToLower(item.Status), "running") {
 			running++
 		}
-		if item.HaveUpdate {
+		if item.HaveUpdate && !item.UpdateBlocked {
 			updates++
 		}
 	}
@@ -1420,6 +1428,14 @@ func trimButtonLabel(s string) string {
 		return string([]rune(s)[:18]) + "…"
 	}
 	return s
+}
+
+func leftAlignPairLabel(s string) string {
+	runes := []rune(strings.TrimSpace(s))
+	if len(runes) >= 18 {
+		return string(runes[:18])
+	}
+	return string(runes) + strings.Repeat(" ", 18-len(runes))
 }
 
 func findSelectedContainer(items []containerView, selectedID string) *containerView {
