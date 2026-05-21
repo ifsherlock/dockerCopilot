@@ -13,9 +13,11 @@ import (
 	"github.com/mymmrac/telego"
 	ta "github.com/mymmrac/telego/telegoapi"
 	tu "github.com/mymmrac/telego/telegoutil"
+	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
 	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
 	versionlogic "github.com/onlyLTY/dockerCopilot/internal/logic/version"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
+	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -83,6 +85,7 @@ func (r *Runtime) run(ctx context.Context, cfg svc.BackupRuntimeConfig) {
 	if err := r.sendStartupNotification(ctx, cfg); err != nil {
 		logx.Errorf("发送 Telegram 启动通知失败: %v", err)
 	}
+	r.startUpdateBackgroundJobs(ctx)
 
 	updates, err := r.bot.UpdatesViaLongPolling(
 		ctx,
@@ -172,6 +175,174 @@ func (r *Runtime) proxySummary(cfg svc.BackupRuntimeConfig) string {
 		return proxyType
 	}
 	return fmt.Sprintf("%s://%s:%d", proxyType, host, port)
+}
+
+func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
+	go func() {
+		warmCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := r.runUpdateDetectionOnce(warmCtx, true); err != nil {
+			logx.Errorf("Telegram 启动预热更新检测失败: %v", err)
+		}
+	}()
+
+	go func() {
+		var lastTick string
+		for {
+			cfg, err := svc.LoadRuntimeConfigForRead()
+			if err != nil {
+				logx.Errorf("加载 Telegram 定时任务配置失败: %v", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
+			}
+			spec := strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"))
+			if spec == "" {
+				spec = "0 18 * * *"
+			}
+			schedule, err := cron.ParseStandard(spec)
+			if err != nil {
+				logx.Errorf("解析 Telegram 更新检测 cron 失败 [%s]: %v", spec, err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
+			}
+			now := time.Now()
+			next := schedule.Next(now)
+			wait := time.Until(next)
+			if wait < 0 {
+				wait = time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			tickKey := next.Format(time.RFC3339)
+			if tickKey == lastTick {
+				continue
+			}
+			lastTick = tickKey
+			checkCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if err := r.runUpdateDetectionOnce(checkCtx, false); err != nil {
+				logx.Errorf("Telegram 定时更新检测失败: %v", err)
+			}
+			cancel()
+		}
+	}()
+}
+
+func (r *Runtime) runUpdateDetectionOnce(ctx context.Context, silent bool) error {
+	cfg, err := svc.LoadRuntimeConfigForRead()
+	if err != nil {
+		return err
+	}
+	instances := []instanceConfig{{Name: "local", APIURL: "http://127.0.0.1:12712", SecretKey: "", Timeout: 30, Local: true}}
+	if runtimeCfg, err := r.getConfig(ctx); err == nil {
+		if loaded := parseInstances(runtimeCfg.Dockercopilot["instances"]); len(loaded) > 0 {
+			instances = loaded
+		}
+	}
+	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
+	notifyEnabled := svc.AsBool(cfg.Telegram["notify_on_update"])
+	for _, inst := range instances {
+		updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
+		if err != nil {
+			logx.Errorf("实例 %s 更新检测失败: %v", inst.Name, err)
+			continue
+		}
+		if notifyEnabled && !silent && len(updates) > 0 {
+			r.broadcastUpdateNotification(ctx, chatIDs, inst.Name, updates)
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) refreshUpdatableContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, error) {
+	if inst.Local {
+		logic := containerlogic.NewCheckUpdateLogic(ctx, r.svcCtx)
+		if _, err := logic.CheckUpdate(); err != nil {
+			return nil, err
+		}
+		deadline := time.Now().Add(2 * time.Minute)
+		for {
+			items, _, err := r.listCurrentContainersForInstance(ctx, inst)
+			if err == nil {
+				updates := filterUpdatableContainers(items)
+				if len(updates) > 0 || time.Now().After(deadline) || !r.svcCtx.IsUpdateCheckRunning() {
+					return updates, nil
+				}
+			}
+			if time.Now().After(deadline) {
+				if err != nil {
+					return nil, err
+				}
+				return []containerView{}, nil
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	items, _, err := r.listCurrentContainersForInstance(ctx, inst)
+	if err != nil {
+		return nil, err
+	}
+	return filterUpdatableContainers(items), nil
+}
+
+func filterUpdatableContainers(items []containerView) []containerView {
+	updates := make([]containerView, 0)
+	for _, item := range items {
+		if item.HaveUpdate && !item.UpdateBlocked {
+			updates = append(updates, item)
+		}
+	}
+	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
+	return updates
+}
+
+func (r *Runtime) broadcastUpdateNotification(ctx context.Context, chatIDs []string, instanceName string, updates []containerView) {
+	if len(chatIDs) == 0 || len(updates) == 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("🆕 <b>检测到可更新容器</b>\n\n")
+	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(instanceName)))
+	b.WriteString(fmt.Sprintf("数量: <b>%d</b>\n\n", len(updates)))
+	limit := len(updates)
+	if limit > 8 {
+		limit = 8
+	}
+	for i := 0; i < limit; i++ {
+		item := updates[i]
+		b.WriteString(fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(item.Name)))
+		if ref := strings.TrimSpace(oneLineImageRef(item.UsingImage)); ref != "" {
+			b.WriteString(fmt.Sprintf("   📦 %s\n", escapeHTML(shorten(ref, 48))))
+		}
+	}
+	if len(updates) > limit {
+		b.WriteString(fmt.Sprintf("\n… 还有 <b>%d</b> 个\n", len(updates)-limit))
+	}
+	b.WriteString("\n💡 发送 /updates 查看详情")
+	msg := b.String()
+	for _, chatID := range chatIDs {
+		id, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
+		if err != nil {
+			continue
+		}
+		if _, err := r.bot.SendMessage(ctx, tu.Message(tu.ID(id), msg).WithParseMode(telego.ModeHTML)); err != nil {
+			logx.Errorf("发送更新通知失败 [%s]: %v", chatID, err)
+		}
+	}
 }
 
 func (r *Runtime) handleUpdate(ctx context.Context, update telego.Update) {
@@ -556,22 +727,20 @@ func (r *Runtime) sendUpdates(ctx context.Context, chatID int64) {
 }
 
 func (r *Runtime) sendUpdatesPage(ctx context.Context, chatID int64, messageID int, page int) {
-	items, inst, err := r.listCurrentContainers(ctx, chatID)
+	inst, err := r.currentInstance(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate && !item.UpdateBlocked {
-			updates = append(updates, item)
-		}
-	}
-	if len(updates) == 0 {
-		r.replyText(ctx, chatID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)))
+	updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
-	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
+	if len(updates) == 0 {
+		r.editOrReplyText(ctx, chatID, messageID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)), nil)
+		return
+	}
 	text, markup := r.renderUpdatesPage(updates, inst.Name, page)
 	r.editOrReplyText(ctx, chatID, messageID, text, markup)
 }

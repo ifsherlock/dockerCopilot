@@ -32,6 +32,7 @@ type Info struct {
 	CleanupCandidate bool           `json:"cleanupCandidate"`
 	CleanupReason    string         `json:"cleanupReason"`
 	MultiRef         bool           `json:"multiRef"`
+	HaveUpdate       bool           `json:"haveUpdate"`
 	RepoTags         []string       `json:"repoTags,omitempty"`
 	RepoDigests      []string       `json:"repoDigests,omitempty"`
 	RepoLinks        ImageRepoLinks `json:"repoLinks"`
@@ -47,12 +48,18 @@ func NewImagesListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Images
 
 func (l *ImagesListLogic) ImagesList() (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	list, err := utiles.GetImagesList(l.svcCtx)
+	list, err := utiles.GetImagesList(l.svcCtx, false)
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, err
+	}
+	if l.svcCtx.TryStartUpdateCheck(30 * time.Minute) {
+		go func() {
+			defer l.svcCtx.FinishUpdateCheck()
+			_, _ = utiles.GetImagesList(l.svcCtx, true)
+		}()
 	}
 	resp.Code = 200
 	resp.Msg = "success"
@@ -68,6 +75,7 @@ func (l *ImagesListLogic) ImagesList() (resp *types.Resp, err error) {
 		imageInfo.CleanupCandidate = v.CleanupCandidate
 		imageInfo.CleanupReason = v.CleanupReason
 		imageInfo.MultiRef = v.MultiRef
+		imageInfo.HaveUpdate = v.HaveUpdate
 		imageInfo.RepoTags = append([]string(nil), v.RepoTags...)
 		imageInfo.RepoDigests = append([]string(nil), v.RepoDigests...)
 		imageInfo.RepoLinks = ImageRepoLinks{

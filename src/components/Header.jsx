@@ -356,9 +356,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                   </button>
                 </>
               ) : (
-                <div className={cn("w-full px-4 py-2.5", 'border-0 bg-transparent shadow-none')}>
-                  <div className="flex items-center gap-4">
-                    <div className="inline-flex w-[18px] flex-shrink-0" />
+                <div className={cn("w-full px-0 py-2.5", 'border-0 bg-transparent shadow-none')}>
+                  <div className="flex items-center justify-start pl-2">
                     <div className="flex items-center gap-4">
                       <ThemeToggle embedded />
                       <button

@@ -8,12 +8,13 @@ import (
 
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/image"
+	"github.com/onlyLTY/dockerCopilot/internal/module"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	MyType "github.com/onlyLTY/dockerCopilot/internal/types"
 	"log"
 )
 
-func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
+func GetImagesList(ctx *svc.ServiceContext, eagerUpdateCheck bool) ([]MyType.Image, error) {
 	var imagesList []MyType.Image
 	dockerImages, err := ctx.DockerClient.ImageList(context.Background(), image.ListOptions{})
 	if err != nil {
@@ -27,6 +28,7 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 			ImageTag:         "",
 			InUsed:           false,
 			UsageState:       "unused",
+			HaveUpdate:       false,
 			SizeFormat:       "",
 			CleanupCandidate: false,
 			CleanupReason:    "",
@@ -35,6 +37,15 @@ func GetImagesList(ctx *svc.ServiceContext) ([]MyType.Image, error) {
 		imagesList = append(imagesList, i)
 	}
 	imagesList = splitImageNameAndTag(calculateImageSize(imagesList))
+	if eagerUpdateCheck {
+		imagesList = enrichImageUpdateFlags(ctx, imagesList)
+	} else {
+		for i, imageInfo := range imagesList {
+			if cached, ok := ctx.GetHubImageUpdate(imageInfo.ID); ok {
+				imagesList[i].HaveUpdate = cached
+			}
+		}
+	}
 	imagesList, err = enrichImageCleanupFlags(ctx, imagesList)
 	if err != nil {
 		return imagesList, err
@@ -123,6 +134,29 @@ func preferredRepoTagScore(tag string) int {
 		score += 40
 	}
 	return score
+}
+
+func enrichImageUpdateFlags(svcCtx *svc.ServiceContext, imageList []MyType.Image) []MyType.Image {
+	for i, imageInfo := range imageList {
+		if cached, ok := svcCtx.GetHubImageUpdate(imageInfo.ID); ok {
+			imageList[i].HaveUpdate = cached
+			continue
+		}
+		imageRef := strings.TrimSpace(imageInfo.ImageName)
+		tag := strings.TrimSpace(imageInfo.ImageTag)
+		if imageRef == "" || imageRef == "None" || strings.HasPrefix(imageRef, "sha256:") || tag == "" || tag == "None" || tag == "<none>" {
+			imageList[i].HaveUpdate = false
+			continue
+		}
+		needUpdate, err := module.CheckImageRefUpdate(imageRef+":"+tag, imageInfo.RepoDigests)
+		if err != nil {
+			imageList[i].HaveUpdate = false
+			continue
+		}
+		imageList[i].HaveUpdate = needUpdate
+		svcCtx.SetHubImageUpdate(imageInfo.ID, needUpdate)
+	}
+	return imageList
 }
 
 func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) ([]MyType.Image, error) {

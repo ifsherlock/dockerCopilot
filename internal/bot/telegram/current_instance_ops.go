@@ -63,6 +63,11 @@ func (r *Runtime) listCurrentContainers(ctx context.Context, chatID int64) ([]co
 	if err != nil {
 		return nil, instanceConfig{}, err
 	}
+	views, _, err := r.listCurrentContainersForInstance(ctx, inst)
+	return views, inst, err
+}
+
+func (r *Runtime) listCurrentContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, instanceConfig, error) {
 	blacklist, _ := r.updateBlacklistSet(ctx)
 	if inst.Local {
 		logic := containerlogic.NewContainersListLogic(ctx, r.svcCtx)

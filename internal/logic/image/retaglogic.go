@@ -38,14 +38,16 @@ func (l *RetagLogic) Retag(req *types.ImageRetagReq) (resp *types.Resp, err erro
 		return resp, nil
 	}
 	if tag == "" {
-		tag = "latest"
+		resp.Code = 400
+		resp.Msg = "Tag 不能为空"
+		return resp, nil
 	}
 	if strings.Contains(name, " ") || strings.Contains(tag, " ") {
 		resp.Code = 400
 		resp.Msg = "镜像名和 Tag 不能包含空格"
 		return resp, nil
 	}
-	list, listErr := utiles.GetImagesList(l.svcCtx)
+	list, listErr := utiles.GetImagesList(l.svcCtx, false)
 	if listErr == nil {
 		for _, img := range list {
 			if img.ID != req.Id {
