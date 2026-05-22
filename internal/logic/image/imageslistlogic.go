@@ -2,6 +2,7 @@ package image
 
 import (
 	"context"
+	"strings"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -54,6 +55,18 @@ func (l *ImagesListLogic) ImagesList() (resp *types.Resp, err error) {
 		resp.Msg = err.Error()
 		resp.Data = map[string]interface{}{}
 		return resp, err
+	}
+	for i := range list {
+		if !list[i].InUsed {
+			list[i].CleanupCandidate = true
+			if list[i].CleanupReason == "" || list[i].CleanupReason == "multi_ref" {
+				if strings.TrimSpace(list[i].ImageTag) == "None" || strings.TrimSpace(list[i].ImageTag) == "<none>" || strings.TrimSpace(list[i].ImageTag) == "" {
+					list[i].CleanupReason = "dangling"
+				} else {
+					list[i].CleanupReason = "unused"
+				}
+			}
+		}
 	}
 	if l.svcCtx.TryStartUpdateCheck(30 * time.Minute) {
 		go func() {
