@@ -595,6 +595,10 @@ export function LogsPage() {
                 <div className={`absolute right-3 top-1/2 -translate-y-1/2 text-[11px] ${darkTheme ? 'text-gray-500' : 'text-gray-400'}`}>{matchCount ? `${currentMatchIndex || 1}/${matchCount}` : '0'}</div>
               </div>
               <div className="flex items-center gap-2 text-xs flex-wrap lg:justify-end">
+                <button onClick={() => searchInputRef.current?.focus()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-sky-300 hover:bg-sky-500/15" title="聚焦搜索框">
+                  <Search className="h-4 w-4" />
+                  <span>{matchCount}</span>
+                </button>
                 <button onClick={() => jumpMatch('prev')} disabled={!matchCount} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-40 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="上一条匹配">
                   <ChevronUp className="h-4 w-4" />
                 </button>
@@ -613,10 +617,6 @@ export function LogsPage() {
                     </button>
                   ))}
                 </div>
-                <button onClick={() => searchInputRef.current?.focus()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-sky-300 hover:bg-sky-500/15" title="聚焦搜索框">
-                  <Search className="h-4 w-4" />
-                  <span>{matchCount}</span>
-                </button>
               </div>
             </div>
           </div>
