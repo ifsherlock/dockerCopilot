@@ -78,13 +78,18 @@ func (r *Runtime) updateContainerByPageIndex(ctx context.Context, chatID int64, 
 		return
 	}
 	updates := filterUpdatableContainers(items)
+	match := ""
 	for _, item := range updates {
-		if item.ID == id {
-			r.updateContainer(ctx, chatID, item.ID)
-			return
+		if item.ID == id || strings.HasPrefix(item.ID, id) {
+			match = item.ID
+			break
 		}
 	}
-	r.replyText(ctx, chatID, "❌ 选中的容器不存在或已不在可更新列表中")
+	if match == "" {
+		r.replyText(ctx, chatID, "❌ 选中的容器不存在或已不在可更新列表中")
+		return
+	}
+	r.updateContainer(ctx, chatID, match)
 }
 
 func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64) {

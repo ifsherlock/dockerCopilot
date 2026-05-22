@@ -813,9 +813,14 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		row := make([]telego.InlineKeyboardButton, 0, 2)
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
-			absoluteIdx := start + j
+			shortID := item.ID
+			if strings.HasPrefix(shortID, "sha256:") && len(shortID) > 19 {
+				shortID = shortID[7:19]
+			} else if len(shortID) > 12 {
+				shortID = shortID[:12]
+			}
 			label := "🆙 " + leftAlignPairLabel(trimButtonLabel(item.Name))
-			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%d", absoluteIdx)))
+			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%s", shortID)))
 		}
 		rows = append(rows, row)
 	}
