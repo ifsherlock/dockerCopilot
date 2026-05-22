@@ -1493,6 +1493,10 @@ func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) 
 	}
 	name, taskID, err := r.updateContainerOnCurrent(ctx, chatID, id)
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "SELF_UPDATE_REQUIRED:") {
+			r.confirmProgramUpdate(ctx, chatID)
+			return
+		}
 		r.replyText(ctx, chatID, "❌ 更新容器失败: "+err.Error())
 		return
 	}

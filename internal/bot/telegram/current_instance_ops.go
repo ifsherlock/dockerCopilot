@@ -454,6 +454,12 @@ func (r *Runtime) updateContainerOnCurrent(ctx context.Context, chatID int64, id
 		if item.ID != id {
 			continue
 		}
+		if item.UpdateBlocked {
+			return "", "", fmt.Errorf("该容器命中更新黑名单，已禁止更新")
+		}
+		if item.IsSelf {
+			return "", "", fmt.Errorf("SELF_UPDATE_REQUIRED:%s", item.Name)
+		}
 		if inst.Local {
 			taskID := utilesTaskID()
 			go func(ci containerView) {

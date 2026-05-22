@@ -92,12 +92,7 @@ func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64
 		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate {
-			updates = append(updates, item)
-		}
-	}
+	updates := filterUpdatableContainers(items)
 	if len(updates) == 0 {
 		r.replyText(ctx, chatID, "✅ 当前没有可更新容器")
 		return
@@ -144,7 +139,7 @@ func (r *Runtime) updateAllContainersOnPage(ctx context.Context, chatID int64, m
 	pageItems := items[start:end]
 	updatable := make([]containerView, 0)
 	for _, item := range pageItems {
-		if item.HaveUpdate {
+		if item.HaveUpdate && !item.UpdateBlocked {
 			updatable = append(updatable, item)
 		}
 	}
