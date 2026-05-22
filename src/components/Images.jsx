@@ -749,6 +749,7 @@ export function Images() {
       : "relative z-10 p-1.5 text-amber-500 hover:text-amber-600 dark:hover:text-amber-300 rounded-md transition-colors active:scale-95 bg-amber-50/90 dark:bg-amber-900/15 border border-amber-300 dark:border-amber-700 min-w-[34px] min-h-[34px] inline-flex items-center justify-center"
 
     if (compact) {
+      const compactActionButtons = showProgressState ? null : actionButtons
       return (
         <div className="min-w-[250px]">
           <div className="flex items-center gap-1.5">
@@ -761,16 +762,21 @@ export function Images() {
                 <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
               </button>
             )}
-            <div className="relative inline-flex items-stretch gap-2 justify-start rounded-xl flex-1 min-w-0">
+            <div className={cn(
+              "relative flex-1 min-w-0 overflow-hidden rounded-md border bg-white/82 dark:bg-gray-800/82 backdrop-blur-[1px]",
+              showProgressState ? "h-[30px]" : "inline-flex items-stretch gap-2 justify-start rounded-xl border-0 bg-transparent backdrop-blur-0"
+            )}>
               {progressOverlay}
-              {actionButtons}
+              {showProgressState ? (
+                <div className={cn(
+                  "relative z-10 flex h-full w-full items-center justify-center px-2 text-xs font-semibold whitespace-nowrap",
+                  progressTextClass
+                )} title={progressText}>
+                  {progressText}
+                </div>
+              ) : compactActionButtons}
             </div>
           </div>
-          {progressText && (
-            <div className={cn("mt-1 pl-5 text-[11px] truncate", progressTextClass)} title={progressText}>
-              {progressText}
-            </div>
-          )}
         </div>
       )
     }

@@ -1283,154 +1283,89 @@ export function Containers() {
     const isBusy = actionState?.loading
     const progressPercent = Math.max(0, Math.min(100, Math.round(actionState?.percentage || 0)))
     const progressLabel = actionState?.progress || ''
-    const progressAction = actionState?.action
-    const showProgressState = ['start', 'stop', 'restart', 'update'].includes(progressAction) && (isBusy || actionState?.done)
-    const overlayPercent = actionState?.done ? 100 : progressPercent
+    const overlayActions = ['update', 'start', 'stop', 'restart', 'delete']
+    const showProgressState = overlayActions.includes(actionState?.action) && (isBusy || actionState?.done)
 
-    const actionVisuals = {
-      start: {
-        busyClass: actionState?.done
-          ? 'border-emerald-200/90 bg-white/72 dark:border-emerald-300/35 dark:bg-slate-900/30'
-          : 'border-green-200/90 bg-white/72 dark:border-green-300/35 dark:bg-slate-900/30',
-        fillClass: actionState?.done
-          ? 'bg-gradient-to-r from-emerald-500/58 via-emerald-300/64 to-emerald-500/58 dark:from-emerald-400/34 dark:via-emerald-300/40 dark:to-emerald-400/34'
-          : 'bg-gradient-to-r from-green-500/58 via-green-300/64 to-green-500/58 dark:from-green-400/34 dark:via-green-300/40 dark:to-green-400/34',
-        chipClass: actionState?.done
-          ? 'border-emerald-200/80 bg-white/78 text-emerald-900 dark:border-emerald-200/20 dark:bg-slate-950/40 dark:text-emerald-100'
-          : 'border-green-200/90 bg-white/86 text-green-700 dark:border-green-200/20 dark:bg-slate-950/45 dark:text-green-100',
-        icon: actionState?.done ? '✓' : '▶',
-        busyText: `启动中 ${progressPercent}%`,
-        doneText: progressLabel || '启动成功'
-      },
-      stop: {
-        busyClass: actionState?.done
-          ? 'border-emerald-200/90 bg-white/72 dark:border-emerald-300/35 dark:bg-slate-900/30'
-          : 'border-red-200/90 bg-white/72 dark:border-red-300/35 dark:bg-slate-900/30',
-        fillClass: actionState?.done
-          ? 'bg-gradient-to-r from-emerald-500/58 via-emerald-300/64 to-emerald-500/58 dark:from-emerald-400/34 dark:via-emerald-300/40 dark:to-emerald-400/34'
-          : 'bg-gradient-to-r from-red-500/58 via-red-300/64 to-red-500/58 dark:from-red-400/34 dark:via-red-300/40 dark:to-red-400/34',
-        chipClass: actionState?.done
-          ? 'border-emerald-200/80 bg-white/78 text-emerald-900 dark:border-emerald-200/20 dark:bg-slate-950/40 dark:text-emerald-100'
-          : 'border-red-200/90 bg-white/86 text-red-700 dark:border-red-200/20 dark:bg-slate-950/45 dark:text-red-100',
-        icon: actionState?.done ? '✓' : '■',
-        busyText: `停止中 ${progressPercent}%`,
-        doneText: progressLabel || '停止成功'
-      },
-      restart: {
-        busyClass: actionState?.done
-          ? 'border-emerald-200/90 bg-white/72 dark:border-emerald-300/35 dark:bg-slate-900/30'
-          : 'border-blue-200/90 bg-white/72 dark:border-blue-300/35 dark:bg-slate-900/30',
-        fillClass: actionState?.done
-          ? 'bg-gradient-to-r from-emerald-500/58 via-emerald-300/64 to-emerald-500/58 dark:from-emerald-400/34 dark:via-emerald-300/40 dark:to-emerald-400/34'
-          : 'bg-gradient-to-r from-blue-500/58 via-blue-300/64 to-blue-500/58 dark:from-blue-400/34 dark:via-blue-300/40 dark:to-blue-400/34',
-        chipClass: actionState?.done
-          ? 'border-emerald-200/80 bg-white/78 text-emerald-900 dark:border-emerald-200/20 dark:bg-slate-950/40 dark:text-emerald-100'
-          : 'border-blue-200/90 bg-white/86 text-blue-700 dark:border-blue-200/20 dark:bg-slate-950/45 dark:text-blue-100',
-        icon: actionState?.done ? '✓' : '⟳',
-        busyText: `重启中 ${progressPercent}%`,
-        doneText: progressLabel || '重启成功'
-      },
-      update: {
-        busyClass: actionState?.done
-          ? 'border-emerald-200/90 bg-white/72 dark:border-emerald-300/35 dark:bg-slate-900/30'
-          : 'border-sky-200/90 bg-white/72 dark:border-sky-300/35 dark:bg-slate-900/30',
-        fillClass: actionState?.done
-          ? 'bg-gradient-to-r from-emerald-500/58 via-emerald-300/64 to-emerald-500/58 dark:from-emerald-400/34 dark:via-emerald-300/40 dark:to-emerald-400/34'
-          : 'bg-gradient-to-r from-sky-500/58 via-sky-300/64 to-sky-500/58 dark:from-sky-400/34 dark:via-sky-300/40 dark:to-sky-400/34',
-        chipClass: actionState?.done
-          ? 'border-emerald-200/80 bg-white/78 text-emerald-900 dark:border-emerald-200/20 dark:bg-slate-950/40 dark:text-emerald-100'
-          : 'border-sky-200/90 bg-white/86 text-sky-700 dark:border-sky-200/20 dark:bg-slate-950/45 dark:text-sky-100',
-        icon: actionState?.done ? '✓' : '⟳',
-        busyText: `更新中 ${progressPercent}%`,
-        doneText: progressLabel || '更新成功'
-      }
-    }
-
-    const currentVisual = actionVisuals[progressAction] || actionVisuals.update
-    const progressText = actionState?.done ? currentVisual.doneText : currentVisual.busyText
-
-    if (showProgressState) {
-      return (
-        <div className="min-w-[250px]">
-          <div className="relative inline-flex items-center justify-start rounded-xl h-16 w-[180px]">
-            <div className={cn(
-              'pointer-events-none relative h-16 w-[180px] overflow-hidden rounded-2xl border shadow-lg',
-              currentVisual.busyClass
-            )}>
-              <div
-                className={cn(
-                  'absolute inset-y-0 left-0 transition-all duration-500 ease-out',
-                  currentVisual.fillClass
-                )}
-                style={{ width: `${overlayPercent}%` }}
-              >
-                <div
-                  className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
-                  style={{
-                    backgroundSize: '200% 100%',
-                    animation: 'shimmer 2s infinite linear'
-                  }}
-                />
-              </div>
-              <div className="absolute inset-0 flex items-center justify-center px-0">
-                <div className={cn(
-                  'relative z-10 inline-flex h-full w-full items-center justify-center gap-1.5 rounded-2xl border px-3 py-2 text-xs font-semibold shadow-sm whitespace-nowrap',
-                  currentVisual.chipClass
-                )}>
-                  <span className={cn(
-                    'inline-flex h-3.5 w-3.5 items-center justify-center',
-                    !actionState?.done && (progressAction === 'restart' || progressAction === 'update') && 'animate-spin'
-                  )}>
-                    {currentVisual.icon}
-                  </span>
-                  <span>{progressText}</span>
-                </div>
-              </div>
-            </div>
-          </div>
+    const progressOverlay = showProgressState ? (
+      <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg">
+        <div
+          className={cn(
+            "absolute inset-y-0 left-0 transition-all duration-500 ease-out",
+            actionState?.done
+              ? "bg-gradient-to-r from-emerald-400/30 via-emerald-300/35 to-emerald-400/30 dark:from-emerald-500/20 dark:via-emerald-400/25 dark:to-emerald-500/20"
+              : "bg-gradient-to-r from-sky-400/30 via-sky-300/35 to-sky-400/30 dark:from-sky-500/20 dark:via-sky-400/25 dark:to-sky-500/20"
+          )}
+          style={{ width: `${progressPercent}%` }}
+        >
+          <div
+            className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-shimmer"
+            style={{
+              backgroundSize: '200% 100%',
+              animation: 'shimmer 2s infinite linear'
+            }}
+          />
         </div>
-      )
-    }
+      </div>
+    ) : null
+
+    const progressText = showProgressState
+      ? (actionState?.done
+          ? (progressLabel || '更新完成')
+          : `${progressLabel || '更新中'}${typeof actionState?.percentage === 'number' ? ` ${progressPercent}%` : ''}`)
+      : ''
 
     return (
       <div className="min-w-[250px]">
-        <div className="relative inline-flex items-stretch gap-1 justify-start rounded-xl">
-          {!showProgressState && (container.status === 'running' ? (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="停止">
-                停止
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="重启">
-                重启
-              </button>
-            </>
+        <div className={cn(
+          "relative rounded-xl",
+          showProgressState ? "h-[30px] w-[180px] overflow-hidden rounded-md border bg-white/82 dark:bg-gray-800/82 backdrop-blur-[1px]" : "inline-flex items-stretch gap-1 justify-start"
+        )}>
+          {progressOverlay}
+          {showProgressState ? (
+            <div className={cn(
+              "relative z-10 flex h-full w-full items-center justify-center px-2 text-xs font-semibold whitespace-nowrap",
+              actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300"
+            )} title={progressText}>
+              {progressText}
+            </div>
           ) : (
             <>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
-                启动
+              {container.status === 'running' ? (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="停止">
+                    停止
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="重启">
+                    重启
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
+                    启动
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md font-semibold text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400 border border-red-600 dark:border-red-500 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
+                    删除
+                  </button>
+                </>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
+                "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]",
+                isUpdateIgnored(container)
+                  ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100/80 dark:bg-gray-800/80 cursor-not-allowed opacity-70"
+                  : displayedHaveUpdate(container)
+                    ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20"
+                    : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50/80 dark:hover:bg-purple-900/20"
+              )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
+                更新
               </button>
-              <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md font-semibold text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400 border border-red-600 dark:border-red-500 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
-                删除
-              </button>
+              {isUpdateIgnored(container) ? (
+                <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100/82 dark:bg-gray-700/82 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold backdrop-blur-[1px]" title="取消忽略更新">取消忽略</button>
+              ) : (
+                <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
+              )}
             </>
-          ))}
-          {!showProgressState && (
-            <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
-              "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]",
-              isUpdateIgnored(container)
-                ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100/80 dark:bg-gray-800/80 cursor-not-allowed opacity-70"
-                : displayedHaveUpdate(container)
-                  ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20"
-                  : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50/80 dark:hover:bg-purple-900/20"
-            )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
-              更新
-            </button>
           )}
-          {!showProgressState && (isUpdateIgnored(container) ? (
-            <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100/82 dark:bg-gray-700/82 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold backdrop-blur-[1px]" title="取消忽略更新">取消忽略</button>
-          ) : (
-            <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
-          ))}
         </div>
       </div>
     )
