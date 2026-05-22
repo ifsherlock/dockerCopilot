@@ -195,8 +195,8 @@ func enrichImageCleanupFlags(svc *svc.ServiceContext, imageList []MyType.Image) 
 				imageList[i].CleanupReason = "in_use_running"
 			}
 		case multiRef:
-			imageList[i].CleanupCandidate = false
-			imageList[i].CleanupReason = "multi_ref"
+			imageList[i].CleanupCandidate = true
+			imageList[i].CleanupReason = "unused_multi_ref"
 		case noTag:
 			imageList[i].CleanupCandidate = true
 			imageList[i].CleanupReason = "dangling"
