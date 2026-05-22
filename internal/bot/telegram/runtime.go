@@ -716,8 +716,8 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 	}
 	rows = append(rows, paginationRow("containers_page", page, totalPages)...)
 	rows = append(rows, tu.InlineKeyboardRow(
-		tu.InlineKeyboardButton("🆙 一键更新本页").WithCallbackData("containers_update_all:"+strconv.Itoa(page)),
-		tu.InlineKeyboardButton("❌ 取消退出").WithCallbackData("containers_close:"),
+		tu.InlineKeyboardButton("↩️ 上一级").WithCallbackData("containers_page:"+strconv.Itoa(page)),
+		tu.InlineKeyboardButton("❌ 退出").WithCallbackData("containers_close:"),
 	))
 	return b.String(), tu.InlineKeyboard(rows...)
 }
