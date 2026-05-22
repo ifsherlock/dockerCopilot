@@ -531,8 +531,8 @@ export function Bot() {
                 <BotIcon className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-gray-900 dark:text-white">机器人设置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Bot Token、Chat ID 与交互能力</p>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">Telegram通知配置</h3>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Telegram通知配置</p>
               </div>
             </div>
             <SectionToggle checked={config.interactiveEnabled} onChange={() => handleChange('interactiveEnabled', !config.interactiveEnabled)} textOn="已开启" textOff="已关闭" />
@@ -562,7 +562,7 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">通知与更新检测</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">新版本提醒与检测周期</p>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">docker容器更新通知</p>
               </div>
             </div>
             <SectionToggle checked={config.notifyOnUpdate} onChange={() => handleChange('notifyOnUpdate', !config.notifyOnUpdate)} textOn="通知开启" textOff="通知关闭" />
@@ -622,7 +622,7 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">网络代理配置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">支持 Telegram HTTP / SOCKS5 代理</p>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">配置TG机器人代理</p>
               </div>
             </div>
             <SectionToggle checked={config.proxyType !== 'none'} onChange={() => handleChange('proxyType', config.proxyType === 'none' ? 'socks5' : 'none')} textOn="代理开启" textOff="无代理" />

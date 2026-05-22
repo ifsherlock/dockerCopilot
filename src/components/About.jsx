@@ -72,17 +72,17 @@ export function About() {
             </div>
             <div>
               <h2 className="text-xl font-bold text-gray-900 dark:text-white">上传二进制文件更新</h2>
-              <p className="text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">适用于网络受限、手动发版或需要指定构建产物的场景。请上传与当前机器架构匹配的 Linux 程序包，例如 amd64 / x86_64、arm64 / aarch64 不可混用。</p>
+              <p className="text-gray-600 dark:text-gray-400 mt-1 leading-relaxed">上传匹配架构的 Linux 更新包即可。</p>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-[1.1fr_0.9fr] gap-4">
-            <div className="rounded-2xl border border-dashed border-primary-300 dark:border-primary-700 bg-primary-50/50 dark:bg-primary-900/10 p-5">
-              <div className="flex items-start gap-3 text-sm text-primary-900 dark:text-primary-100 mb-4">
+          <div className="grid grid-cols-2 gap-3 lg:grid-cols-2">
+            <div className="rounded-2xl border border-dashed border-primary-300 dark:border-primary-700 bg-primary-50/50 dark:bg-primary-900/10 p-4 sm:p-5">
+              <div className="flex items-start gap-3 text-xs sm:text-sm text-primary-900 dark:text-primary-100 mb-4">
                 <HardDrive className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <div className="font-semibold">支持文件</div>
-                  <div className="mt-1 text-primary-800/80 dark:text-primary-200/80">支持上传 dockerCopilot Linux 二进制文件或 tar.gz 更新包；后端会继续校验文件内容与架构是否匹配。</div>
+                  <div className="mt-1 text-primary-800/80 dark:text-primary-200/80">支持二进制或 tar.gz，系统会校验架构。</div>
                 </div>
               </div>
 
@@ -91,9 +91,12 @@ export function About() {
                 isUpdating
                   ? 'bg-gray-100 dark:bg-slate-800 text-gray-400 dark:text-gray-500 border-gray-200 dark:border-slate-700 cursor-not-allowed'
                   : 'bg-white dark:bg-slate-900 text-primary-700 dark:text-primary-300 border-primary-300 dark:border-primary-700 hover:bg-primary-50 dark:hover:bg-primary-900/20 cursor-pointer'
-              )}>
+              )}
+              onDragOver={(e) => { e.preventDefault(); if (!isUpdating) e.currentTarget.classList.add('ring-2', 'ring-primary-400') }}
+              onDragLeave={(e) => { e.currentTarget.classList.remove('ring-2', 'ring-primary-400') }}
+              onDrop={(e) => { e.preventDefault(); e.currentTarget.classList.remove('ring-2', 'ring-primary-400'); if (isUpdating) return; const file = e.dataTransfer.files?.[0]; if (file) uploadProgramUpdate(file) }}>
                 <Upload className="h-4 w-4" />
-                选择文件并更新
+                拖拽或选择文件更新
                 <input
                   type="file"
                   className="hidden"
@@ -108,15 +111,15 @@ export function About() {
               </label>
             </div>
 
-            <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/10 p-5">
-              <div className="flex items-start gap-3 text-sm text-amber-900 dark:text-amber-100">
+            <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/10 p-4 sm:p-5">
+              <div className="flex items-start gap-3 text-xs sm:text-sm text-amber-900 dark:text-amber-100">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
                 <div>
                   <div className="font-semibold">使用提示</div>
                   <ul className="mt-2 space-y-1.5 text-amber-800/90 dark:text-amber-200/80 list-disc pl-4">
-                    <li>更新前请先确认当前机器架构。</li>
-                    <li>建议先备份配置与重要运行环境。</li>
-                    <li>更新过程中服务可能会短暂重启或断开。</li>
+                    <li>先确认机器架构。</li>
+                    <li>建议先备份配置。</li>
+                    <li>更新时服务会短暂重启。</li>
                   </ul>
                 </div>
               </div>
