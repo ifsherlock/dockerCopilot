@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -67,34 +66,24 @@ func (r *Runtime) updateSelectedContainer(ctx context.Context, chatID int64) {
 }
 
 func (r *Runtime) updateContainerByPageIndex(ctx context.Context, chatID int64, arg string) {
-	parts := strings.Split(arg, ":")
-	page := 0
-	idx := -1
-	if len(parts) > 0 {
-		page = parsePage(parts[0])
-	}
-	if len(parts) > 1 {
-		idx, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+	id := strings.TrimSpace(arg)
+	if id == "" {
+		r.replyText(ctx, chatID, "❌ 选中的容器不存在")
+		return
 	}
 	items, _, err := r.listCurrentContainers(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate {
-			updates = append(updates, item)
+	updates := filterUpdatableContainers(items)
+	for _, item := range updates {
+		if item.ID == id {
+			r.updateContainer(ctx, chatID, item.ID)
+			return
 		}
 	}
-	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
-	const pageSize = 8
-	_, _, start, end := paginate(len(updates), page, pageSize)
-	if idx < start || idx >= end || idx < 0 || idx >= len(updates) {
-		r.replyText(ctx, chatID, "❌ 选中的容器不存在")
-		return
-	}
-	r.updateContainer(ctx, chatID, updates[idx].ID)
+	r.replyText(ctx, chatID, "❌ 选中的容器不存在或已不在可更新列表中")
 }
 
 func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64) {

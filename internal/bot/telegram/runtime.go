@@ -776,9 +776,8 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		row := make([]telego.InlineKeyboardButton, 0, 2)
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
-			absoluteIdx := start + j
 			label := "🆙 " + leftAlignPairLabel(trimButtonLabel(item.Name))
-			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
+			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%s", item.ID)))
 		}
 		rows = append(rows, row)
 	}
