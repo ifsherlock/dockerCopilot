@@ -81,7 +81,7 @@ function ImageRiskHint({ image }) {
         <CircleHelp className="h-4 w-4" />
       </button>
       {open && (
-        <div className="absolute left-6 top-1/2 z-20 w-72 -translate-y-1/2 rounded-xl border border-amber-200 bg-white p-3 text-left shadow-xl dark:border-amber-800 dark:bg-gray-900">
+        <div className="absolute left-6 top-1/2 z-[120] w-72 -translate-y-1/2 rounded-xl border border-amber-200 bg-white p-3 text-left shadow-2xl dark:border-amber-800 dark:bg-gray-900">
           <div className="mb-2 text-xs font-semibold text-amber-700 dark:text-amber-300">镜像说明</div>
           <div className="space-y-1.5 text-xs leading-5 text-gray-700 dark:text-gray-200">
             {hints.map((hint, idx) => <div key={idx}>{hint}</div>)}
@@ -1658,7 +1658,7 @@ export function Images() {
             {filteredImages
               .map((image) => (
                 <div key={image.id} className={cn(
-                  "group card p-4 rounded-2xl hover:shadow-lg transition-all relative overflow-hidden",
+                  "group card p-4 rounded-2xl hover:shadow-lg transition-all relative",
                   selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20",
                   isImageUpdateIgnored(image) && "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 hover:border-gray-300 dark:hover:border-gray-600"
                 )}>

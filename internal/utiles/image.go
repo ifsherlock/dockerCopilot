@@ -222,17 +222,6 @@ func countMeaningfulRefs(img MyType.Image) int {
 		seen[t] = struct{}{}
 		count++
 	}
-	for _, digest := range img.RepoDigests {
-		d := strings.TrimSpace(strings.ToLower(digest))
-		if d == "" || strings.Contains(d, "<none>") {
-			continue
-		}
-		if _, ok := seen[d]; ok {
-			continue
-		}
-		seen[d] = struct{}{}
-		count++
-	}
 	return count
 }
 
