@@ -372,10 +372,10 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	case "/cancel":
 		if _, ok := r.getChatState(msg.Chat.ID); ok {
 			r.clearChatState(msg.Chat.ID)
-			r.replyText(ctx, msg.Chat.ID, "已取消。")
+			r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 			return
 		}
-		r.replyText(ctx, msg.Chat.ID, "已取消。")
+		r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 	case "/containers":
 		logx.Infof("telegram command /containers chat=%d", msg.Chat.ID)
 		r.sendContainers(ctx, msg.Chat.ID)
@@ -477,7 +477,7 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "containers_update_all":
 		r.updateAllContainersOnPage(ctx, chatID, messageID, parsePage(arg))
 	case "containers_close":
-		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单", nil)
+		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单\n\n发送 /help 唤出菜单", nil)
 	case "container_back_list":
 		r.sendContainersPage(ctx, chatID, messageID, parsePage(arg))
 	case "container_start":
@@ -533,7 +533,7 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "confirm_clean_images":
 		r.doCleanUnusedImages(ctx, chatID)
 	case "cancel":
-		r.replyText(ctx, chatID, "已取消。")
+		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
 	case "confirm_program_update":
 		r.doProgramUpdate(ctx, chatID)
 	case "remove_image":
