@@ -387,7 +387,7 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 		r.sendImages(ctx, msg.Chat.ID)
 	case "/clean_images", "/cleanup":
 		logx.Infof("telegram command /clean_images chat=%d", msg.Chat.ID)
-		r.confirmCleanupImages(ctx, msg.Chat.ID)
+		r.confirmCleanupImages(ctx, msg.Chat.ID, false)
 	case "/backup":
 		logx.Infof("telegram command /backup chat=%d", msg.Chat.ID)
 		r.confirmBackup(ctx, msg.Chat.ID)
@@ -531,8 +531,12 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "delete_backup":
 		r.deleteBackup(ctx, chatID, arg)
 	case "confirm_clean_images":
-		r.doCleanUnusedImages(ctx, chatID, false)
+		r.confirmCleanupImages(ctx, chatID, false)
 	case "confirm_clean_images_force":
+		r.confirmCleanupImages(ctx, chatID, true)
+	case "do_clean_images":
+		r.doCleanUnusedImages(ctx, chatID, false)
+	case "do_clean_images_force":
 		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
 		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
@@ -1023,7 +1027,7 @@ func (r *Runtime) sendVersion(ctx context.Context, chatID int64) {
 	r.replyText(ctx, chatID, text)
 }
 
-func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
+func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64, force bool) {
 	images, inst, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
@@ -1067,11 +1071,19 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
 			break
 		}
 	}
-	b.WriteString("请选择清理方式：")
+	modeLabel := "普通清理"
+	doCallback := "do_clean_images:"
+	confirmButton := "🧹 确认全部清理"
+	if force {
+		modeLabel = "强制删除"
+		doCallback = "do_clean_images_force:"
+		confirmButton = "⚠️ 确认强制删除全部"
+	}
+	b.WriteString(fmt.Sprintf("⚠️ 即将执行：<b>%s</b>\n\n", modeLabel))
+	b.WriteString("请确认是否继续：")
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("🧹 全部清理").WithCallbackData("confirm_clean_images:"),
-			tu.InlineKeyboardButton("⚠️ 强制删除全部").WithCallbackData("confirm_clean_images_force:"),
+			tu.InlineKeyboardButton(confirmButton).WithCallbackData(doCallback),
 		),
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
