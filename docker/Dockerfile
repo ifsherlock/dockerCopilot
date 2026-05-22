@@ -8,12 +8,7 @@ ARG TARGETPLATFORM
 COPY dc-back/dist/$TARGETPLATFORM/dockerCopilot ./dockerCopilot
 COPY dc-back/etc/. ./etc
 COPY start.sh ./start.sh
-COPY bot ./bot
-
-RUN apk add --no-cache tzdata python3 py3-pip \
-    && python3 -m venv /app/bot/.venv \
-    && /app/bot/.venv/bin/pip install --no-cache-dir -r /app/bot/requirements.txt \
-    && ln -sf /app/bot/.venv/bin/python /usr/local/bin/python \
+RUN apk add --no-cache tzdata \
     && chmod +x start.sh \
     && chmod +x dockerCopilot
 
