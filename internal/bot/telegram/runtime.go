@@ -531,7 +531,9 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "delete_backup":
 		r.deleteBackup(ctx, chatID, arg)
 	case "confirm_clean_images":
-		r.doCleanUnusedImages(ctx, chatID)
+		r.doCleanUnusedImages(ctx, chatID, false)
+	case "confirm_clean_images_force":
+		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
 		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
 	case "confirm_program_update":
@@ -811,8 +813,9 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		row := make([]telego.InlineKeyboardButton, 0, 2)
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
+			absoluteIdx := start + j
 			label := "🆙 " + leftAlignPairLabel(trimButtonLabel(item.Name))
-			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%s", item.ID)))
+			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%d", absoluteIdx)))
 		}
 		rows = append(rows, row)
 	}
@@ -1087,33 +1090,52 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
 	_, _ = r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), b.String()).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup))
 }
 
-func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64) {
+func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64, force bool) {
 	images, _, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
 		return
 	}
-	successCount := 0
+	successLines := []string{}
 	failed := []string{}
 	for _, item := range images {
 		if !isCleanupCandidateView(item) {
 			continue
 		}
-		if err := r.removeImageOnCurrent(ctx, chatID, item.ID, false); err != nil {
-			failed = append(failed, item.Name+":"+item.Tag+" - "+err.Error())
+		fullName := item.Name
+		tag := strings.TrimSpace(strings.ToLower(item.Tag))
+		if item.Tag != "" && tag != "none" && tag != "<none>" {
+			fullName += ":" + item.Tag
+		}
+		if err := r.removeImageOnCurrent(ctx, chatID, item.ID, force); err != nil {
+			failed = append(failed, fmt.Sprintf("%s | ID=%s | 大小=%s | %s", fullName, item.ID, item.Size, err.Error()))
 			continue
 		}
-		successCount++
+		successLines = append(successLines, fmt.Sprintf("%s | ID=%s | 大小=%s", fullName, item.ID, item.Size))
 	}
-	text := fmt.Sprintf("🧹 <b>清理完成</b>\n\n✅ 成功: %d\n❌ 失败: %d", successCount, len(failed))
+	modeText := "普通清理"
+	if force {
+		modeText = "强制删除"
+	}
+	text := fmt.Sprintf("🧹 <b>%s完成</b>\n\n✅ 成功: %d\n❌ 失败: %d", modeText, len(successLines), len(failed))
+	if len(successLines) > 0 {
+		text += "\n\n已删除镜像："
+		for i, line := range successLines {
+			if i >= 10 {
+				text += fmt.Sprintf("\n… 还有 %d 个", len(successLines)-i)
+				break
+			}
+			text += "\n• " + escapeHTML(shorten(line, 160))
+		}
+	}
 	if len(failed) > 0 {
 		text += "\n\n失败详情："
 		for i, line := range failed {
-			if i >= 5 {
+			if i >= 8 {
 				text += fmt.Sprintf("\n… 还有 %d 条", len(failed)-i)
 				break
 			}
-			text += "\n• " + escapeHTML(shorten(line, 120))
+			text += "\n• " + escapeHTML(shorten(line, 160))
 		}
 	}
 	r.replyText(ctx, chatID, text)
