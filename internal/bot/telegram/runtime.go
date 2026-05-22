@@ -13,9 +13,11 @@ import (
 	"github.com/mymmrac/telego"
 	ta "github.com/mymmrac/telego/telegoapi"
 	tu "github.com/mymmrac/telego/telegoutil"
+	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
 	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
 	versionlogic "github.com/onlyLTY/dockerCopilot/internal/logic/version"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
+	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -83,6 +85,7 @@ func (r *Runtime) run(ctx context.Context, cfg svc.BackupRuntimeConfig) {
 	if err := r.sendStartupNotification(ctx, cfg); err != nil {
 		logx.Errorf("发送 Telegram 启动通知失败: %v", err)
 	}
+	r.startUpdateBackgroundJobs(ctx)
 
 	updates, err := r.bot.UpdatesViaLongPolling(
 		ctx,
@@ -174,6 +177,174 @@ func (r *Runtime) proxySummary(cfg svc.BackupRuntimeConfig) string {
 	return fmt.Sprintf("%s://%s:%d", proxyType, host, port)
 }
 
+func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
+	go func() {
+		warmCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+		defer cancel()
+		if err := r.runUpdateDetectionOnce(warmCtx, true); err != nil {
+			logx.Errorf("Telegram 启动预热更新检测失败: %v", err)
+		}
+	}()
+
+	go func() {
+		var lastTick string
+		for {
+			cfg, err := svc.LoadRuntimeConfigForRead()
+			if err != nil {
+				logx.Errorf("加载 Telegram 定时任务配置失败: %v", err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
+			}
+			spec := strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"))
+			if spec == "" {
+				spec = "0 18 * * *"
+			}
+			schedule, err := cron.ParseStandard(spec)
+			if err != nil {
+				logx.Errorf("解析 Telegram 更新检测 cron 失败 [%s]: %v", spec, err)
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
+			}
+			now := time.Now()
+			next := schedule.Next(now)
+			wait := time.Until(next)
+			if wait < 0 {
+				wait = time.Second
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(wait):
+			}
+			tickKey := next.Format(time.RFC3339)
+			if tickKey == lastTick {
+				continue
+			}
+			lastTick = tickKey
+			checkCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+			if err := r.runUpdateDetectionOnce(checkCtx, false); err != nil {
+				logx.Errorf("Telegram 定时更新检测失败: %v", err)
+			}
+			cancel()
+		}
+	}()
+}
+
+func (r *Runtime) runUpdateDetectionOnce(ctx context.Context, silent bool) error {
+	cfg, err := svc.LoadRuntimeConfigForRead()
+	if err != nil {
+		return err
+	}
+	instances := []instanceConfig{{Name: "local", APIURL: "http://127.0.0.1:12712", SecretKey: "", Timeout: 30, Local: true}}
+	if runtimeCfg, err := r.getConfig(ctx); err == nil {
+		if loaded := parseInstances(runtimeCfg.Dockercopilot["instances"]); len(loaded) > 0 {
+			instances = loaded
+		}
+	}
+	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
+	notifyEnabled := svc.AsBool(cfg.Telegram["notify_on_update"])
+	for _, inst := range instances {
+		updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
+		if err != nil {
+			logx.Errorf("实例 %s 更新检测失败: %v", inst.Name, err)
+			continue
+		}
+		if notifyEnabled && !silent && len(updates) > 0 {
+			r.broadcastUpdateNotification(ctx, chatIDs, inst.Name, updates)
+		}
+	}
+	return nil
+}
+
+func (r *Runtime) refreshUpdatableContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, error) {
+	if inst.Local {
+		logic := containerlogic.NewCheckUpdateLogic(ctx, r.svcCtx)
+		if _, err := logic.CheckUpdate(); err != nil {
+			return nil, err
+		}
+		deadline := time.Now().Add(2 * time.Minute)
+		for {
+			items, _, err := r.listCurrentContainersForInstance(ctx, inst)
+			if err == nil {
+				updates := filterUpdatableContainers(items)
+				if len(updates) > 0 || time.Now().After(deadline) || !r.svcCtx.IsUpdateCheckRunning() {
+					return updates, nil
+				}
+			}
+			if time.Now().After(deadline) {
+				if err != nil {
+					return nil, err
+				}
+				return []containerView{}, nil
+			}
+			select {
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			case <-time.After(2 * time.Second):
+			}
+		}
+	}
+	items, _, err := r.listCurrentContainersForInstance(ctx, inst)
+	if err != nil {
+		return nil, err
+	}
+	return filterUpdatableContainers(items), nil
+}
+
+func filterUpdatableContainers(items []containerView) []containerView {
+	updates := make([]containerView, 0)
+	for _, item := range items {
+		if item.HaveUpdate && !item.UpdateBlocked {
+			updates = append(updates, item)
+		}
+	}
+	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
+	return updates
+}
+
+func (r *Runtime) broadcastUpdateNotification(ctx context.Context, chatIDs []string, instanceName string, updates []containerView) {
+	if len(chatIDs) == 0 || len(updates) == 0 {
+		return
+	}
+	var b strings.Builder
+	b.WriteString("🆕 <b>检测到可更新容器</b>\n\n")
+	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(instanceName)))
+	b.WriteString(fmt.Sprintf("数量: <b>%d</b>\n\n", len(updates)))
+	limit := len(updates)
+	if limit > 8 {
+		limit = 8
+	}
+	for i := 0; i < limit; i++ {
+		item := updates[i]
+		b.WriteString(fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(item.Name)))
+		if ref := strings.TrimSpace(oneLineImageRef(item.UsingImage)); ref != "" {
+			b.WriteString(fmt.Sprintf("   📦 %s\n", escapeHTML(shorten(ref, 48))))
+		}
+	}
+	if len(updates) > limit {
+		b.WriteString(fmt.Sprintf("\n… 还有 <b>%d</b> 个\n", len(updates)-limit))
+	}
+	b.WriteString("\n💡 发送 /updates 查看详情")
+	msg := b.String()
+	for _, chatID := range chatIDs {
+		id, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
+		if err != nil {
+			continue
+		}
+		if _, err := r.bot.SendMessage(ctx, tu.Message(tu.ID(id), msg).WithParseMode(telego.ModeHTML)); err != nil {
+			logx.Errorf("发送更新通知失败 [%s]: %v", chatID, err)
+		}
+	}
+}
+
 func (r *Runtime) handleUpdate(ctx context.Context, update telego.Update) {
 	if update.Message != nil {
 		r.handleMessage(ctx, update.Message)
@@ -201,10 +372,10 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	case "/cancel":
 		if _, ok := r.getChatState(msg.Chat.ID); ok {
 			r.clearChatState(msg.Chat.ID)
-			r.replyText(ctx, msg.Chat.ID, "已取消。")
+			r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 			return
 		}
-		r.replyText(ctx, msg.Chat.ID, "已取消。")
+		r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 	case "/containers":
 		logx.Infof("telegram command /containers chat=%d", msg.Chat.ID)
 		r.sendContainers(ctx, msg.Chat.ID)
@@ -216,7 +387,7 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 		r.sendImages(ctx, msg.Chat.ID)
 	case "/clean_images", "/cleanup":
 		logx.Infof("telegram command /clean_images chat=%d", msg.Chat.ID)
-		r.confirmCleanupImages(ctx, msg.Chat.ID)
+		r.confirmCleanupImages(ctx, msg.Chat.ID, false)
 	case "/backup":
 		logx.Infof("telegram command /backup chat=%d", msg.Chat.ID)
 		r.confirmBackup(ctx, msg.Chat.ID)
@@ -306,25 +477,33 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "containers_update_all":
 		r.updateAllContainersOnPage(ctx, chatID, messageID, parsePage(arg))
 	case "containers_close":
-		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单", nil)
+		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单\n\n发送 /help 唤出菜单", nil)
+	case "container_back_list":
+		r.sendContainersPage(ctx, chatID, messageID, parsePage(arg))
 	case "container_start":
+		page := parsePage(arg)
 		if err := r.startSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 启动失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已启动")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_stop":
+		page := parsePage(arg)
 		if err := r.stopSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 停止失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已停止")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_restart":
+		page := parsePage(arg)
 		if err := r.restartSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 重启失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已重启")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_update":
 		r.updateSelectedContainer(ctx, chatID)
 	case "show_backup_menu":
@@ -352,9 +531,15 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "delete_backup":
 		r.deleteBackup(ctx, chatID, arg)
 	case "confirm_clean_images":
-		r.doCleanUnusedImages(ctx, chatID)
+		r.confirmCleanupImages(ctx, chatID, false)
+	case "confirm_clean_images_force":
+		r.confirmCleanupImages(ctx, chatID, true)
+	case "do_clean_images":
+		r.doCleanUnusedImages(ctx, chatID, false)
+	case "do_clean_images_force":
+		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
-		r.replyText(ctx, chatID, "已取消。")
+		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
 	case "confirm_program_update":
 		r.doProgramUpdate(ctx, chatID)
 	case "remove_image":
@@ -497,7 +682,7 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 	page, totalPages, start, end := paginate(len(items), page, pageSize)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("📦 <b>容器列表</b> · <b>%s</b>（第 %d/%d 页）\n", escapeHTML(instanceName), page+1, totalPages))
-	b.WriteString("点击下方容器按钮选中后，再使用底部操作按钮。\n\n")
+	b.WriteString("点击一个容器，进入这个容器的操作菜单。\n\n")
 	rows := make([][]telego.InlineKeyboardButton, 0)
 	selectedID := r.selectedContainerID(chatID)
 	pageItems := items[start:end]
@@ -523,30 +708,57 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 		}
 		rows = append(rows, row)
 	}
-	if selected := findSelectedContainer(items, selectedID); selected != nil {
-		b.WriteString(fmt.Sprintf("已选中: <b>%s</b>\n状态: <code>%s</code>\n镜像: <code>%s</code>\n", escapeHTML(selected.Name), escapeHTML(selected.Status), escapeHTML(shorten(selected.UsingImage, 90))))
-		if selected.UpdateBlocked {
-			b.WriteString("更新状态: <code>黑名单中，已禁止更新</code>\n\n")
-		} else {
-			b.WriteString("\n")
-		}
-		rows = append(rows, tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("▶️ 启动").WithCallbackData("container_start:"),
-			tu.InlineKeyboardButton("⏹ 停止").WithCallbackData("container_stop:"),
-			tu.InlineKeyboardButton("🔄 重启").WithCallbackData("container_restart:"),
-		))
-		if selected.HaveUpdate && !selected.UpdateBlocked {
-			rows = append(rows, tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
-			))
-		}
-	} else {
-		b.WriteString("当前未选中容器。\n\n")
-	}
 	rows = append(rows, paginationRow("containers_page", page, totalPages)...)
 	rows = append(rows, tu.InlineKeyboardRow(
-		tu.InlineKeyboardButton("🆙 一键更新本页").WithCallbackData("containers_update_all:"+strconv.Itoa(page)),
-		tu.InlineKeyboardButton("❌ 取消退出").WithCallbackData("containers_close:"),
+		tu.InlineKeyboardButton("❌ 退出").WithCallbackData("containers_close:"),
+	))
+	return b.String(), tu.InlineKeyboard(rows...)
+}
+
+func (r *Runtime) sendSelectedContainerDetail(ctx context.Context, chatID int64, messageID int, page int) {
+	items, inst, err := r.listCurrentContainers(ctx, chatID)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
+		return
+	}
+	selectedID := r.selectedContainerID(chatID)
+	selected := findSelectedContainer(items, selectedID)
+	if selected == nil {
+		r.replyText(ctx, chatID, "❌ 当前选中的容器不存在")
+		return
+	}
+	text, markup := r.renderSelectedContainerDetail(*selected, inst.Name, page)
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
+}
+
+func (r *Runtime) renderSelectedContainerDetail(selected containerView, instanceName string, page int) (string, *telego.InlineKeyboardMarkup) {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("📦 <b>容器菜单</b> · <b>%s</b>\n\n", escapeHTML(instanceName)))
+	b.WriteString(fmt.Sprintf("容器: <b>%s</b>\n", escapeHTML(selected.Name)))
+	b.WriteString(fmt.Sprintf("状态: <code>%s</code>\n", escapeHTML(selected.Status)))
+	b.WriteString(fmt.Sprintf("镜像: <code>%s</code>\n", escapeHTML(shorten(selected.UsingImage, 90))))
+	b.WriteString(fmt.Sprintf("ID: <code>%s</code>\n", escapeHTML(shorten(selected.ID, 24))))
+	if selected.UpdateBlocked {
+		b.WriteString("更新状态: <code>黑名单中，已禁止更新</code>\n")
+	} else if selected.HaveUpdate {
+		b.WriteString("更新状态: <code>可更新</code>\n")
+	}
+	b.WriteString("\n请选择操作：")
+	rows := [][]telego.InlineKeyboardButton{
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("▶️ 启动").WithCallbackData("container_start:"+strconv.Itoa(page)),
+			tu.InlineKeyboardButton("⏹ 停止").WithCallbackData("container_stop:"+strconv.Itoa(page)),
+			tu.InlineKeyboardButton("🔄 重启").WithCallbackData("container_restart:"+strconv.Itoa(page)),
+		),
+	}
+	if selected.HaveUpdate && !selected.UpdateBlocked {
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
+		))
+	}
+	rows = append(rows, tu.InlineKeyboardRow(
+		tu.InlineKeyboardButton("↩️ 返回列表").WithCallbackData("container_back_list:"+strconv.Itoa(page)),
+		tu.InlineKeyboardButton("❌ 退出").WithCallbackData("containers_close:"),
 	))
 	return b.String(), tu.InlineKeyboard(rows...)
 }
@@ -556,22 +768,20 @@ func (r *Runtime) sendUpdates(ctx context.Context, chatID int64) {
 }
 
 func (r *Runtime) sendUpdatesPage(ctx context.Context, chatID int64, messageID int, page int) {
-	items, inst, err := r.listCurrentContainers(ctx, chatID)
+	inst, err := r.currentInstance(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate && !item.UpdateBlocked {
-			updates = append(updates, item)
-		}
-	}
-	if len(updates) == 0 {
-		r.replyText(ctx, chatID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)))
+	updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
-	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
+	if len(updates) == 0 {
+		r.editOrReplyText(ctx, chatID, messageID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)), nil)
+		return
+	}
 	text, markup := r.renderUpdatesPage(updates, inst.Name, page)
 	r.editOrReplyText(ctx, chatID, messageID, text, markup)
 }
@@ -607,9 +817,14 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		row := make([]telego.InlineKeyboardButton, 0, 2)
 		for j := i; j < i+2 && j < len(pageItems); j++ {
 			item := pageItems[j]
-			absoluteIdx := start + j
+			shortID := item.ID
+			if strings.HasPrefix(shortID, "sha256:") && len(shortID) > 19 {
+				shortID = shortID[7:19]
+			} else if len(shortID) > 12 {
+				shortID = shortID[:12]
+			}
 			label := "🆙 " + leftAlignPairLabel(trimButtonLabel(item.Name))
-			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%d:%d", page, absoluteIdx)))
+			row = append(row, tu.InlineKeyboardButton(label).WithCallbackData(fmt.Sprintf("update_pick:%s", shortID)))
 		}
 		rows = append(rows, row)
 	}
@@ -681,6 +896,9 @@ func (r *Runtime) renderImagesPage(items []imageView, instanceName string, page 
 	}
 	rows = append(rows, tu.InlineKeyboardRow(
 		tu.InlineKeyboardButton("🧹 清理无用镜像").WithCallbackData("confirm_clean_images:"),
+		tu.InlineKeyboardButton("⚠️ 强制删除无用").WithCallbackData("confirm_clean_images_force:"),
+	))
+	rows = append(rows, tu.InlineKeyboardRow(
 		tu.InlineKeyboardButton("🔄 刷新").WithCallbackData("images_refresh:"),
 	))
 	rows = append(rows, paginationRow("images_page", page, totalPages)...)
@@ -809,29 +1027,31 @@ func (r *Runtime) sendVersion(ctx context.Context, chatID int64) {
 	r.replyText(ctx, chatID, text)
 }
 
-func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
+func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64, force bool) {
 	images, inst, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
 		return
 	}
-	type bucket struct{ lines []string }
-	var noTagUnused, noTagOnly, notUsedOnly bucket
-	allCount := 0
+	candidates := make([]imageView, 0)
 	for _, item := range images {
-		if !isCleanupCandidateView(item) {
-			continue
+		if isCleanupCandidateView(item) {
+			candidates = append(candidates, item)
 		}
-		allCount++
+	}
+	if len(candidates) == 0 {
+		r.replyText(ctx, chatID, fmt.Sprintf("✅ <b>%s</b> 无可清理镜像", escapeHTML(inst.Name)))
+		return
+	}
+	var b strings.Builder
+	b.WriteString("🗑 <b>可清理镜像列表</b>\n\n")
+	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n\n", escapeHTML(inst.Name)))
+	b.WriteString(fmt.Sprintf("找到 <b>%d</b> 个可清理的镜像：\n\n", len(candidates)))
+	for i, item := range candidates {
+		fullName := item.Name
 		tag := strings.TrimSpace(strings.ToLower(item.Tag))
-		noTag := tag == "" || tag == "none" || tag == "<none>"
-		notInUse := !item.InUsed
-		displayName := item.Name
 		if item.Tag != "" && tag != "none" && tag != "<none>" {
-			displayName += ":" + item.Tag
-		}
-		if len([]rune(displayName)) > 35 {
-			displayName = string([]rune(displayName)[:32]) + "..."
+			fullName += ":" + item.Tag
 		}
 		shortID := item.ID
 		if strings.HasPrefix(shortID, "sha256:") && len(shortID) > 19 {
@@ -839,78 +1059,85 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
 		} else if len(shortID) > 12 {
 			shortID = shortID[:12]
 		}
-		info := fmt.Sprintf("<code>%s</code>\n    ID: %s | %s", escapeHTML(displayName), escapeHTML(shortID), escapeHTML(item.Size))
-		switch {
-		case noTag && notInUse:
-			noTagUnused.lines = append(noTagUnused.lines, info)
-		case noTag:
-			noTagOnly.lines = append(noTagOnly.lines, info)
-		case notInUse:
-			notUsedOnly.lines = append(notUsedOnly.lines, info)
-		}
-	}
-	if allCount == 0 {
-		r.replyText(ctx, chatID, fmt.Sprintf("✅ <b>%s</b> 无可清理镜像", escapeHTML(inst.Name)))
-		return
-	}
-	var b strings.Builder
-	b.WriteString("🗑 <b>清理无用镜像</b>\n\n")
-	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n\n", escapeHTML(inst.Name)))
-	b.WriteString(fmt.Sprintf("找到 <b>%d</b> 个可清理的镜像:\n\n", allCount))
-	appendGroup := func(title string, lines []string) {
-		if len(lines) == 0 {
-			return
-		}
-		b.WriteString(fmt.Sprintf("📦 <b>%s</b> (%d 个):\n", title, len(lines)))
-		for i, line := range lines {
-			if i >= 5 {
-				b.WriteString(fmt.Sprintf("  • ... 还有 %d 个\n", len(lines)-i))
-				break
-			}
-			b.WriteString("  • " + line + "\n")
+		b.WriteString(fmt.Sprintf("%d. <code>%s</code>\n", i+1, escapeHTML(shorten(fullName, 60))))
+		b.WriteString(fmt.Sprintf("   🆔 %s\n", escapeHTML(shortID)))
+		b.WriteString(fmt.Sprintf("   💾 %s\n", escapeHTML(item.Size)))
+		if item.InUsed {
+			b.WriteString("   ⚠️ 使用中，强制删除才会处理\n")
 		}
 		b.WriteString("\n")
+		if i >= 11 && len(candidates) > 12 {
+			b.WriteString(fmt.Sprintf("… 还有 %d 个\n\n", len(candidates)-i-1))
+			break
+		}
 	}
-	appendGroup("无tag且未使用", noTagUnused.lines)
-	appendGroup("仅无tag", noTagOnly.lines)
-	appendGroup("仅未使用", notUsedOnly.lines)
-	b.WriteString("⚠️ <b>此操作不可逆,确定要清理这些镜像吗?</b>")
+	modeLabel := "普通清理"
+	doCallback := "do_clean_images:"
+	confirmButton := "🧹 确认全部清理"
+	if force {
+		modeLabel = "强制删除"
+		doCallback = "do_clean_images_force:"
+		confirmButton = "⚠️ 确认强制删除全部"
+	}
+	b.WriteString(fmt.Sprintf("⚠️ 即将执行：<b>%s</b>\n\n", modeLabel))
+	b.WriteString("请确认是否继续：")
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("✅ 确认清理").WithCallbackData("confirm_clean_images:"),
+			tu.InlineKeyboardButton(confirmButton).WithCallbackData(doCallback),
+		),
+		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	)
 	_, _ = r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), b.String()).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup))
 }
 
-func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64) {
+func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64, force bool) {
 	images, _, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
 		return
 	}
-	successCount := 0
+	successLines := []string{}
 	failed := []string{}
 	for _, item := range images {
 		if !isCleanupCandidateView(item) {
 			continue
 		}
-		if err := r.removeImageOnCurrent(ctx, chatID, item.ID, false); err != nil {
-			failed = append(failed, item.Name+":"+item.Tag+" - "+err.Error())
+		fullName := item.Name
+		tag := strings.TrimSpace(strings.ToLower(item.Tag))
+		if item.Tag != "" && tag != "none" && tag != "<none>" {
+			fullName += ":" + item.Tag
+		}
+		if err := r.removeImageOnCurrent(ctx, chatID, item.ID, force); err != nil {
+			failed = append(failed, fmt.Sprintf("%s | ID=%s | 大小=%s | %s", fullName, item.ID, item.Size, err.Error()))
 			continue
 		}
-		successCount++
+		successLines = append(successLines, fmt.Sprintf("%s | ID=%s | 大小=%s", fullName, item.ID, item.Size))
 	}
-	text := fmt.Sprintf("🧹 <b>清理完成</b>\n\n✅ 成功: %d\n❌ 失败: %d", successCount, len(failed))
+	modeText := "普通清理"
+	if force {
+		modeText = "强制删除"
+	}
+	text := fmt.Sprintf("🧹 <b>%s完成</b>\n\n✅ 成功: %d\n❌ 失败: %d", modeText, len(successLines), len(failed))
+	if len(successLines) > 0 {
+		text += "\n\n已删除镜像："
+		for i, line := range successLines {
+			if i >= 10 {
+				text += fmt.Sprintf("\n… 还有 %d 个", len(successLines)-i)
+				break
+			}
+			text += "\n• " + escapeHTML(shorten(line, 160))
+		}
+	}
 	if len(failed) > 0 {
 		text += "\n\n失败详情："
 		for i, line := range failed {
-			if i >= 5 {
+			if i >= 8 {
 				text += fmt.Sprintf("\n… 还有 %d 条", len(failed)-i)
 				break
 			}
-			text += "\n• " + escapeHTML(shorten(line, 120))
+			text += "\n• " + escapeHTML(shorten(line, 160))
 		}
 	}
 	r.replyText(ctx, chatID, text)
@@ -1301,20 +1528,47 @@ func (r *Runtime) doDeleteImage(ctx context.Context, chatID int64, messageID int
 		r.replyText(ctx, chatID, "❌ 未找到镜像")
 		return
 	}
-	if err := r.removeImageOnCurrent(ctx, chatID, items[idx].ID, force); err != nil {
+	target := items[idx]
+	fullName := target.Name
+	tag := strings.TrimSpace(strings.ToLower(target.Tag))
+	if target.Tag != "" && tag != "none" && tag != "<none>" {
+		fullName += ":" + target.Tag
+	}
+	if err := r.removeImageOnCurrent(ctx, chatID, target.ID, force); err != nil {
 		r.replyText(ctx, chatID, "❌ 删除镜像失败: "+err.Error())
 		return
 	}
-	r.replyText(ctx, chatID, "✅ 镜像删除成功")
+	r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像删除成功\n\n📦 <code>%s</code>\n🆔 <code>%s</code>\n💾 %s", escapeHTML(fullName), escapeHTML(target.ID), escapeHTML(target.Size)))
 	r.sendImagesPage(ctx, chatID, messageID, page)
 }
 
 func (r *Runtime) removeImage(ctx context.Context, chatID int64, imageID string) {
+	items, _, err := r.listCurrentImages(ctx, chatID)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
+		return
+	}
+	var target *imageView
+	for i := range items {
+		if items[i].ID == imageID {
+			target = &items[i]
+			break
+		}
+	}
 	if err := r.removeImageOnCurrent(ctx, chatID, imageID, true); err != nil {
 		r.replyText(ctx, chatID, "❌ 删除镜像失败: "+err.Error())
 		return
 	}
-	r.replyText(ctx, chatID, "✅ 镜像已删除")
+	if target == nil {
+		r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像已删除\n\n🆔 <code>%s</code>", escapeHTML(imageID)))
+		return
+	}
+	fullName := target.Name
+	tag := strings.TrimSpace(strings.ToLower(target.Tag))
+	if target.Tag != "" && tag != "none" && tag != "<none>" {
+		fullName += ":" + target.Tag
+	}
+	r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像已删除\n\n📦 <code>%s</code>\n🆔 <code>%s</code>\n💾 %s", escapeHTML(fullName), escapeHTML(target.ID), escapeHTML(target.Size)))
 }
 
 func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) {
@@ -1325,6 +1579,10 @@ func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) 
 	}
 	name, taskID, err := r.updateContainerOnCurrent(ctx, chatID, id)
 	if err != nil {
+		if strings.HasPrefix(err.Error(), "SELF_UPDATE_REQUIRED:") {
+			r.confirmProgramUpdate(ctx, chatID)
+			return
+		}
 		r.replyText(ctx, chatID, "❌ 更新容器失败: "+err.Error())
 		return
 	}

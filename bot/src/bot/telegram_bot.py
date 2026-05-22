@@ -5,6 +5,7 @@ import logging
 from typing import Dict, List, Optional, Any
 from datetime import datetime
 from functools import wraps
+from types import SimpleNamespace
 from croniter import croniter
 from telebot.async_telebot import AsyncTeleBot
 from telebot.types import InlineKeyboardMarkup, InlineKeyboardButton, CallbackQuery, Message
@@ -643,7 +644,10 @@ class TelegramBot:
             page = int(param) if param else 0
             await self.send_updates_list(chat_id, message_id, page)
         elif action == "quick_update":
-            # 快速更新容器(带进度显示)
+            # 快速更新容器(先确认,再执行)
+            await self.confirm_quick_update_container(chat_id, message_id, param)
+        elif action == "do_quick_update":
+            # 执行单容器更新
             await self.quick_update_container(chat_id, message_id, param)
         elif action == "update_all_containers":
             # 一键更新所有容器(显示确认对话框)
@@ -1002,11 +1006,55 @@ class TelegramBot:
             logger.error(f"获取系统状态失败: {e}")
             await self.bot.send_message(chat_id, f"❌ 获取系统状态失败: {e}")
 
+    async def confirm_quick_update_container(self, chat_id: str, message_id: int, container_ref: str):
+        """确认单容器更新"""
+        try:
+            docker_client = self.get_docker_client(chat_id)
+            container_id = self._resolve_container_callback_key(chat_id, container_ref)
+            container_info = docker_client.get_container_info(container_id)
+
+            if not container_info:
+                await self.bot.send_message(chat_id, f"❌ 未找到容器 ID: {container_id or container_ref}")
+                return
+
+            container_name = container_info['name']
+            image_name = container_info['image']
+            full_container_id = container_info['id']
+            is_blacklisted = self._is_update_blacklisted(SimpleNamespace(**container_info))
+
+            message = f"⚠️ <b>确认更新容器</b> <b>{container_name}</b>？\n"
+            message += f"🖼 镜像: <code>{image_name}</code>"
+
+            if is_blacklisted:
+                message += "\n\n⚠️ <b>该容器命中更新黑名单</b>"
+            elif image_name.startswith('sha256:'):
+                message += "\n\n⚠️ <b>当前镜像 TAG 不可用，可能无法自动更新</b>"
+
+            markup = InlineKeyboardMarkup()
+            confirm_key = self._container_callback_key(chat_id, full_container_id)
+            markup.add(
+                InlineKeyboardButton('✅ 确认更新', callback_data=f'do_quick_update:{confirm_key}'),
+                InlineKeyboardButton('❌ 取消', callback_data='cancel')
+            )
+            markup.add(InlineKeyboardButton('◀️ 返回列表', callback_data='update_page:0'))
+
+            await self.bot.edit_message_text(
+                message,
+                chat_id,
+                message_id,
+                reply_markup=markup,
+                parse_mode='HTML'
+            )
+        except Exception as e:
+            logger.error(f"显示容器更新确认框失败: {e}")
+            await self.bot.send_message(chat_id, f"❌ 显示确认弹窗失败: {e}")
+
     async def quick_update_container(self, chat_id: str, message_id: int, container_id: str):
         """快速更新容器(带进度追踪)"""
         try:
             docker_client = self.get_docker_client(chat_id)
             instance_name = self.get_current_instance_name(chat_id)
+            container_id = self._resolve_container_callback_key(chat_id, container_id)
 
             # 获取容器信息
             container_info = docker_client.get_container_info(container_id)
@@ -1788,12 +1836,12 @@ class TelegramBot:
             # 每行2个容器按钮(直接更新,不跳转详情)
             row = []
             for i, container in enumerate(page_containers):
-                short_id = container.id[:12]
+                container_key = self._container_callback_key(chat_id, container.id)
                 name = container.name if len(container.name) <= 12 else container.name[:12] + "..."
 
                 button = InlineKeyboardButton(
                     text=f"⬆️ {name}",
-                    callback_data=f"quick_update:{short_id}"
+                    callback_data=f"quick_update:{container_key}"
                 )
                 row.append(button)
 
@@ -1861,6 +1909,24 @@ class TelegramBot:
         if key.startswith('sha256:') or len(key) > 24:
             return key
         return getattr(self, 'image_callback_cache', {}).get(f"{chat_id}:{key}", key)
+
+    def _container_callback_key(self, chat_id: str, container_id: str) -> str:
+        container_id = str(container_id or '')
+        if not container_id:
+            return ''
+        digest = hashlib.sha1(container_id.encode('utf-8')).hexdigest()[:16]
+        if not hasattr(self, 'container_callback_cache'):
+            self.container_callback_cache = {}
+        self.container_callback_cache[f"{chat_id}:{digest}"] = container_id
+        return digest
+
+    def _resolve_container_callback_key(self, chat_id: str, key: str) -> str:
+        key = str(key or '')
+        if not key:
+            return ''
+        if len(key) > 24:
+            return key
+        return getattr(self, 'container_callback_cache', {}).get(f"{chat_id}:{key}", key)
 
     async def send_images_list(self, chat_id: str, message_id: Optional[int] = None, page: int = 0):
         """发送镜像列表(支持分页)"""

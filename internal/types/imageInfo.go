@@ -10,6 +10,7 @@ type Image struct {
 	ImageTag         string `json:"imageTag"`
 	InUsed           bool   `json:"inUsed"`
 	UsageState       string `json:"usageState"`
+	HaveUpdate       bool   `json:"haveUpdate"`
 	SizeFormat       string `json:"sizeFormat"`
 	CleanupCandidate bool   `json:"cleanupCandidate"`
 	CleanupReason    string `json:"cleanupReason"`

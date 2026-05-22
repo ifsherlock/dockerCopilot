@@ -63,6 +63,11 @@ func (r *Runtime) listCurrentContainers(ctx context.Context, chatID int64) ([]co
 	if err != nil {
 		return nil, instanceConfig{}, err
 	}
+	views, _, err := r.listCurrentContainersForInstance(ctx, inst)
+	return views, inst, err
+}
+
+func (r *Runtime) listCurrentContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, instanceConfig, error) {
 	blacklist, _ := r.updateBlacklistSet(ctx)
 	if inst.Local {
 		logic := containerlogic.NewContainersListLogic(ctx, r.svcCtx)
@@ -448,6 +453,12 @@ func (r *Runtime) updateContainerOnCurrent(ctx context.Context, chatID int64, id
 	for _, item := range containers {
 		if item.ID != id {
 			continue
+		}
+		if item.UpdateBlocked {
+			return "", "", fmt.Errorf("该容器命中更新黑名单，已禁止更新")
+		}
+		if item.IsSelf {
+			return "", "", fmt.Errorf("SELF_UPDATE_REQUIRED:%s", item.Name)
 		}
 		if inst.Local {
 			taskID := utilesTaskID()

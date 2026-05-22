@@ -24,6 +24,7 @@ import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getImageLogo } from '../config/imageLogos.js'
+import { useResizableTableColumns } from '../hooks/useResizableTableColumns.js'
 import icons8Img from '../assets/icons8.png'
 
 // 格式化运行时间为中文
@@ -391,12 +392,60 @@ export function Containers() {
     })
   }
 
+  const handleBatchDelete = () => {
+    const selected = containers.filter(c => selectedContainers.includes(c.id))
+    const deletable = selected.filter(c => c.status && c.status.toLowerCase() !== 'running')
+    const blocked = selected.filter(c => c.status && c.status.toLowerCase() === 'running')
+
+    if (deletable.length === 0) {
+      setConfirmModal({
+        isOpen: true,
+        title: '无法批量删除',
+        message: blocked.length > 0 ? '当前选中的都是运行中容器。请先停止后再删除。' : '请先选择要删除的已停止容器。',
+        type: 'warning',
+        onCancel: null,
+        onConfirm: () => setConfirmModal({ isOpen: false })
+      })
+      return
+    }
+
+    setConfirmModal({
+      isOpen: true,
+      title: '批量删除容器',
+      message: blocked.length > 0
+        ? `将删除 ${deletable.length} 个已停止容器；${blocked.length} 个运行中容器会被跳过。`
+        : `确定删除 ${deletable.length} 个已停止容器吗？此操作不会删除镜像。`,
+      type: 'danger',
+      onCancel: null,
+      onConfirm: async () => {
+        setConfirmModal({ isOpen: false })
+        for (const container of deletable) {
+          await handleContainerAction(container.id, 'delete')
+        }
+        setSelectedContainers([])
+        setIsBatchMode(false)
+      }
+    })
+  }
+
   const handleContainerAction = async (containerId, action) => {
+    const actionSuccessMeta = {
+      start: { progress: '启动中...', done: '启动成功', percentage: 100 },
+      stop: { progress: '停止中...', done: '停止成功', percentage: 100 },
+      restart: { progress: '重启中...', done: '重启成功', percentage: 100 },
+      delete: { progress: '删除中...', done: '删除成功', percentage: 100 }
+    }
+
     try {
       // 设置操作状态为加载中
       setContainerActions(prev => ({
         ...prev,
-        [containerId]: { action, loading: true }
+        [containerId]: {
+          action,
+          loading: true,
+          progress: actionSuccessMeta[action]?.progress || '',
+          percentage: action === 'restart' ? 55 : 100
+        }
       }))
 
       switch (action) {
@@ -445,12 +494,27 @@ export function Containers() {
         }).filter(Boolean)
       })
 
-      // 清除操作状态
-      setContainerActions(prev => {
-        const newState = { ...prev }
-        delete newState[containerId]
-        return newState
-      })
+      if (action !== 'delete') {
+        setContainerActions(prev => ({
+          ...prev,
+          [containerId]: {
+            action,
+            loading: false,
+            done: true,
+            progress: actionSuccessMeta[action]?.done || '操作成功',
+            percentage: 100
+          }
+        }))
+      }
+
+      // 延迟清除操作状态，给列表页留出完成动画时间
+      setTimeout(() => {
+        setContainerActions(prev => {
+          const newState = { ...prev }
+          delete newState[containerId]
+          return newState
+        })
+      }, action === 'delete' ? 0 : 1400)
 
       // 延迟刷新以获取最新数据
       setTimeout(() => {
@@ -1097,6 +1161,16 @@ export function Containers() {
     return [...pinnedItems, ...normalItems]
   })()
 
+  const containerTableColumnDefaults = useMemo(() => ({
+    name: 260,
+    status: 120,
+    image: 280,
+    createTime: 180,
+    runtime: 160,
+    actions: 300,
+  }), [])
+  const { widths: containerTableWidths, startResize: startContainerTableResize } = useResizableTableColumns('docker_copilot_container_table_widths_v1', containerTableColumnDefaults)
+
   const getUpdateProgressPercent = (container) => {
     const action = getContainerActionState(container)
     if (!action || !action.loading) return 0
@@ -1209,8 +1283,8 @@ export function Containers() {
     const isBusy = actionState?.loading
     const progressPercent = Math.max(0, Math.min(100, Math.round(actionState?.percentage || 0)))
     const progressLabel = actionState?.progress || ''
-    const isUpdateAction = actionState?.action === 'update'
-    const showProgressState = isUpdateAction && (isBusy || actionState?.done)
+    const overlayActions = ['update', 'start', 'stop', 'restart', 'delete']
+    const showProgressState = overlayActions.includes(actionState?.action) && (isBusy || actionState?.done)
 
     const progressOverlay = showProgressState ? (
       <div className="pointer-events-none absolute inset-0 overflow-hidden rounded-lg">
@@ -1242,48 +1316,57 @@ export function Containers() {
 
     return (
       <div className="min-w-[250px]">
-        <div className="relative inline-flex items-stretch gap-1 justify-start rounded-xl">
+        <div className={cn(
+          "relative rounded-xl",
+          showProgressState ? "h-[30px] w-[180px] overflow-hidden rounded-md border bg-white/82 dark:bg-gray-800/82 backdrop-blur-[1px]" : "inline-flex items-stretch gap-1 justify-start"
+        )}>
           {progressOverlay}
-          {container.status === 'running' ? (
-            <>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="停止">
-                停止
-              </button>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="重启">
-                重启
-              </button>
-            </>
+          {showProgressState ? (
+            <div className={cn(
+              "relative z-10 flex h-full w-full items-center justify-center px-2 text-xs font-semibold whitespace-nowrap",
+              actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300"
+            )} title={progressText}>
+              {progressText}
+            </div>
           ) : (
             <>
-              <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
-                启动
+              {container.status === 'running' ? (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-red-600 dark:text-red-400 hover:bg-red-50/80 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="停止">
+                    停止
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-blue-600 dark:text-blue-400 hover:bg-blue-50/80 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="重启">
+                    重启
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }} className="relative z-10 px-2 py-1 text-xs rounded-md text-green-600 dark:text-green-400 hover:bg-green-50/80 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="启动">
+                    启动
+                  </button>
+                  <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md font-semibold text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400 border border-red-600 dark:border-red-500 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
+                    删除
+                  </button>
+                </>
+              )}
+              <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
+                "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]",
+                isUpdateIgnored(container)
+                  ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100/80 dark:bg-gray-800/80 cursor-not-allowed opacity-70"
+                  : displayedHaveUpdate(container)
+                    ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20"
+                    : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50/80 dark:hover:bg-purple-900/20"
+              )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
+                更新
               </button>
-              <button onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md font-semibold text-white bg-red-600 hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400 border border-red-600 dark:border-red-500 shadow-sm backdrop-blur-[1px]" title="删除已停止容器">
-                删除
-              </button>
+              {isUpdateIgnored(container) ? (
+                <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100/82 dark:bg-gray-700/82 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold backdrop-blur-[1px]" title="取消忽略更新">取消忽略</button>
+              ) : (
+                <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
+              )}
             </>
-          )}
-          <button onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }} disabled={isUpdateIgnored(container)} className={cn(
-            "relative z-10 px-2 py-1 text-xs rounded-md border transition-colors bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]",
-            isUpdateIgnored(container)
-              ? "text-gray-400 dark:text-gray-500 border-gray-200 dark:border-gray-700 bg-gray-100/80 dark:bg-gray-800/80 cursor-not-allowed opacity-70"
-              : displayedHaveUpdate(container)
-                ? "text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20"
-                : "text-purple-600 dark:text-purple-400 border-gray-200 dark:border-gray-700 hover:bg-purple-50/80 dark:hover:bg-purple-900/20"
-          )} title={isUpdateIgnored(container) ? '已忽略更新，无法更新；请先取消忽略' : '更新'}>
-            更新
-          </button>
-          {isUpdateIgnored(container) ? (
-            <button onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-gray-700 dark:text-gray-200 border-gray-300 dark:border-gray-600 bg-gray-100/82 dark:bg-gray-700/82 hover:bg-gray-200 dark:hover:bg-gray-600 font-semibold backdrop-blur-[1px]" title="取消忽略更新">取消忽略</button>
-          ) : (
-            <button onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }} className="relative z-10 px-2 py-1 text-xs rounded-md border text-yellow-700 dark:text-yellow-300 border-yellow-300 dark:border-yellow-700 hover:bg-yellow-50/80 dark:hover:bg-yellow-900/20 bg-white/78 dark:bg-gray-800/78 backdrop-blur-[1px]" title="忽略更新">忽略</button>
           )}
         </div>
-        {progressText && (
-          <div className={cn("mt-1 pl-1 text-[11px] truncate", actionState?.done ? "text-emerald-600 dark:text-emerald-400" : "text-sky-600 dark:text-sky-300")} title={progressText}>
-            {progressText}
-          </div>
-        )}
       </div>
     )
   }
@@ -1291,7 +1374,7 @@ export function Containers() {
   const renderTableView = () => (
     <div className="overflow-hidden rounded-2xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 shadow-sm">
       <div className="overflow-x-auto">
-        <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <table className="min-w-full table-fixed divide-y divide-gray-200 dark:divide-gray-700">
           <thead className="bg-gray-50 dark:bg-gray-900/60">
             <tr>
               <th className="w-14 px-4 py-3 text-left">
@@ -1309,9 +1392,20 @@ export function Containers() {
                   />
                 </label>
               </th>
-              {['容器名称', '状态', '使用镜像', '创建时间', '运行时长', '操作与进度'].map((title) => (
-                <th key={title} className="px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap">
-                  {title}
+              {[
+                { key: 'name', title: '容器名称', minWidth: 220 },
+                { key: 'status', title: '状态', minWidth: 110 },
+                { key: 'image', title: '使用镜像', minWidth: 220 },
+                { key: 'createTime', title: '创建时间', minWidth: 150 },
+                { key: 'runtime', title: '运行时长', minWidth: 140 },
+                { key: 'actions', title: '操作与进度', minWidth: 260 },
+              ].map((col) => (
+                <th
+                  key={col.key}
+                  className="group relative px-4 py-3 text-left text-xs font-semibold text-gray-500 dark:text-gray-400 uppercase tracking-wider whitespace-nowrap"
+                  style={{ width: `${containerTableWidths[col.key]}px`, minWidth: `${col.minWidth}px` }}
+                >
+                  {col.title}
                 </th>
               ))}
             </tr>
@@ -1331,7 +1425,7 @@ export function Containers() {
                       <input type="checkbox" checked={isSelected} onChange={() => toggleContainerSelection(container.id)} className="h-4 w-4 rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
                     </label>
                   </td>
-                  <td className="px-4 py-3 min-w-[220px]">
+                  <td className="px-4 py-3 min-w-[220px]" style={{ width: `${containerTableWidths.name}px`, minWidth: '220px' }}>
                     <div className="flex items-center gap-3">
                       {renderContainerIcon(container)}
                       <div className="min-w-0">
@@ -1345,13 +1439,13 @@ export function Containers() {
                       </div>
                     </div>
                   </td>
-                  <td className="px-4 py-3 whitespace-nowrap">
+                  <td className="px-4 py-3 whitespace-nowrap" style={{ width: `${containerTableWidths.status}px`, minWidth: '110px' }}>
                     <span className="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                       <span className={cn("h-2.5 w-2.5 rounded-full", getStatusColor(container.status))} />
                       {container.status === 'running' ? '运行中' : '已停止'}
                     </span>
                   </td>
-                  <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={getContainerImageRef(container)}>
+                  <td className="px-4 py-3 text-sm max-w-[280px] truncate" title={getContainerImageRef(container)} style={{ width: `${containerTableWidths.image}px`, minWidth: '220px' }}>
                     <button
                       onClick={(e) => { e.stopPropagation(); setSelectedContainer(container) }}
                       className="truncate inline-flex max-w-full items-center gap-1 text-primary-600 dark:text-primary-400 hover:underline font-medium text-left"
@@ -1360,8 +1454,8 @@ export function Containers() {
                       <Pencil className="h-3.5 w-3.5 flex-shrink-0 opacity-80" />
                     </button>
                   </td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">{container.createTime || '-'}</td>
-                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap">
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" style={{ width: `${containerTableWidths.createTime}px`, minWidth: '150px' }}>{container.createTime || '-'}</td>
+                  <td className="px-4 py-3 text-sm text-gray-600 dark:text-gray-300 whitespace-nowrap" style={{ width: `${containerTableWidths.runtime}px`, minWidth: '140px' }}>
                     {container.status === 'running' ? (
                       formatRunningTime(container.runningTime)
                     ) : (() => {
@@ -1374,7 +1468,7 @@ export function Containers() {
                       )
                     })()}
                   </td>
-                  <td className="px-2 py-3 whitespace-nowrap min-w-[280px]" onClick={(e) => e.stopPropagation()}>
+                  <td className="px-2 py-3 whitespace-nowrap min-w-[280px]" onClick={(e) => e.stopPropagation()} style={{ width: `${containerTableWidths.actions}px`, minWidth: '260px' }}>
                     {renderTableActionButtons(container)}
                   </td>
                 </tr>
@@ -1647,6 +1741,14 @@ export function Containers() {
                 >
                   <Ban className="h-4 w-4" />
                   <span>{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
+                </button>
+                <button
+                  className={topButtonClass('bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400', selectedContainers.length === 0)}
+                  disabled={selectedContainers.length === 0}
+                  onClick={() => handleBatchDelete()}
+                  title="批量删除已停止容器"
+                >
+                  <span>删除</span>
                 </button>
             </>
               )})()}
@@ -1951,7 +2053,7 @@ export function Containers() {
 
                       {/* 操作按钮栏 - 底部水平排列 */}
                       {!isBatchMode && (
-                        <div className="flex gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                        <div className="flex gap-1 mt-[33px] pt-3 border-t border-gray-100 dark:border-gray-700/50">
                           {getContainerActionState(container)?.loading || getContainerActionState(container)?.done ? (
                             <div className={cn("flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 rounded-lg border whitespace-nowrap", getContainerActionState(container)?.done ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800")}>
                               {getContainerActionState(container)?.done ? <span className="h-4 w-4 text-green-600 dark:text-green-400 text-center leading-4">✓</span> : <RefreshCw className="h-4 w-4 animate-spin text-primary-600 dark:text-primary-400" />}

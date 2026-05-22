@@ -326,7 +326,10 @@ export function LogsPage() {
 
   const renderHighlightedLine = (line, lineIndex) => {
     const query = searchQuery.trim()
-    const content = line?.message ?? line?.raw ?? ''
+    const rawContent = line?.message ?? line?.raw ?? ''
+    const content = line?.level && line.level !== 'other'
+      ? String(rawContent).replace(/^\s*(?:\[(?:ERROR|ERR|WARN|WARNING|DEBUG|DBG|INFO|INF)\]|(?:ERROR|ERR|WARN|WARNING|DEBUG|DBG|INFO|INF))\s*[:\-]?\s*/i, '')
+      : rawContent
     const levelChipClass = line?.level === 'error'
       ? 'border border-red-500/30 bg-red-500/12 text-red-300'
       : line?.level === 'warn'

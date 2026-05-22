@@ -92,3 +92,40 @@ func normalizeVersion(version string) string {
 	version = strings.TrimPrefix(version, "V")
 	return version
 }
+
+func CompareVersions(a, b string) int {
+	a = normalizeVersion(a)
+	b = normalizeVersion(b)
+	if a == b {
+		return 0
+	}
+	ap := strings.Split(a, ".")
+	bp := strings.Split(b, ".")
+	maxLen := len(ap)
+	if len(bp) > maxLen {
+		maxLen = len(bp)
+	}
+	for i := 0; i < maxLen; i++ {
+		ai := 0
+		bi := 0
+		if i < len(ap) {
+			fmt.Sscanf(ap[i], "%d", &ai)
+		}
+		if i < len(bp) {
+			fmt.Sscanf(bp[i], "%d", &bi)
+		}
+		if ai > bi {
+			return 1
+		}
+		if ai < bi {
+			return -1
+		}
+	}
+	if a > b {
+		return 1
+	}
+	if a < b {
+		return -1
+	}
+	return 0
+}

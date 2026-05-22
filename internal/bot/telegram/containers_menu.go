@@ -3,7 +3,6 @@ package telegram
 import (
 	"context"
 	"fmt"
-	"sort"
 	"strconv"
 	"strings"
 )
@@ -29,8 +28,9 @@ func (r *Runtime) selectContainerAndRefresh(ctx context.Context, chatID int64, m
 		r.replyText(ctx, chatID, "❌ 选中的容器不存在")
 		return
 	}
-	r.setSelectedContainer(chatID, items[idx].ID)
-	r.sendContainersPage(ctx, chatID, messageID, page)
+	selected := items[idx]
+	r.setSelectedContainer(chatID, selected.ID)
+	r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 }
 
 func (r *Runtime) startSelectedContainer(ctx context.Context, chatID int64) error {
@@ -67,34 +67,29 @@ func (r *Runtime) updateSelectedContainer(ctx context.Context, chatID int64) {
 }
 
 func (r *Runtime) updateContainerByPageIndex(ctx context.Context, chatID int64, arg string) {
-	parts := strings.Split(arg, ":")
-	page := 0
-	idx := -1
-	if len(parts) > 0 {
-		page = parsePage(parts[0])
-	}
-	if len(parts) > 1 {
-		idx, _ = strconv.Atoi(strings.TrimSpace(parts[1]))
+	id := strings.TrimSpace(arg)
+	if id == "" {
+		r.replyText(ctx, chatID, "❌ 选中的容器不存在")
+		return
 	}
 	items, _, err := r.listCurrentContainers(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate {
-			updates = append(updates, item)
+	updates := filterUpdatableContainers(items)
+	match := ""
+	for _, item := range updates {
+		if item.ID == id || strings.HasPrefix(item.ID, id) {
+			match = item.ID
+			break
 		}
 	}
-	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
-	const pageSize = 8
-	_, _, start, end := paginate(len(updates), page, pageSize)
-	if idx < start || idx >= end || idx < 0 || idx >= len(updates) {
-		r.replyText(ctx, chatID, "❌ 选中的容器不存在")
+	if match == "" {
+		r.replyText(ctx, chatID, "❌ 选中的容器不存在或已不在可更新列表中")
 		return
 	}
-	r.updateContainer(ctx, chatID, updates[idx].ID)
+	r.updateContainer(ctx, chatID, match)
 }
 
 func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64) {
@@ -103,12 +98,7 @@ func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64
 		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
 		return
 	}
-	updates := make([]containerView, 0)
-	for _, item := range items {
-		if item.HaveUpdate {
-			updates = append(updates, item)
-		}
-	}
+	updates := filterUpdatableContainers(items)
 	if len(updates) == 0 {
 		r.replyText(ctx, chatID, "✅ 当前没有可更新容器")
 		return
@@ -155,7 +145,7 @@ func (r *Runtime) updateAllContainersOnPage(ctx context.Context, chatID int64, m
 	pageItems := items[start:end]
 	updatable := make([]containerView, 0)
 	for _, item := range pageItems {
-		if item.HaveUpdate {
+		if item.HaveUpdate && !item.UpdateBlocked {
 			updatable = append(updatable, item)
 		}
 	}

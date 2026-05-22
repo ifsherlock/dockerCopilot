@@ -46,6 +46,7 @@ func (l *AcceleratorLatencyLogic) GetLatency() (resp *types.Resp, err error) {
 	if len(list) == 0 {
 		list = []string{"docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"}
 	}
+	list = append([]string{"registry-1.docker.io"}, list...)
 
 	client := &http.Client{Timeout: 4 * time.Second}
 	results := make([]AcceleratorLatency, len(list))
