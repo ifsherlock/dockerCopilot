@@ -1010,7 +1010,6 @@ class TelegramBot:
         """确认单容器更新"""
         try:
             docker_client = self.get_docker_client(chat_id)
-            instance_name = self.get_current_instance_name(chat_id)
             container_id = self._resolve_container_callback_key(chat_id, container_ref)
             container_info = docker_client.get_container_info(container_id)
 
@@ -1021,26 +1020,15 @@ class TelegramBot:
             container_name = container_info['name']
             image_name = container_info['image']
             full_container_id = container_info['id']
-            short_container_id = full_container_id[:12] if full_container_id else container_id[:12]
             is_blacklisted = self._is_update_blacklisted(SimpleNamespace(**container_info))
 
-            warning_lines = []
+            message = f"⚠️ <b>确认更新容器</b> <b>{container_name}</b>？\n"
+            message += f"🖼 镜像: <code>{image_name}</code>"
+
             if is_blacklisted:
-                warning_lines.append("⚠️ <b>注意:</b> 该容器/镜像命中更新黑名单。")
-            if not container_info.get('has_update'):
-                warning_lines.append("ℹ️ 当前未检测到新版本，继续后仍会尝试执行更新。")
-            if image_name.startswith('sha256:'):
-                warning_lines.append("⚠️ 当前镜像是 sha256 摘要，通常无法自动更新。")
-
-            message = f"⚠️ <b>确认更新这个容器吗？</b>\n\n"
-            message += f"🖥 实例: <b>{instance_name}</b>\n"
-            message += f"📦 容器: <b>{container_name}</b>\n"
-            message += f"🆔 ID: <code>{short_container_id}</code>\n"
-            message += f"🖼 镜像: <code>{image_name}</code>\n"
-            message += f"🔖 黑名单: {'是 ⚠️' if is_blacklisted else '否 ✅'}"
-
-            if warning_lines:
-                message += "\n\n" + "\n".join(warning_lines)
+                message += "\n\n⚠️ <b>该容器命中更新黑名单</b>"
+            elif image_name.startswith('sha256:'):
+                message += "\n\n⚠️ <b>当前镜像 TAG 不可用，可能无法自动更新</b>"
 
             markup = InlineKeyboardMarkup()
             confirm_key = self._container_callback_key(chat_id, full_container_id)
