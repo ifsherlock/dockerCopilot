@@ -156,7 +156,7 @@ services:
       - TZ=Asia/Shanghai
       - DOCKER_HOST=unix:///var/run/docker.sock
       - secretKey=请改成你的强密码
-      - HOST_LAN_IP=192.168.1.10
+      - HOST_LAN_IP=改成你的宿主机IP
 ```
 
 说明：
@@ -198,7 +198,7 @@ services:
 多个实例用 `|` 分隔：
 
 ```text
-home::http://192.168.1.10:12712::home_secret|nas::http://192.168.1.20:12712::nas_secret
+home::http://你的宿主机IP:12712::home_secret|nas::http://另一台宿主机IP:12712::nas_secret
 ```
 
 适合：

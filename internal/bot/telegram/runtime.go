@@ -892,6 +892,9 @@ func (r *Runtime) renderImagesPage(items []imageView, instanceName string, page 
 	}
 	rows = append(rows, tu.InlineKeyboardRow(
 		tu.InlineKeyboardButton("🧹 清理无用镜像").WithCallbackData("confirm_clean_images:"),
+		tu.InlineKeyboardButton("⚠️ 强制删除无用").WithCallbackData("confirm_clean_images_force:"),
+	))
+	rows = append(rows, tu.InlineKeyboardRow(
 		tu.InlineKeyboardButton("🔄 刷新").WithCallbackData("images_refresh:"),
 	))
 	rows = append(rows, paginationRow("images_page", page, totalPages)...)
@@ -1026,23 +1029,25 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
 		return
 	}
-	type bucket struct{ lines []string }
-	var noTagUnused, noTagOnly, notUsedOnly bucket
-	allCount := 0
+	candidates := make([]imageView, 0)
 	for _, item := range images {
-		if !isCleanupCandidateView(item) {
-			continue
+		if isCleanupCandidateView(item) {
+			candidates = append(candidates, item)
 		}
-		allCount++
+	}
+	if len(candidates) == 0 {
+		r.replyText(ctx, chatID, fmt.Sprintf("✅ <b>%s</b> 无可清理镜像", escapeHTML(inst.Name)))
+		return
+	}
+	var b strings.Builder
+	b.WriteString("🗑 <b>可清理镜像列表</b>\n\n")
+	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n\n", escapeHTML(inst.Name)))
+	b.WriteString(fmt.Sprintf("找到 <b>%d</b> 个可清理的镜像：\n\n", len(candidates)))
+	for i, item := range candidates {
+		fullName := item.Name
 		tag := strings.TrimSpace(strings.ToLower(item.Tag))
-		noTag := tag == "" || tag == "none" || tag == "<none>"
-		notInUse := !item.InUsed
-		displayName := item.Name
 		if item.Tag != "" && tag != "none" && tag != "<none>" {
-			displayName += ":" + item.Tag
-		}
-		if len([]rune(displayName)) > 35 {
-			displayName = string([]rune(displayName)[:32]) + "..."
+			fullName += ":" + item.Tag
 		}
 		shortID := item.ID
 		if strings.HasPrefix(shortID, "sha256:") && len(shortID) > 19 {
@@ -1050,45 +1055,25 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64) {
 		} else if len(shortID) > 12 {
 			shortID = shortID[:12]
 		}
-		info := fmt.Sprintf("<code>%s</code>\n    ID: %s | %s", escapeHTML(displayName), escapeHTML(shortID), escapeHTML(item.Size))
-		switch {
-		case noTag && notInUse:
-			noTagUnused.lines = append(noTagUnused.lines, info)
-		case noTag:
-			noTagOnly.lines = append(noTagOnly.lines, info)
-		case notInUse:
-			notUsedOnly.lines = append(notUsedOnly.lines, info)
-		}
-	}
-	if allCount == 0 {
-		r.replyText(ctx, chatID, fmt.Sprintf("✅ <b>%s</b> 无可清理镜像", escapeHTML(inst.Name)))
-		return
-	}
-	var b strings.Builder
-	b.WriteString("🗑 <b>清理无用镜像</b>\n\n")
-	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n\n", escapeHTML(inst.Name)))
-	b.WriteString(fmt.Sprintf("找到 <b>%d</b> 个可清理的镜像:\n\n", allCount))
-	appendGroup := func(title string, lines []string) {
-		if len(lines) == 0 {
-			return
-		}
-		b.WriteString(fmt.Sprintf("📦 <b>%s</b> (%d 个):\n", title, len(lines)))
-		for i, line := range lines {
-			if i >= 5 {
-				b.WriteString(fmt.Sprintf("  • ... 还有 %d 个\n", len(lines)-i))
-				break
-			}
-			b.WriteString("  • " + line + "\n")
+		b.WriteString(fmt.Sprintf("%d. <code>%s</code>\n", i+1, escapeHTML(shorten(fullName, 60))))
+		b.WriteString(fmt.Sprintf("   🆔 %s\n", escapeHTML(shortID)))
+		b.WriteString(fmt.Sprintf("   💾 %s\n", escapeHTML(item.Size)))
+		if item.InUsed {
+			b.WriteString("   ⚠️ 使用中，强制删除才会处理\n")
 		}
 		b.WriteString("\n")
+		if i >= 11 && len(candidates) > 12 {
+			b.WriteString(fmt.Sprintf("… 还有 %d 个\n\n", len(candidates)-i-1))
+			break
+		}
 	}
-	appendGroup("无tag且未使用", noTagUnused.lines)
-	appendGroup("仅无tag", noTagOnly.lines)
-	appendGroup("仅未使用", notUsedOnly.lines)
-	b.WriteString("⚠️ <b>此操作不可逆,确定要清理这些镜像吗?</b>")
+	b.WriteString("请选择清理方式：")
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("✅ 确认清理").WithCallbackData("confirm_clean_images:"),
+			tu.InlineKeyboardButton("🧹 全部清理").WithCallbackData("confirm_clean_images:"),
+			tu.InlineKeyboardButton("⚠️ 强制删除全部").WithCallbackData("confirm_clean_images_force:"),
+		),
+		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	)
