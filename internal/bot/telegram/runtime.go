@@ -1469,20 +1469,47 @@ func (r *Runtime) doDeleteImage(ctx context.Context, chatID int64, messageID int
 		r.replyText(ctx, chatID, "❌ 未找到镜像")
 		return
 	}
-	if err := r.removeImageOnCurrent(ctx, chatID, items[idx].ID, force); err != nil {
+	target := items[idx]
+	fullName := target.Name
+	tag := strings.TrimSpace(strings.ToLower(target.Tag))
+	if target.Tag != "" && tag != "none" && tag != "<none>" {
+		fullName += ":" + target.Tag
+	}
+	if err := r.removeImageOnCurrent(ctx, chatID, target.ID, force); err != nil {
 		r.replyText(ctx, chatID, "❌ 删除镜像失败: "+err.Error())
 		return
 	}
-	r.replyText(ctx, chatID, "✅ 镜像删除成功")
+	r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像删除成功\n\n📦 <code>%s</code>\n🆔 <code>%s</code>\n💾 %s", escapeHTML(fullName), escapeHTML(target.ID), escapeHTML(target.Size)))
 	r.sendImagesPage(ctx, chatID, messageID, page)
 }
 
 func (r *Runtime) removeImage(ctx context.Context, chatID int64, imageID string) {
+	items, _, err := r.listCurrentImages(ctx, chatID)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
+		return
+	}
+	var target *imageView
+	for i := range items {
+		if items[i].ID == imageID {
+			target = &items[i]
+			break
+		}
+	}
 	if err := r.removeImageOnCurrent(ctx, chatID, imageID, true); err != nil {
 		r.replyText(ctx, chatID, "❌ 删除镜像失败: "+err.Error())
 		return
 	}
-	r.replyText(ctx, chatID, "✅ 镜像已删除")
+	if target == nil {
+		r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像已删除\n\n🆔 <code>%s</code>", escapeHTML(imageID)))
+		return
+	}
+	fullName := target.Name
+	tag := strings.TrimSpace(strings.ToLower(target.Tag))
+	if target.Tag != "" && tag != "none" && tag != "<none>" {
+		fullName += ":" + target.Tag
+	}
+	r.replyText(ctx, chatID, fmt.Sprintf("✅ 镜像已删除\n\n📦 <code>%s</code>\n🆔 <code>%s</code>\n💾 %s", escapeHTML(fullName), escapeHTML(target.ID), escapeHTML(target.Size)))
 }
 
 func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) {
