@@ -532,7 +532,7 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">Telegram通知配置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Telegram通知配置</p>
+                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">互动管理docker功能</p>
               </div>
             </div>
             <SectionToggle checked={config.interactiveEnabled} onChange={() => handleChange('interactiveEnabled', !config.interactiveEnabled)} textOn="已开启" textOff="已关闭" />
