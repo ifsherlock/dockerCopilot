@@ -478,24 +478,32 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 		r.updateAllContainersOnPage(ctx, chatID, messageID, parsePage(arg))
 	case "containers_close":
 		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单", nil)
+	case "container_back_list":
+		r.sendContainersPage(ctx, chatID, messageID, parsePage(arg))
 	case "container_start":
+		page := parsePage(arg)
 		if err := r.startSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 启动失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已启动")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_stop":
+		page := parsePage(arg)
 		if err := r.stopSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 停止失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已停止")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_restart":
+		page := parsePage(arg)
 		if err := r.restartSelectedContainer(ctx, chatID); err != nil {
 			r.replyText(ctx, chatID, "❌ 重启失败: "+err.Error())
 			return
 		}
 		r.replyText(ctx, chatID, "✅ 容器已重启")
+		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_update":
 		r.updateSelectedContainer(ctx, chatID)
 	case "show_backup_menu":
@@ -668,7 +676,7 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 	page, totalPages, start, end := paginate(len(items), page, pageSize)
 	var b strings.Builder
 	b.WriteString(fmt.Sprintf("📦 <b>容器列表</b> · <b>%s</b>（第 %d/%d 页）\n", escapeHTML(instanceName), page+1, totalPages))
-	b.WriteString("点击下方容器按钮选中后，再使用底部操作按钮。\n\n")
+	b.WriteString("点击一个容器，进入这个容器的操作菜单。\n\n")
 	rows := make([][]telego.InlineKeyboardButton, 0)
 	selectedID := r.selectedContainerID(chatID)
 	pageItems := items[start:end]
@@ -694,29 +702,56 @@ func (r *Runtime) renderContainersPage(chatID int64, items []containerView, inst
 		}
 		rows = append(rows, row)
 	}
-	if selected := findSelectedContainer(items, selectedID); selected != nil {
-		b.WriteString(fmt.Sprintf("已选中: <b>%s</b>\n状态: <code>%s</code>\n镜像: <code>%s</code>\n", escapeHTML(selected.Name), escapeHTML(selected.Status), escapeHTML(shorten(selected.UsingImage, 90))))
-		if selected.UpdateBlocked {
-			b.WriteString("更新状态: <code>黑名单中，已禁止更新</code>\n\n")
-		} else {
-			b.WriteString("\n")
-		}
-		rows = append(rows, tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("▶️ 启动").WithCallbackData("container_start:"),
-			tu.InlineKeyboardButton("⏹ 停止").WithCallbackData("container_stop:"),
-			tu.InlineKeyboardButton("🔄 重启").WithCallbackData("container_restart:"),
-		))
-		if selected.HaveUpdate && !selected.UpdateBlocked {
-			rows = append(rows, tu.InlineKeyboardRow(
-				tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
-			))
-		}
-	} else {
-		b.WriteString("当前未选中容器。\n\n")
-	}
 	rows = append(rows, paginationRow("containers_page", page, totalPages)...)
 	rows = append(rows, tu.InlineKeyboardRow(
-		tu.InlineKeyboardButton("↩️ 上一级").WithCallbackData("containers_page:"+strconv.Itoa(page)),
+		tu.InlineKeyboardButton("❌ 退出").WithCallbackData("containers_close:"),
+	))
+	return b.String(), tu.InlineKeyboard(rows...)
+}
+
+func (r *Runtime) sendSelectedContainerDetail(ctx context.Context, chatID int64, messageID int, page int) {
+	items, inst, err := r.listCurrentContainers(ctx, chatID)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取容器列表失败: "+err.Error())
+		return
+	}
+	selectedID := r.selectedContainerID(chatID)
+	selected := findSelectedContainer(items, selectedID)
+	if selected == nil {
+		r.replyText(ctx, chatID, "❌ 当前选中的容器不存在")
+		return
+	}
+	text, markup := r.renderSelectedContainerDetail(*selected, inst.Name, page)
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
+}
+
+func (r *Runtime) renderSelectedContainerDetail(selected containerView, instanceName string, page int) (string, *telego.InlineKeyboardMarkup) {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("📦 <b>容器菜单</b> · <b>%s</b>\n\n", escapeHTML(instanceName)))
+	b.WriteString(fmt.Sprintf("容器: <b>%s</b>\n", escapeHTML(selected.Name)))
+	b.WriteString(fmt.Sprintf("状态: <code>%s</code>\n", escapeHTML(selected.Status)))
+	b.WriteString(fmt.Sprintf("镜像: <code>%s</code>\n", escapeHTML(shorten(selected.UsingImage, 90))))
+	b.WriteString(fmt.Sprintf("ID: <code>%s</code>\n", escapeHTML(shorten(selected.ID, 24))))
+	if selected.UpdateBlocked {
+		b.WriteString("更新状态: <code>黑名单中，已禁止更新</code>\n")
+	} else if selected.HaveUpdate {
+		b.WriteString("更新状态: <code>可更新</code>\n")
+	}
+	b.WriteString("\n请选择操作：")
+	rows := [][]telego.InlineKeyboardButton{
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("▶️ 启动").WithCallbackData("container_start:"+strconv.Itoa(page)),
+			tu.InlineKeyboardButton("⏹ 停止").WithCallbackData("container_stop:"+strconv.Itoa(page)),
+			tu.InlineKeyboardButton("🔄 重启").WithCallbackData("container_restart:"+strconv.Itoa(page)),
+		),
+	}
+	if selected.HaveUpdate && !selected.UpdateBlocked {
+		rows = append(rows, tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("🆙 更新当前").WithCallbackData("container_update:"),
+		))
+	}
+	rows = append(rows, tu.InlineKeyboardRow(
+		tu.InlineKeyboardButton("↩️ 返回列表").WithCallbackData("container_back_list:"+strconv.Itoa(page)),
 		tu.InlineKeyboardButton("❌ 退出").WithCallbackData("containers_close:"),
 	))
 	return b.String(), tu.InlineKeyboard(rows...)

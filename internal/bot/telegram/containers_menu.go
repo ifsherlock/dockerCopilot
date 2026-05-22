@@ -30,11 +30,7 @@ func (r *Runtime) selectContainerAndRefresh(ctx context.Context, chatID int64, m
 	}
 	selected := items[idx]
 	r.setSelectedContainer(chatID, selected.ID)
-	if messageID > 0 {
-		r.sendContainersPage(ctx, chatID, messageID, page)
-		return
-	}
-	r.sendContainersPage(ctx, chatID, 0, page)
+	r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 }
 
 func (r *Runtime) startSelectedContainer(ctx context.Context, chatID int64) error {
