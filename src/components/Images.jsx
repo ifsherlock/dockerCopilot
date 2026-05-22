@@ -1371,123 +1371,145 @@ export function Images() {
             <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative flex flex-col items-center">
               <Zap className="h-7 w-7 text-yellow-500 dark:text-yellow-400 mb-2 transition-transform duration-300 group-hover:scale-110 fill-current stroke-[2.2]" />
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">加速源配置</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400"><span className="hidden sm:inline">加速源配置</span><span className="sm:hidden">加速源</span></div>
             </div>
           </button>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-4 shadow-sm">
-          <div className="flex flex-wrap items-center gap-2">
-            {viewMode === 'card' && (
+        <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4 shadow-sm">
+          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-2">
+            {viewMode === 'card' && !isBatchMode && (
               <button
-                onClick={() => {
-                  setIsBatchMode(!isBatchMode)
-                  if (isBatchMode) setSelectedImages([])
-                }}
-                className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors text-sm font-medium"
+                onClick={() => setIsBatchMode(true)}
+                className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                title="批量操作"
               >
                 <CheckSquare className="h-4 w-4" />
-                <span>{isBatchMode ? '退出批量' : '批量操作'}</span>
+                <span className="hidden sm:inline">批量操作</span>
               </button>
             )}
-            {(() => {
+            {viewMode === 'card' && isBatchMode && (
+              <button
+                onClick={() => {
+                  setIsBatchMode(false)
+                  setSelectedImages([])
+                }}
+                className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                title="退出批量"
+              >
+                <CheckSquare className="h-4 w-4" />
+                <span className="hidden sm:inline">退出批量</span>
+              </button>
+            )}
+            {(viewMode === 'table' || isBatchMode || selectedImages.length > 0) && (() => {
               const allVisibleSelected = filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))
+              const hasIgnoredSelected = selectedImages.some(id => {
+                const img = images.find(item => item.id === id)
+                return img && isImageUpdateIgnored(img)
+              })
+              const hasNormalSelected = selectedImages.some(id => {
+                const img = images.find(item => item.id === id)
+                return img && !isImageUpdateIgnored(img)
+              })
               return (
                 <>
-                  <button
-                    onClick={toggleSelectAllImages}
-                    disabled={isLoading || filteredImages.length === 0 || (viewMode === 'card' && !isBatchMode)}
-                    className="flex items-center gap-2 px-4 py-2 bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 rounded-lg hover:bg-blue-200 dark:hover:bg-blue-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-                  >
-                    <span>{allVisibleSelected ? '取消全选' : '全选'}</span>
-                  </button>
-                  {!allVisibleSelected && selectedImages.length > 0 && (
+                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                     <button
-                      onClick={() => setSelectedImages([])}
-                      disabled={isLoading}
-                      className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 text-sm font-medium"
+                      onClick={toggleSelectAllImages}
+                      disabled={isLoading || filteredImages.length === 0 || (viewMode === 'card' && !isBatchMode)}
+                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-blue-100 px-2.5 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                      title={allVisibleSelected ? '取消全选' : '全选'}
                     >
-                      <X className="h-4 w-4" />
-                      <span>取消选择</span>
+                      <CheckSquare className="h-4 w-4" />
+                      <span className="hidden sm:inline">{allVisibleSelected ? '取消全选' : '全选'}</span>
                     </button>
-                  )}
+                    {!allVisibleSelected && selectedImages.length > 0 && (
+                      <button
+                        onClick={() => setSelectedImages([])}
+                        disabled={isLoading}
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                      >
+                        <X className="h-4 w-4" />
+                        <span className="hidden sm:inline">取消选择</span>
+                      </button>
+                    )}
+                  </div>
+                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+                    <button
+                      onClick={handleBatchUpdate}
+                      disabled={isLoading || selectedImages.length === 0 || !images.some(img => selectedImages.includes(img.id) && img.haveUpdate)}
+                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-sky-100 px-2.5 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-200 disabled:opacity-50 dark:bg-sky-900/40 dark:text-sky-200 dark:hover:bg-sky-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                    >
+                      <RefreshCw className="h-4 w-4" />
+                      <span className="hidden sm:inline">更新</span>
+                    </button>
+                    {hasNormalSelected && (
+                      <button
+                        onClick={handleBatchIgnore}
+                        disabled={isLoading || selectedImages.length === 0}
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                      >
+                        <Ban className="h-4 w-4" />
+                        <span className="hidden sm:inline">忽略</span>
+                      </button>
+                    )}
+                    {hasIgnoredSelected && (
+                      <button
+                        onClick={handleBatchUnignore}
+                        disabled={isLoading || selectedImages.length === 0}
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-amber-100 px-2.5 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                      >
+                        <Ban className="h-4 w-4" />
+                        <span className="hidden sm:inline">取消忽略</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={openBatchDelete}
+                      disabled={isLoading || selectedImages.length === 0}
+                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-red-100 px-2.5 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
+                    </button>
+                    <button
+                      onClick={() => openConfirmBatchDelete(true)}
+                      disabled={isLoading || selectedImages.length === 0}
+                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-orange-100 px-2.5 py-2 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-900/40 dark:text-orange-200 dark:hover:bg-orange-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      <span className="hidden sm:inline">强删{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
+                    </button>
+                  </div>
                 </>
               )
             })()}
-            <button
-              onClick={handleBatchUpdate}
-              disabled={isLoading || selectedImages.length === 0 || !images.some(img => selectedImages.includes(img.id) && img.haveUpdate)}
-              className="flex items-center gap-2 px-4 py-2 bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-200 rounded-lg hover:bg-sky-200 dark:hover:bg-sky-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <RefreshCw className="h-4 w-4" />
-              <span>更新</span>
-            </button>
-            <button
-              onClick={handleBatchIgnore}
-              disabled={isLoading || selectedImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-gray-100 text-gray-700 dark:bg-gray-700 dark:text-gray-200 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <Ban className="h-4 w-4" />
-              <span>忽略</span>
-            </button>
-            <button
-              onClick={handleBatchUnignore}
-              disabled={isLoading || selectedImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 rounded-lg hover:bg-amber-200 dark:hover:bg-amber-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <Ban className="h-4 w-4" />
-              <span>取消忽略</span>
-            </button>
-            <button
-              onClick={openBatchDelete}
-              disabled={isLoading || selectedImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 rounded-lg hover:bg-red-200 dark:hover:bg-red-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span>删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
-            </button>
-            <button
-              onClick={() => openConfirmBatchDelete(true)}
-              disabled={isLoading || selectedImages.length === 0}
-              className="flex items-center gap-2 px-4 py-2 bg-orange-100 text-orange-700 dark:bg-orange-900/40 dark:text-orange-200 rounded-lg hover:bg-orange-200 dark:hover:bg-orange-900/60 transition-colors disabled:opacity-50 text-sm font-medium"
-            >
-              <Trash2 className="h-4 w-4" />
-              <span>强删{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
-            </button>
 
-            <div className="ml-auto flex flex-wrap items-center gap-2">
-              <div className="relative min-w-[220px] flex-1 sm:flex-none sm:w-60">
+            <div className="ml-0 flex w-full flex-wrap items-center gap-1.5 sm:gap-2 lg:ml-auto lg:w-auto lg:flex-nowrap">
+              <div className="relative min-w-0 flex-1 sm:w-60 lg:w-60">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
                   value={searchKeyword}
                   onChange={(e) => setSearchKeyword(e.target.value)}
-                  placeholder="搜索镜像/Tag/ID"
-                  className="w-full pl-9 pr-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-sm text-gray-900 dark:text-white placeholder-gray-400 focus:ring-2 focus:ring-primary-500 focus:border-transparent"
+                  placeholder="搜索"
+                  className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-8 pr-2 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 />
               </div>
-              <button
-                onClick={handleRefresh}
-                disabled={isLoading || isRefreshing}
-                className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 text-sm font-medium"
-              >
-                <RefreshCw className="h-4 w-4" />
-                <span>刷新</span>
-              </button>
-              <div className="flex items-center rounded-xl border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 p-1">
+              <div className="flex items-center gap-1.5 sm:gap-2">
                 <button
-                  onClick={() => setViewMode('card')}
-                  className={cn('p-2 rounded-lg transition-colors', viewMode === 'card' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                  title="卡片视图"
+                  onClick={handleRefresh}
+                  disabled={isLoading || isRefreshing}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 px-0 py-0 text-white transition-colors hover:bg-primary-700 disabled:opacity-50 sm:h-auto sm:w-auto sm:px-4 sm:py-2"
                 >
-                  <LayoutGrid className="h-4 w-4" />
+                  <RefreshCw className="h-4 w-4" />
+                  <span className="hidden sm:inline">刷新</span>
                 </button>
                 <button
-                  onClick={() => setViewMode('table')}
-                  className={cn('p-2 rounded-lg transition-colors', viewMode === 'table' ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700')}
-                  title="表格视图"
+                  onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
+                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-700 sm:h-auto sm:w-auto sm:px-3 sm:py-2"
+                  title={viewMode === 'card' ? '切换到表格视图' : '切换到卡片视图'}
                 >
-                  <LayoutList className="h-4 w-4" />
+                  {viewMode === 'card' ? <LayoutList className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
                 </button>
               </div>
             </div>
@@ -1497,26 +1519,30 @@ export function Images() {
 
       {/* 筛选/批量提示 */}
       {(filterStatus || selectedImages.length > 0) && (
-        <div className="px-4 sm:px-6 pt-2 pb-0">
-          <div className="mb-0 p-3 bg-blue-50 dark:bg-blue-900/20 border border-blue-200 dark:border-blue-800 rounded-lg">
-            <div className="flex flex-wrap items-center gap-2 justify-between">
+        <div className="px-3 sm:px-6 pt-2 pb-0">
+          <div className="mb-0 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
+            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
               <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-blue-700 dark:text-blue-300">
-                筛选中:
-                {filterStatus === 'used' && '使用中的镜像'}
-                {filterStatus === 'unused' && '未使用的镜像'}
-                {filterStatus === 'dangling' && '无Tag的镜像'}
-                {filterStatus === 'updatable' && '有更新的镜像'}
-                {selectedImages.length > 0 && ` · 已选中 ${selectedImages.length} 个镜像`}
+                {filterStatus ? (
+                  <>
+                    筛选：
+                    {filterStatus === 'used' && '使用中'}
+                    {filterStatus === 'unused' && '未使用'}
+                    {filterStatus === 'dangling' && '无Tag'}
+                    {filterStatus === 'updatable' && '有更新'}
+                  </>
+                ) : (
+                  <>已选中 {selectedImages.length} 个镜像</>
+                )}
+                {filterStatus && selectedImages.length > 0 && ` · 已选中 ${selectedImages.length} 个镜像`}
               </span>
               {filterStatus && <button
                 onClick={() => setFilterStatus(null)}
-                className="px-2 py-0.5 text-xs font-medium text-blue-600 dark:text-blue-300 hover:text-blue-800 dark:hover:text-blue-100 bg-blue-100 dark:bg-blue-800/50 rounded transition-colors"
+                className="inline-flex items-center justify-center rounded-md bg-blue-100 px-2 py-0.5 text-xs font-medium text-blue-600 transition-colors hover:text-blue-800 dark:bg-blue-800/50 dark:text-blue-300 dark:hover:text-blue-100"
               >
                 清除筛选
               </button>}
-              </div>
-              <div className="flex items-center gap-2">
               </div>
             </div>
           </div>
@@ -1657,11 +1683,18 @@ export function Images() {
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
             {filteredImages
               .map((image) => (
-                <div key={image.id} className={cn(
-                  "group card p-4 rounded-2xl hover:shadow-lg transition-all relative",
-                  selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20",
-                  isImageUpdateIgnored(image) && "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 hover:border-gray-300 dark:hover:border-gray-600"
-                )}>
+                <div
+                  key={image.id}
+                  className={cn(
+                    "group card p-3 sm:p-4 rounded-2xl hover:shadow-lg transition-all relative",
+                    isBatchMode && "cursor-pointer select-none",
+                    selectedImages.includes(image.id) && "ring-2 ring-primary-500 bg-primary-50 dark:bg-primary-900/20",
+                    isImageUpdateIgnored(image) && "border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/80 hover:border-gray-300 dark:hover:border-gray-600"
+                  )}
+                  onClick={() => {
+                    if (isBatchMode) toggleImageSelection(image.id)
+                  }}
+                >
                   {(() => {
                     const actionState = getImageUpdateActionState(image)
                     const showCardProgress = actionState?.action === 'update' && (actionState?.loading || actionState?.done)
@@ -1689,36 +1722,42 @@ export function Images() {
                   })()}
 
                   {isBatchMode && (
-                    <div className="flex justify-end mb-2">
-                      <input type="checkbox" checked={selectedImages.includes(image.id)} onChange={() => toggleImageSelection(image.id)} onClick={(e) => e.stopPropagation()} className="rounded border-gray-300 dark:border-gray-600 text-primary-600 focus:ring-primary-500" />
+                    <div className="absolute top-2 right-2 z-[70]">
+                      <input
+                        type="checkbox"
+                        checked={selectedImages.includes(image.id)}
+                        onChange={() => toggleImageSelection(image.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="h-4 w-4 rounded border-gray-300 bg-white/95 shadow-sm dark:border-gray-600 dark:bg-gray-900/90 text-primary-600 focus:ring-primary-500"
+                      />
                     </div>
                   )}
                   {/* 头部:图标、名字、状态指示器和大小 */}
-                  <div className="flex items-start gap-3 mb-2">
-                    <div className="h-10 w-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
+                  <div className="flex items-start gap-2.5 sm:gap-3 mb-2">
+                    <div className="h-9 w-9 sm:h-10 sm:w-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                       <SafeImage
                         src={getImageLogo(image.name, customIcons)}
                         alt={image.name}
-                        className="h-10 w-10 object-cover"
-                        fallback={<HardDrive className="h-5 w-5 text-gray-500 dark:text-gray-400" />}
+                        className="h-9 w-9 sm:h-10 sm:w-10 object-cover"
+                        fallback={<HardDrive className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500 dark:text-gray-400" />}
                       />
                     </div>
 
                     {/* 竖线状态指示器 */}
-                    <div className="flex flex-col items-center justify-center h-10">
+                    <div className="flex flex-col items-center justify-center h-9 sm:h-10">
                       {image.usageState === 'running' && (
-                        <div className="w-1 h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full flex-shrink-0" />
+                        <div className="w-1 h-5 sm:h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full flex-shrink-0" />
                       )}
                       {image.usageState === 'stopped' && (
-                        <div className="w-1 h-6 bg-gradient-to-b from-amber-400 to-amber-500 rounded-full flex-shrink-0" />
+                        <div className="w-1 h-5 sm:h-6 bg-gradient-to-b from-amber-400 to-amber-500 rounded-full flex-shrink-0" />
                       )}
                       {(!image.usageState || image.usageState === 'unused') && (
-                        <div className="w-1 h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex-shrink-0" />
+                        <div className="w-1 h-5 sm:h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex-shrink-0" />
                       )}
                     </div>
 
                     <div className="flex-1 min-w-0">
-                      <h4 className="font-semibold text-gray-900 dark:text-white truncate text-sm flex items-center gap-1">
+                      <h4 className="font-semibold text-gray-900 dark:text-white truncate text-[13px] sm:text-sm flex items-center gap-1">
                         <button
                           onClick={(e) => { e.stopPropagation(); openImageEditModal(image) }}
                           className="truncate text-left hover:underline"
@@ -1728,10 +1767,10 @@ export function Images() {
                         </button>
                         <ImageRiskHint image={image} />
                       </h4>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2">
+                      <p className="text-[11px] sm:text-xs text-gray-500 dark:text-gray-400 mt-0.5 flex items-center gap-2">
                         <button
                           onClick={(e) => { e.stopPropagation(); openImageEditModal(image) }}
-                          className="truncate inline-flex items-center gap-1 hover:text-primary-600 dark:hover:text-primary-400"
+                          className="truncate inline-flex items-center gap-1 hover:text-primary-600 dark:hover:text-primary-400 text-sm sm:text-base"
                           title={image.inUsed ? '该镜像正被容器引用(包括已停止容器),不能直接修改,请先处理相关容器' : '修改镜像名和 Tag'}
                         >
                           <span className="truncate">{image.tag}</span>
@@ -1776,7 +1815,7 @@ export function Images() {
 
                   {/* 镜像信息 */}
                   {!isBatchMode && (
-                    <div className="space-y-2 text-xs mb-2 ml-[68px] mr-6">
+                    <div className="space-y-1.5 text-[11px] sm:text-xs mb-2 ml-[58px] sm:ml-[68px] mr-5 sm:mr-6">
                       <div className={cn('mt-1 text-xs font-mono truncate', getSizeColor(image.size))}>
                         占用:{formatImageSize(image.size).replace(/\s+/g, '')}
                       </div>
@@ -1796,7 +1835,7 @@ export function Images() {
                     const actionState = getImageUpdateActionState(image)
                     const showCardProgress = actionState?.action === 'update' && (actionState?.loading || actionState?.done)
                     return !isBatchMode ? (
-                      <div className="flex gap-1 mt-[33px] pt-3 border-t border-gray-100 dark:border-gray-700/50">
+                      <div className="grid grid-cols-2 gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50 sm:flex">
                         {showCardProgress ? (
                           <div className={cn(
                             "flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 rounded-lg border whitespace-nowrap",
@@ -1957,7 +1996,7 @@ export function Images() {
                 <div className="h-11 w-11 rounded-2xl bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center"><Zap className="h-6 w-6 text-sky-600 dark:text-sky-300 fill-current stroke-[2.2]" /></div>
                 <div>
                   <h3 className="text-lg font-bold text-gray-900 dark:text-white">加速拉取镜像</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">选择加速源后拉取镜像,并实时输出日志。这里支持官方源直连和毫秒源。</p>
+                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1"></p>
                 </div>
               </div>
               <button onClick={() => setAcceleratorModal({ isOpen: false, imageName: '', taskId: '', logs: '', selectedSource: '' })} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="h-5 w-5" /></button>

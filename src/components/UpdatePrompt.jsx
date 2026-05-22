@@ -60,7 +60,7 @@ export function UpdatePrompt({
               </div>
               <div>
                 <h2 className="text-lg font-semibold text-gray-900 dark:text-white">
-                  程序更新与安装包管理
+                  程序更新
                 </h2>
                 <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
                   查看最新版本、执行在线更新，或手动上传匹配架构的程序包。

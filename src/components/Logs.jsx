@@ -33,7 +33,7 @@ export function LogsPage() {
   const [tail, setTail] = useState(300)
   const [autoRefresh, setAutoRefresh] = useState(true)
   const [autoScroll, setAutoScroll] = useState(true)
-  const [containerPaneCollapsed, setContainerPaneCollapsed] = useState(() => localStorage.getItem('docker_copilot_logs_container_pane') === 'collapsed')
+  const [containerPaneCollapsed, setContainerPaneCollapsed] = useState(() => true)
   const [favoriteContainerIds, setFavoriteContainerIds] = useState(() => {
     try {
       const parsed = JSON.parse(localStorage.getItem('docker_copilot_logs_favorites') || '[]')
@@ -400,8 +400,8 @@ export function LogsPage() {
       <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
         <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
           <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">容器日志</h2>
-            <p className="mt-1 text-sm text-gray-600 dark:text-gray-400">继续按 Dockhand 靠拢：更明显的工具状态、命中跳转、控制台式头部信息。</p>
+            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">容器日志</h2>
+            
           </div>
         </div>
       </div>
@@ -504,11 +504,11 @@ export function LogsPage() {
                 <div className={`truncate text-xs ${darkTheme ? 'text-gray-400' : 'text-gray-500'}`}>{selectedContainer?.usingImage || selectedContainer?.createImage || ''}</div>
               </div>
               <div className={`flex flex-wrap items-center gap-2 text-xs ${darkTheme ? 'text-gray-300' : 'text-gray-700'}`}>
-                <span className={`inline-flex items-center gap-1 rounded-lg border px-2.5 py-1.5 ${loadingLogs ? 'border-amber-500/40 bg-amber-500/12 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
-                  <Activity className={`h-3.5 w-3.5 ${loadingLogs ? 'animate-pulse' : ''}`} /> {loadingLogs ? '读取中' : '已就绪'}
+                <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] ${loadingLogs ? 'border-amber-500/40 bg-amber-500/12 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+                  <Activity className={`h-3.5 w-3.5 ${loadingLogs ? 'animate-pulse' : ''}`} /> <span className="hidden sm:inline">{loadingLogs ? '读取中' : '已就绪'}</span>
                 </span>
-                <div className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志行数 / Tail">
-                  <span className="text-[11px] opacity-75">Tail</span>
+                <div className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志行数">
+                  
                   <input
                     type="text"
                     inputMode="numeric"
@@ -523,9 +523,9 @@ export function LogsPage() {
                       if (!num) return '300'
                       return String(Math.min(5000, Math.max(100, num)))
                     })}
-                    className={`w-14 bg-transparent text-center text-base font-semibold outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${darkTheme ? 'text-gray-100' : 'text-gray-800'}`}
+                    className={`w-12 bg-transparent text-center text-sm font-semibold outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${darkTheme ? 'text-gray-100' : 'text-gray-800'}`}
                   />
-                  <span className="text-xs opacity-75">行</span>
+                  <span className="hidden sm:inline text-xs opacity-75">行</span>
                   <div className="ml-1 inline-flex items-center gap-1">
                     <button onClick={() => setTail(v => String(Math.max(100, Number(v || 300) - 100)))} className={`inline-flex h-7 w-7 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="减少 100 行">
                       <ChevronDown className="h-3.5 w-3.5" />
@@ -594,7 +594,7 @@ export function LogsPage() {
                 />
                 <div className={`absolute right-3 top-1/2 -translate-y-1/2 text-[11px] ${darkTheme ? 'text-gray-500' : 'text-gray-400'}`}>{matchCount ? `${currentMatchIndex || 1}/${matchCount}` : '0'}</div>
               </div>
-              <div className="flex items-center gap-2 text-xs flex-wrap">
+              <div className="flex items-center gap-2 text-xs flex-wrap lg:justify-end">
                 <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志级别筛选">
                   {['all', 'error', 'warn', 'info', 'debug'].map(level => (
                     <button

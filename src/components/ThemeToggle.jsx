@@ -48,7 +48,7 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
           className="inline-flex h-9 w-9 items-center justify-center rounded-lg border-0 bg-transparent text-gray-600 hover:bg-transparent dark:text-gray-300 dark:hover:bg-transparent transition-colors"
           title={`当前明暗：${currentMode.label}，点击切换`}
         >
-          <CurrentModeIcon className="h-4.5 w-4.5" />
+          <CurrentModeIcon className="h-5 w-5" />
         </button>
         <button
           onClick={nextAppearance}
@@ -62,10 +62,32 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
     )
   }
 
+  if (embedded) {
+    return (
+      <div className="flex items-center gap-2">
+        <button
+          onClick={nextTheme}
+          className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent transition-colors text-gray-600 hover:bg-transparent hover:text-gray-900 dark:text-gray-300 dark:hover:bg-transparent dark:hover:text-white"
+          title={`当前明暗：${currentMode.label}，点击切换`}
+        >
+          <CurrentModeIcon className="h-6 w-6" />
+        </button>
+        <button
+          onClick={nextAppearance}
+          className="relative inline-flex h-10 w-10 items-center justify-center rounded-xl bg-transparent transition-colors text-gray-600 hover:bg-transparent dark:text-gray-300 dark:hover:bg-transparent"
+          title={`当前外观：${currentAppearance.label}，点击切换`}
+        >
+          <span className={cn('absolute inset-2 rounded-full bg-gradient-to-br opacity-95', currentAppearance.swatch)} />
+          <Palette className="relative h-6 w-6 text-white drop-shadow" />
+        </button>
+      </div>
+    )
+  }
+
   return (
     <div className={cn(
       'flex items-center gap-2',
-      embedded ? 'bg-transparent p-0' : 'rounded-2xl border-0 bg-transparent p-2 shadow-none backdrop-blur-0 dark:border-0 dark:bg-transparent'
+      'rounded-2xl border-0 bg-transparent p-2 shadow-none backdrop-blur-0 dark:border-0 dark:bg-transparent'
     )}>
       <button
         onClick={nextTheme}
@@ -75,7 +97,7 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
         )}
         title={`当前明暗：${currentMode.label}，点击切换`}
       >
-        <CurrentModeIcon className="h-5 w-5" />
+        <CurrentModeIcon className="h-6 w-6" />
       </button>
 
       <button
@@ -87,7 +109,7 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
         title={`当前外观：${currentAppearance.label}，点击切换`}
       >
         <span className={cn('absolute inset-2 rounded-full bg-gradient-to-br opacity-95', currentAppearance.swatch)} />
-        <Palette className="relative h-4.5 w-4.5 text-white drop-shadow" />
+        <Palette className="relative h-6 w-6 text-white drop-shadow" />
       </button>
     </div>
   )
