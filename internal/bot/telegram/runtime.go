@@ -902,7 +902,6 @@ func (r *Runtime) sendUpdatesProgressively(ctx context.Context, chatID int64, me
 	}
 	resultCh := make(chan result, 1)
 	go func() {
-		time.Sleep(5 * time.Second)
 		updates, triggered, running, cacheAge, err := r.refreshUpdatableContainersSnapshot(ctx, inst)
 		resultCh <- result{updates: updates, triggered: triggered, running: running, cacheAge: cacheAge, err: err}
 	}()
