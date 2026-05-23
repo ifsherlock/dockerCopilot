@@ -12,8 +12,10 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"time"
 )
@@ -53,13 +55,9 @@ func UpdateProgramWithSource(ctx *svc.ServiceContext, taskID string, source Prog
 		updateTask(10, "正在校验上传更新包...", source.Filename, false)
 	} else {
 		updateTask(5, "正在检查新版本...", "正在拉取远端版本信息", false)
-		githubProxy := os.Getenv("githubProxy")
-		if githubProxy != "" {
-			githubProxy = strings.TrimRight(githubProxy, "/") + "/"
-		}
-		versionURL := githubProxy + "https://raw.githubusercontent.com/ifsherlock/dockerCopilot/latest/version"
-		releaseBaseURL := githubProxy + "https://github.com/ifsherlock/dockerCopilot/releases/download"
+		versionURL, releaseBaseURL := resolveUpdateSourceURLs()
 		logx.Infof("versionURL: %s", versionURL)
+		logx.Infof("releaseBaseURL: %s", releaseBaseURL)
 		client := &http.Client{Timeout: 180 * time.Second}
 		resp, err := client.Get(versionURL)
 		if err != nil {
@@ -78,7 +76,7 @@ func UpdateProgramWithSource(ctx *svc.ServiceContext, taskID string, source Prog
 			return nil
 		}
 		updateTask(20, "已发现新版本，准备下载...", fmt.Sprintf("本地 %s -> 远端 %s", localVersion, remoteVersion), false)
-		downloadURL := fmt.Sprintf("%s/%s/dockerCopilot-%s.tar.gz", releaseBaseURL, remoteVersion, runtime.GOARCH)
+		downloadURL := resolveProgramDownloadURL(releaseBaseURL, remoteVersion, runtime.GOARCH)
 		logx.Info("下载链接：", downloadURL)
 		archivePath = filepath.Join(workDir, "dockerCopilot.tar.gz")
 		updateTask(35, "正在下载更新包...", "下载发布资产中", false)
@@ -106,9 +104,48 @@ func UpdateProgramWithSource(ctx *svc.ServiceContext, taskID string, source Prog
 	if err := copyFile(extractedBinaryPath, stagedBinaryPath, 0755); err != nil {
 		return fmt.Errorf("写入新二进制失败: %w", err)
 	}
-	logx.Infof("已写入待切换新二进制: %s", stagedBinaryPath)
+	logx.Infof("已写入待切换新二进制: staged=%s source=%s", stagedBinaryPath, extractedBinaryPath)
+	promotedPath, err := promoteStagedBinary(stagedBinaryPath)
+	if err != nil {
+		return err
+	}
+	logx.Infof("新二进制已提升为当前可执行文件: %s", promotedPath)
 	updateTask(100, "更新包已就绪，正在重启服务...", "新版本已准备完成，准备自动重启", true)
 	return nil
+}
+
+func promoteStagedBinary(stagedBinaryPath string) (string, error) {
+	execPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("获取当前可执行文件路径失败: %w", err)
+	}
+	if resolved, resolveErr := filepath.EvalSymlinks(execPath); resolveErr == nil && strings.TrimSpace(resolved) != "" {
+		execPath = resolved
+	}
+	tmpTarget := execPath + ".next"
+	_ = os.Remove(tmpTarget)
+	if err := copyFile(stagedBinaryPath, tmpTarget, 0755); err != nil {
+		return "", fmt.Errorf("写入临时可执行文件失败: %w", err)
+	}
+	if err := os.Rename(tmpTarget, execPath); err != nil {
+		_ = os.Remove(tmpTarget)
+		return "", fmt.Errorf("替换当前可执行文件失败: %w", err)
+	}
+	_ = os.Remove(stagedBinaryPath)
+	return execPath, nil
+}
+
+func ScheduleServiceRestart(after time.Duration) error {
+	seconds := int(after / time.Second)
+	if seconds < 1 {
+		seconds = 1
+	}
+	pid := os.Getpid()
+	cmd := exec.Command("/bin/sh", "-c", "sleep "+strconv.Itoa(seconds)+"; kill -TERM "+strconv.Itoa(pid)+" >/dev/null 2>&1 || true")
+	cmd.Stdout = nil
+	cmd.Stderr = nil
+	logx.Infof("已调度服务重启: pid=%d after=%ds", pid, seconds)
+	return cmd.Start()
 }
 
 func extractUploadedOrReleaseBinary(path string, dest string) (string, error) {

@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
 	"time"
@@ -28,18 +27,6 @@ func UpdateProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 			httpx.WriteJson(w, resp.Code, resp)
 		}
 	}
-}
-
-func scheduleSelfRestart(after time.Duration) error {
-	seconds := int(after / time.Second)
-	if seconds < 1 {
-		seconds = 1
-	}
-	pid := os.Getpid()
-	cmd := exec.Command("/bin/sh", "-c", fmt.Sprintf("sleep %d; kill -TERM %d >/dev/null 2>&1 || true", seconds, pid))
-	cmd.Stdout = nil
-	cmd.Stderr = nil
-	return cmd.Start()
 }
 
 func UploadProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
@@ -95,7 +82,7 @@ func UploadProgramHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 				svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新失败", DetailMsg: runErr.Error(), IsDone: true})
 				return
 			}
-			if err := scheduleSelfRestart(5 * time.Second); err != nil {
+			if err := utiles.ScheduleServiceRestart(5 * time.Second); err != nil {
 				svcCtx.UpdateProgress(taskID, svc.TaskProgress{TaskID: taskID, Percentage: 100, Name: "dockerCopilot", Message: "更新失败", DetailMsg: "更新包已应用，但调度服务重启失败: " + err.Error(), IsDone: true})
 				return
 			}

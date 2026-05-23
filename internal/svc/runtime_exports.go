@@ -53,9 +53,16 @@ func TelegramHTTPClient(cfg backupRuntimeConfig) (*http.Client, error) {
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   15 * time.Second,
 			KeepAlive: 30 * time.Second,
 		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          20,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       10 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ResponseHeaderTimeout: 20 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
 	}
 
 	switch proxyType {
@@ -76,7 +83,7 @@ func TelegramHTTPClient(cfg backupRuntimeConfig) (*http.Client, error) {
 				auth = &proxy.Auth{User: username, Password: password}
 			}
 			dialer, err := proxy.SOCKS5("tcp", net.JoinHostPort(host, strconv.Itoa(port)), auth, &net.Dialer{
-				Timeout:   30 * time.Second,
+				Timeout:   15 * time.Second,
 				KeepAlive: 30 * time.Second,
 			})
 			if err != nil {
@@ -95,5 +102,5 @@ func TelegramHTTPClient(cfg backupRuntimeConfig) (*http.Client, error) {
 		// unknown proxy type -> fallback direct
 	}
 
-	return &http.Client{Timeout: 60 * time.Second, Transport: transport}, nil
+	return &http.Client{Timeout: 25 * time.Second, Transport: transport}, nil
 }

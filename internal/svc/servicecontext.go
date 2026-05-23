@@ -137,6 +137,12 @@ func (ctx *ServiceContext) IsUpdateCheckRunning() bool {
 	return ctx.UpdateCheckRunning
 }
 
+func (ctx *ServiceContext) UpdateCheckStatus() (running bool, last time.Time) {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	return ctx.UpdateCheckRunning, ctx.UpdateCheckLast
+}
+
 func (ctx *ServiceContext) UpdateProgress(taskID string, progress TaskProgress) {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()

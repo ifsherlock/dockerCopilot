@@ -251,52 +251,69 @@ func (r *Runtime) runUpdateDetectionOnce(ctx context.Context, silent bool) error
 	}
 	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
 	notifyEnabled := svc.AsBool(cfg.Telegram["notify_on_update"])
+	startedAt := time.Now()
+	logx.Infof("开始后台更新检测: instances=%d silent=%v", len(instances), silent)
 	for _, inst := range instances {
+		instStart := time.Now()
 		updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
 		if err != nil {
 			logx.Errorf("实例 %s 更新检测失败: %v", inst.Name, err)
 			continue
 		}
+		logx.Infof("实例 %s 更新检测完成: updates=%d duration=%s", inst.Name, len(updates), time.Since(instStart).Round(time.Millisecond))
 		if notifyEnabled && !silent && len(updates) > 0 {
 			r.broadcastUpdateNotification(ctx, chatIDs, inst.Name, updates)
 		}
 	}
+	logx.Infof("后台更新检测结束: duration=%s", time.Since(startedAt).Round(time.Millisecond))
 	return nil
 }
 
-func (r *Runtime) refreshUpdatableContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, error) {
+func (r *Runtime) refreshUpdatableContainersSnapshot(ctx context.Context, inst instanceConfig) ([]containerView, bool, bool, time.Duration, error) {
+	startedAt := time.Now()
+	logx.Infof("开始刷新可更新容器: instance=%s local=%v", inst.Name, inst.Local)
 	if inst.Local {
-		logic := containerlogic.NewCheckUpdateLogic(ctx, r.svcCtx)
-		if _, err := logic.CheckUpdate(); err != nil {
-			return nil, err
+		running, last := r.svcCtx.UpdateCheckStatus()
+		freshWithin := 60 * time.Second
+		cacheAge := time.Duration(0)
+		if !last.IsZero() {
+			cacheAge = time.Since(last)
 		}
-		deadline := time.Now().Add(2 * time.Minute)
-		for {
-			items, _, err := r.listCurrentContainersForInstance(ctx, inst)
-			if err == nil {
-				updates := filterUpdatableContainers(items)
-				if len(updates) > 0 || time.Now().After(deadline) || !r.svcCtx.IsUpdateCheckRunning() {
-					return updates, nil
-				}
+		shouldTriggerCheck := !running && (last.IsZero() || cacheAge > freshWithin)
+		if shouldTriggerCheck {
+			logic := containerlogic.NewCheckUpdateLogic(ctx, r.svcCtx)
+			if _, err := logic.CheckUpdate(); err != nil {
+				logx.Errorf("触发更新检查失败: instance=%s err=%v", inst.Name, err)
+			} else {
+				logx.Infof("已在后台触发新的更新检查: instance=%s freshWithin=%s", inst.Name, freshWithin)
 			}
-			if time.Now().After(deadline) {
-				if err != nil {
-					return nil, err
-				}
-				return []containerView{}, nil
-			}
-			select {
-			case <-ctx.Done():
-				return nil, ctx.Err()
-			case <-time.After(2 * time.Second):
-			}
+		} else {
+			logx.Infof("复用近期更新检测结果: instance=%s running=%v age=%s", inst.Name, running, cacheAge.Round(time.Millisecond))
 		}
+
+		items, _, err := r.listCurrentContainersForInstance(ctx, inst)
+		if err != nil {
+			logx.Errorf("刷新可更新容器失败: instance=%s err=%v", inst.Name, err)
+			return nil, shouldTriggerCheck, running, cacheAge, err
+		}
+		updates := filterUpdatableContainers(items)
+		runningAfter, _ := r.svcCtx.UpdateCheckStatus()
+		logx.Infof("刷新可更新容器完成(即时返回): instance=%s updates=%d triggered=%v running=%v duration=%s", inst.Name, len(updates), shouldTriggerCheck, runningAfter, time.Since(startedAt).Round(time.Millisecond))
+		return updates, shouldTriggerCheck, runningAfter, cacheAge, nil
 	}
 	items, _, err := r.listCurrentContainersForInstance(ctx, inst)
 	if err != nil {
-		return nil, err
+		logx.Errorf("远端实例刷新可更新容器失败: instance=%s err=%v", inst.Name, err)
+		return nil, false, false, 0, err
 	}
-	return filterUpdatableContainers(items), nil
+	updates := filterUpdatableContainers(items)
+	logx.Infof("远端实例刷新可更新容器完成: instance=%s updates=%d duration=%s", inst.Name, len(updates), time.Since(startedAt).Round(time.Millisecond))
+	return updates, false, false, 0, nil
+}
+
+func (r *Runtime) refreshUpdatableContainersForInstance(ctx context.Context, inst instanceConfig) ([]containerView, error) {
+	updates, _, _, _, err := r.refreshUpdatableContainersSnapshot(ctx, inst)
+	return updates, err
 }
 
 func filterUpdatableContainers(items []containerView) []containerView {
@@ -364,6 +381,7 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	if r.handleStatefulInput(ctx, msg) {
 		return
 	}
+	logx.Infof("telegram inbound message: chat=%d text=%q", msg.Chat.ID, text)
 	switch strings.Fields(strings.ToLower(text))[0] {
 	case "/start":
 		r.replyText(ctx, msg.Chat.ID, r.helpText())
@@ -556,6 +574,14 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 		r.updateAllUpdatableContainers(ctx, chatID)
 	case "images_refresh_updates":
 		r.sendUpdates(ctx, chatID)
+	case "updates_refresh":
+		statusText := "⏳ 正在后台刷新可更新容器，请稍候..."
+		r.editOrReplyText(ctx, chatID, messageID, statusText, nil)
+		go func(mid int) {
+			checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+			defer cancel()
+			r.sendUpdatesProgressively(checkCtx, chatID, mid, 0)
+		}(messageID)
 	case "back_images":
 		r.sendImagesPage(ctx, chatID, messageID, parsePage(arg))
 	case "images_refresh":
@@ -625,35 +651,114 @@ func (r *Runtime) handleStatefulInput(ctx context.Context, msg *telego.Message) 
 	}
 }
 
+func isRetryableTelegramError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(err.Error())
+	for _, key := range []string{
+		"eof",
+		"connection reset by peer",
+		"broken pipe",
+		"client.timeout exceeded",
+		"timeout awaiting response headers",
+		"use of closed network connection",
+		"http2: client connection lost",
+		"stream error",
+		"tls handshake timeout",
+		"i/o timeout",
+		"temporary failure",
+	} {
+		if strings.Contains(msg, key) {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *Runtime) sendTelegramMessageWithRetry(ctx context.Context, chatID int64, text string, markup *telego.InlineKeyboardMarkup) (*telego.Message, error) {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		msg := tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML)
+		if markup != nil {
+			msg = msg.WithReplyMarkup(markup)
+		}
+		sent, err := r.bot.SendMessage(ctx, msg)
+		if err == nil {
+			if attempt > 1 {
+				logx.Infof("Telegram SendMessage 重试成功: chat=%d attempt=%d", chatID, attempt)
+			}
+			return sent, nil
+		}
+		lastErr = err
+		if !isRetryableTelegramError(err) || attempt == 3 {
+			break
+		}
+		backoff := time.Duration(attempt*300) * time.Millisecond
+		logx.Errorf("Telegram SendMessage 失败，准备重试: chat=%d attempt=%d err=%v backoff=%s", chatID, attempt, err, backoff)
+		select {
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return nil, lastErr
+}
+
+func (r *Runtime) editTelegramMessageWithRetry(ctx context.Context, chatID int64, messageID int, text string, markup *telego.InlineKeyboardMarkup) error {
+	var lastErr error
+	for attempt := 1; attempt <= 3; attempt++ {
+		params := tu.EditMessageText(tu.ID(chatID), messageID, text).WithParseMode(telego.ModeHTML)
+		if markup != nil {
+			params = params.WithReplyMarkup(markup)
+		}
+		_, err := r.bot.EditMessageText(ctx, params)
+		if err == nil {
+			if attempt > 1 {
+				logx.Infof("Telegram EditMessageText 重试成功: chat=%d message=%d attempt=%d", chatID, messageID, attempt)
+			}
+			return nil
+		}
+		lastErr = err
+		if !isRetryableTelegramError(err) || attempt == 3 {
+			break
+		}
+		backoff := time.Duration(attempt*300) * time.Millisecond
+		logx.Errorf("Telegram EditMessageText 失败，准备重试: chat=%d message=%d attempt=%d err=%v backoff=%s", chatID, messageID, attempt, err, backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return lastErr
+}
+
 func (r *Runtime) replyText(ctx context.Context, chatID int64, text string) {
-	_, err := r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML))
-	if err != nil {
+	if _, err := r.sendTelegramMessageWithRetry(ctx, chatID, text, nil); err != nil {
 		logx.Errorf("发送 Telegram 消息失败 chat=%d: %v | text=%q", chatID, err, shorten(text, 200))
 	}
 }
 
+func (r *Runtime) sendText(ctx context.Context, chatID int64, text string, markup *telego.InlineKeyboardMarkup) (*telego.Message, error) {
+	sent, err := r.sendTelegramMessageWithRetry(ctx, chatID, text, markup)
+	if err != nil {
+		logx.Errorf("发送 Telegram 消息失败 chat=%d: %v | text=%q", chatID, err, shorten(text, 200))
+		return nil, err
+	}
+	return sent, nil
+}
+
 func (r *Runtime) editOrReplyText(ctx context.Context, chatID int64, messageID int, text string, markup *telego.InlineKeyboardMarkup) {
 	if messageID <= 0 {
-		msg := tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML)
-		if markup != nil {
-			msg = msg.WithReplyMarkup(markup)
-		}
-		if _, err := r.bot.SendMessage(ctx, msg); err != nil {
+		if _, err := r.sendTelegramMessageWithRetry(ctx, chatID, text, markup); err != nil {
 			logx.Errorf("发送 Telegram 消息失败 chat=%d: %v | text=%q", chatID, err, shorten(text, 200))
 		}
 		return
 	}
-	params := tu.EditMessageText(tu.ID(chatID), messageID, text).WithParseMode(telego.ModeHTML)
-	if markup != nil {
-		params = params.WithReplyMarkup(markup)
-	}
-	if _, err := r.bot.EditMessageText(ctx, params); err != nil {
+	if err := r.editTelegramMessageWithRetry(ctx, chatID, messageID, text, markup); err != nil {
 		logx.Errorf("编辑 Telegram 消息失败 chat=%d message=%d: %v | fallback-send", chatID, messageID, err)
-		msg := tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML)
-		if markup != nil {
-			msg = msg.WithReplyMarkup(markup)
-		}
-		if _, sendErr := r.bot.SendMessage(ctx, msg); sendErr != nil {
+		if _, sendErr := r.sendTelegramMessageWithRetry(ctx, chatID, text, markup); sendErr != nil {
 			logx.Errorf("回退发送 Telegram 消息失败 chat=%d: %v | text=%q", chatID, sendErr, shorten(text, 200))
 		}
 	}
@@ -764,26 +869,145 @@ func (r *Runtime) renderSelectedContainerDetail(selected containerView, instance
 }
 
 func (r *Runtime) sendUpdates(ctx context.Context, chatID int64) {
-	r.sendUpdatesPage(ctx, chatID, 0, 0)
+	statusText := "⏳ 正在后台检查可更新容器，请稍候..."
+	sent, err := r.sendText(ctx, chatID, statusText, nil)
+	if err != nil {
+		return
+	}
+	messageID := 0
+	if sent != nil {
+		messageID = sent.MessageID
+	}
+	go func(mid int) {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		r.sendUpdatesProgressively(checkCtx, chatID, mid, 0)
+	}(messageID)
+}
+
+func (r *Runtime) sendUpdatesProgressively(ctx context.Context, chatID int64, messageID int, page int) {
+	inst, err := r.currentInstance(ctx, chatID)
+	if err != nil {
+		logx.Errorf("sendUpdatesProgressively 获取实例失败: chat=%d err=%v", chatID, err)
+		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
+		return
+	}
+
+	type result struct {
+		updates   []containerView
+		triggered bool
+		running   bool
+		cacheAge  time.Duration
+		err       error
+	}
+	resultCh := make(chan result, 1)
+	go func() {
+		time.Sleep(5 * time.Second)
+		updates, triggered, running, cacheAge, err := r.refreshUpdatableContainersSnapshot(ctx, inst)
+		resultCh <- result{updates: updates, triggered: triggered, running: running, cacheAge: cacheAge, err: err}
+	}()
+
+	select {
+	case res := <-resultCh:
+		if res.err != nil {
+			logx.Errorf("sendUpdatesProgressively 刷新失败: chat=%d instance=%s err=%v", chatID, inst.Name, res.err)
+			r.editOrReplyText(ctx, chatID, messageID, "❌ 获取可更新容器失败: "+res.err.Error(), nil)
+			return
+		}
+		rendered := r.renderUpdatesResult(ctx, chatID, messageID, inst.Name, res.updates, page)
+		if rendered && (res.triggered || res.running) {
+			go r.finalizeUpdatesAfterBackgroundCheck(context.Background(), chatID, messageID, inst, page)
+		}
+		return
+	case <-time.After(3 * time.Second):
+		cacheText := "⏳ 实时检查超过 3 秒，先展示缓存结果…"
+		r.editOrReplyText(ctx, chatID, messageID, cacheText, nil)
+	}
+
+	res := <-resultCh
+	if res.err != nil {
+		logx.Errorf("sendUpdatesProgressively 超时后刷新失败: chat=%d instance=%s err=%v", chatID, inst.Name, res.err)
+		r.editOrReplyText(ctx, chatID, messageID, "❌ 获取可更新容器失败: "+res.err.Error(), nil)
+		return
+	}
+
+	progressPrefix := fmt.Sprintf("🕒 先展示缓存结果（缓存年龄：<b>%s</b>）\n实时检查仍在后台继续，稍后会自动刷新。\n\n", formatCacheAge(res.cacheAge))
+	if len(res.updates) == 0 {
+		r.editOrReplyText(ctx, chatID, messageID, progressPrefix+fmt.Sprintf("实例 <b>%s</b> 当前缓存结果显示没有可更新容器", escapeHTML(inst.Name)), nil)
+	} else {
+		text, markup := r.renderUpdatesPage(res.updates, inst.Name, page)
+		r.editOrReplyText(ctx, chatID, messageID, progressPrefix+text, markup)
+	}
+	if res.triggered || res.running {
+		go r.finalizeUpdatesAfterBackgroundCheck(context.Background(), chatID, messageID, inst, page)
+	}
+}
+
+func formatCacheAge(age time.Duration) string {
+	if age <= 0 {
+		return "刚刚"
+	}
+	if age < time.Second {
+		return age.Round(100 * time.Millisecond).String()
+	}
+	return age.Round(time.Second).String()
+}
+
+func (r *Runtime) finalizeUpdatesAfterBackgroundCheck(ctx context.Context, chatID int64, messageID int, inst instanceConfig, page int) {
+	waitCtx, cancel := context.WithTimeout(ctx, 90*time.Second)
+	defer cancel()
+	for {
+		running, _ := r.svcCtx.UpdateCheckStatus()
+		if !running {
+			break
+		}
+		select {
+		case <-waitCtx.Done():
+			logx.Errorf("finalizeUpdatesAfterBackgroundCheck 等待后台检查结束超时: chat=%d instance=%s", chatID, inst.Name)
+			return
+		case <-time.After(1500 * time.Millisecond):
+		}
+	}
+	latest, err := r.refreshUpdatableContainersForInstance(waitCtx, inst)
+	if err != nil {
+		logx.Errorf("finalizeUpdatesAfterBackgroundCheck 最终刷新失败: chat=%d instance=%s err=%v", chatID, inst.Name, err)
+		r.editOrReplyText(waitCtx, chatID, messageID, "❌ 获取实时更新结果失败: "+err.Error(), nil)
+		return
+	}
+	if len(latest) == 0 {
+		r.editOrReplyText(waitCtx, chatID, messageID, fmt.Sprintf("✅ 实时更新结果已返回\n\n实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)), nil)
+		return
+	}
+	text, markup := r.renderUpdatesPage(latest, inst.Name, page)
+	r.editOrReplyText(waitCtx, chatID, messageID, "✅ 实时更新结果已返回\n\n"+text, markup)
+}
+
+func (r *Runtime) renderUpdatesResult(ctx context.Context, chatID int64, messageID int, instanceName string, updates []containerView, page int) bool {
+	if len(updates) == 0 {
+		logx.Infof("sendUpdatesPage 准备回消息: chat=%d instance=%s updates=0", chatID, instanceName)
+		r.editOrReplyText(ctx, chatID, messageID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(instanceName)), nil)
+		return true
+	}
+	text, markup := r.renderUpdatesPage(updates, instanceName, page)
+	logx.Infof("sendUpdatesPage 准备回消息: chat=%d instance=%s updates=%d page=%d", chatID, instanceName, len(updates), page)
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
+	return true
 }
 
 func (r *Runtime) sendUpdatesPage(ctx context.Context, chatID int64, messageID int, page int) {
 	inst, err := r.currentInstance(ctx, chatID)
 	if err != nil {
+		logx.Errorf("sendUpdatesPage 获取实例失败: chat=%d err=%v", chatID, err)
 		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
 	updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
 	if err != nil {
+		logx.Errorf("sendUpdatesPage 刷新失败: chat=%d instance=%s err=%v", chatID, inst.Name, err)
 		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
-	if len(updates) == 0 {
-		r.editOrReplyText(ctx, chatID, messageID, fmt.Sprintf("✅ 实例 <b>%s</b> 当前没有可更新容器", escapeHTML(inst.Name)), nil)
-		return
-	}
-	text, markup := r.renderUpdatesPage(updates, inst.Name, page)
-	r.editOrReplyText(ctx, chatID, messageID, text, markup)
+	r.renderUpdatesResult(ctx, chatID, messageID, inst.Name, updates, page)
 }
 
 func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, page int) (string, *telego.InlineKeyboardMarkup) {
@@ -843,7 +1067,7 @@ func (r *Runtime) renderUpdatesPage(items []containerView, instanceName string, 
 		tu.InlineKeyboardButton(fmt.Sprintf("⚡ 一键更新所有 (%d个)", len(items))).WithCallbackData("updates_update_all:"),
 	))
 	rows = append(rows, tu.InlineKeyboardRow(
-		tu.InlineKeyboardButton("🔄 刷新").WithCallbackData("images_refresh_updates:"),
+		tu.InlineKeyboardButton("🔄 刷新").WithCallbackData("updates_refresh:"),
 		tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 	))
 	return b.String(), tu.InlineKeyboard(rows...)

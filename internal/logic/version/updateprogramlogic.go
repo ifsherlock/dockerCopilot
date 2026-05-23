@@ -2,7 +2,6 @@ package version
 
 import (
 	"context"
-	"os"
 	"strings"
 	"time"
 
@@ -73,8 +72,17 @@ func (l *UpdateProgramLogic) UpdateProgram(force bool) (resp *types.Resp, err er
 			DetailMsg:  "即将自动重启并恢复连接",
 			IsDone:     true,
 		})
-		time.Sleep(3 * time.Second)
-		os.Exit(1)
+		if restartErr := utiles.ScheduleServiceRestart(3 * time.Second); restartErr != nil {
+			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
+				TaskID:     taskID,
+				Percentage: 100,
+				Name:       "dockerCopilot",
+				Message:    "更新失败",
+				DetailMsg:  "更新包已应用，但调度服务重启失败: " + restartErr.Error(),
+				IsDone:     true,
+			})
+			return
+		}
 	}()
 
 	resp.Code = 200

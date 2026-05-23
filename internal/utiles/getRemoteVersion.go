@@ -12,17 +12,54 @@ import (
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
-func GetRemoteVersion() (remoteVersion string, err error) {
+var (
+	defaultRemoteVersionURL = "https://raw.githubusercontent.com/ifsherlock/dockerCopilot/latest/version"
+	defaultReleaseBaseURL   = "https://github.com/ifsherlock/dockerCopilot/releases/download"
+)
+
+func resolveUpdateSourceURLs() (versionURL string, releaseBaseURL string) {
 	githubProxy := os.Getenv("githubProxy")
 	if githubProxy != "" {
 		githubProxy = strings.TrimRight(githubProxy, "/") + "/"
 	}
-	versionURL := os.Getenv("remoteVersionURL")
+
+	versionURL = strings.TrimSpace(os.Getenv("remoteVersionURL"))
 	if versionURL == "" {
-		versionURL = githubProxy + "https://raw.githubusercontent.com/ifsherlock/dockerCopilot/latest/version"
-	} else if githubProxy != "" && strings.HasPrefix(versionURL, "https://") {
+		versionURL = defaultRemoteVersionURL
+	}
+	if githubProxy != "" && strings.HasPrefix(versionURL, "https://") {
 		versionURL = githubProxy + versionURL
 	}
+
+	releaseBaseURL = strings.TrimSpace(os.Getenv("releaseBaseURL"))
+	if releaseBaseURL == "" {
+		releaseBaseURL = defaultReleaseBaseURL
+	}
+	if githubProxy != "" && strings.HasPrefix(releaseBaseURL, "https://") {
+		releaseBaseURL = githubProxy + releaseBaseURL
+	}
+	return versionURL, strings.TrimRight(releaseBaseURL, "/")
+}
+
+func resolveProgramDownloadURL(releaseBaseURL, remoteVersion, arch string) string {
+	base := strings.TrimRight(strings.TrimSpace(releaseBaseURL), "/")
+	if strings.Contains(base, "{version}") || strings.Contains(base, "{arch}") {
+		url := strings.ReplaceAll(base, "{version}", remoteVersion)
+		url = strings.ReplaceAll(url, "{arch}", arch)
+		return url
+	}
+	if strings.HasSuffix(strings.ToLower(base), ".tar.gz") {
+		return base
+	}
+	if strings.Contains(base, "/releases/download") {
+		return fmt.Sprintf("%s/%s/dockerCopilot-%s.tar.gz", base, remoteVersion, arch)
+	}
+	return fmt.Sprintf("%s/dockerCopilot-%s.tar.gz", base, arch)
+}
+
+func GetRemoteVersion() (remoteVersion string, err error) {
+	versionURL, _ := resolveUpdateSourceURLs()
+	logx.Infof("远端版本检测地址: %s", versionURL)
 	remoteVersion, err = fetchVersionFromURL(versionURL)
 	if err != nil {
 		return "0.0.0", err
