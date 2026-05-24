@@ -6,7 +6,7 @@
 
 DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 **Web 面板 + Telegram Bot** 双入口，适合在 NAS、Linux 主机、家庭服务器上统一管理容器、镜像、日志、备份与更新。
 
-> 当前维护版：`2.1.9`
+> 当前维护版：`2.1.12`
 
 ---
 
@@ -127,7 +127,9 @@ docker compose up -d
 访问：
 
 ```text
-http://服务器IP:12712/manager
+PC 端：http://服务器IP:12712/manager
+手机端：http://服务器IP:12712/m
+根路径 / 会根据 User-Agent 自动跳转到 PC 或 Mobile
 ```
 
 ---
@@ -296,20 +298,31 @@ DockerCopilot 自己不会走普通的“删容器重建”流程，而是走：
 
 ## 开发构建
 
-前端：
+PC 前端：
 
 ```bash
+npm install
+npm run build:pc
+```
+
+Mobile 前端：
+
+```bash
+cd web-mobile
 npm install
 npm run build
 ```
 
-如果需要重新打包嵌入式前端：
+一键重新打包双前端到内嵌目录：
 
 ```bash
-npm run build
-rm -rf front
-cp -a dist front
+npm run build:front
 ```
+
+说明：
+- [`package.json`](dockerCopilot/package.json) 里的 [`build:pc`](dockerCopilot/package.json:8) 会把 Vite PC 端输出到 [`front/pc`](dockerCopilot/front/pc)
+- [`package.json`](dockerCopilot/package.json:9) 里的 [`build:mobile`](dockerCopilot/package.json:9) 会构建 [`web-mobile`](dockerCopilot/web-mobile) 并通过 [`scripts/sync-mobile.mjs`](dockerCopilot/scripts/sync-mobile.mjs) 同步到 [`front/mobile`](dockerCopilot/front/mobile)
+- Go 通过 [`dockercopilot.go`](dockerCopilot/dockercopilot.go:28) 的 `embed` 把两套前端一起打进二进制
 
 后端 / 镜像再按项目发布流程继续构建。
 

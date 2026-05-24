@@ -22,26 +22,36 @@ const setFavicon = () => {
   document.head.appendChild(link)
 }
 
-// 注册 Service Worker
-const registerServiceWorker = () => {
-  if ('serviceWorker' in navigator) {
-    window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js')
-        .then(registration => {
-          console.log('Service Worker registered:', registration)
-        })
-        .catch(error => {
-          console.log('Service Worker registration failed:', error)
-        })
-    })
+// 清理旧 Service Worker 与缓存，避免旧版缓存住 /manager 和旧 assets
+const cleanupLegacyServiceWorkers = () => {
+  if (!('serviceWorker' in navigator)) {
+    return
   }
+
+  window.addEventListener('load', async () => {
+    try {
+      const registrations = await navigator.serviceWorker.getRegistrations()
+      await Promise.all(registrations.map((registration) => registration.unregister()))
+      console.log('Legacy service workers cleared:', registrations.length)
+    } catch (error) {
+      console.log('Failed to clear service workers:', error)
+    }
+
+    if ('caches' in window) {
+      try {
+        const cacheKeys = await window.caches.keys()
+        await Promise.all(cacheKeys.map((key) => window.caches.delete(key)))
+        console.log('Legacy caches cleared:', cacheKeys)
+      } catch (error) {
+        console.log('Failed to clear caches:', error)
+      }
+    }
+  })
 }
 
 // 在应用启动时设置 favicon
 setFavicon()
-
-// 注册 Service Worker
-registerServiceWorker()
+cleanupLegacyServiceWorkers()
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

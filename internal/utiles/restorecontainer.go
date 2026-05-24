@@ -31,7 +31,7 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 	oldProgress.Name = "恢复容器"
 	content, err := os.ReadFile(fullPath)
 	if err != nil {
-		logx.Error("Failed to read file: %s", err)
+		logx.Errorf("Failed to read file: %s", err)
 		oldProgress.Percentage = 0
 		oldProgress.Message = "读取文件失败或者未找到文件。请确认文件名仅由大小写字母、数字和短横线组成"
 		oldProgress.DetailMsg = err.Error()
@@ -41,7 +41,7 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 	var configList []dockerBackend.ContainerCreateConfig
 	err = json.Unmarshal(content, &configList)
 	if err != nil {
-		logx.Error("Failed to parse json: %s", err)
+		logx.Errorf("Failed to parse json: %s", err)
 		oldProgress.Percentage = 0
 		oldProgress.Message = "解析文件失败"
 		oldProgress.DetailMsg = err.Error()
@@ -57,7 +57,7 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 		ctx.DockerClient.NegotiateAPIVersion(context.TODO())
 		if err != nil {
 			backupList = append(backupList, "出现错误"+err.Error())
-			logx.Error("Failed to inspect container: %s", err)
+			logx.Errorf("Failed to inspect container: %s", err)
 			return err
 		}
 		reader, err := ctx.DockerClient.ImagePull(context.TODO(), containerInfo.Config.Image, image.PullOptions{})
@@ -74,7 +74,7 @@ func RestoreContainer(ctx *svc.ServiceContext, filename string, taskID string) e
 		}
 		_, err = ctx.DockerClient.ContainerCreate(context.TODO(), containerInfo.Config, containerInfo.HostConfig, containerInfo.NetworkingConfig, nil, containerInfo.Name)
 		if err != nil {
-			logx.Error("Failed to create container: %s", err)
+			logx.Errorf("Failed to create container: %s", err)
 			info = "正在恢复第" + strconv.Itoa(i+1) + "个容器"
 			backupList = append(backupList, containerInfo.Name+"恢复失败"+err.Error())
 			continue

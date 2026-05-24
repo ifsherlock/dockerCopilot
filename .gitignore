@@ -32,7 +32,9 @@ __pycache__/
 /logs/
 .DS_Store
 node_modules/
+.next/
 dist/
+out/
 front/
 *.pyc
 

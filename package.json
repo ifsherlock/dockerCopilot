@@ -5,6 +5,10 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "build:pc": "vite build --outDir front/pc",
+    "build:mobile": "npm --prefix ./web-mobile run build && node ./scripts/sync-mobile.mjs",
+    "build:front": "npm run build:pc && npm run build:mobile",
+    "dev:mobile": "npm --prefix ./web-mobile run dev",
     "preview": "vite preview"
   },
   "dependencies": {

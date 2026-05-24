@@ -8,8 +8,10 @@ import (
 	"go/types"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"os"
+	"path/filepath"
 	"time"
 
 	botruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
@@ -25,7 +27,7 @@ import (
 	xhttp "github.com/zeromicro/x/http"
 )
 
-//go:embed front/*
+//go:embed all:front
 var embeddedFront embed.FS
 
 var configFile = flag.String("f", "etc/dockerCopilot.yaml", "the config file")
@@ -59,15 +61,26 @@ func main() {
 		os.Exit(1)
 	}
 	logx.Infof("配置加载完成: host=%s port=%d", c.Host, c.Port)
-	server := rest.MustNewServer(c.RestConf, rest.WithCors("*"), rest.WithUnauthorizedCallback(
-		func(w http.ResponseWriter, r *http.Request, err error) {
-			response := UnauthorizedResponse{
-				Code: http.StatusUnauthorized, // 401
-				Msg:  "未授权",
-				Data: map[string]interface{}{},
-			}
-			httpx.WriteJson(w, http.StatusUnauthorized, response)
-		}))
+	frontFS := mustSubFS(embeddedFront, "front")
+	pcFS := mustSubFS(frontFS, "pc")
+	pcAssetsFS := mustSubFS(pcFS, "assets")
+	mobileFS := mustSubFS(frontFS, "mobile")
+	server := rest.MustNewServer(
+		c.RestConf,
+		rest.WithCors("*"),
+		rest.WithFileServer("/assets", http.FS(pcAssetsFS)),
+		rest.WithFileServer("/m", http.FS(mobileFS)),
+		rest.WithUnauthorizedCallback(
+			func(w http.ResponseWriter, r *http.Request, err error) {
+				response := UnauthorizedResponse{
+					Code: http.StatusUnauthorized, // 401
+					Msg:  "未授权",
+					Data: map[string]interface{}{},
+				}
+				httpx.WriteJson(w, http.StatusUnauthorized, response)
+			},
+		),
+	)
 	defer server.Stop()
 	ctx := svc.NewServiceContext(c)
 	logx.Infof("服务上下文初始化完成")
@@ -128,7 +141,7 @@ export const customImageLogos = {
 		}
 	})
 	handler.RegisterHandlers(server, ctx)
-	RegisterHandlers(server)
+	RegisterHandlers(server, pcFS, mobileFS)
 	logx.Infof("HTTP 路由注册完成")
 	if err := botruntime.Start(context.Background(), ctx); err != nil {
 		logx.Errorf("启动 Telegram Bot 失败: %v", err)
@@ -139,15 +152,9 @@ export const customImageLogos = {
 	logx.Infof("HTTP 服务准备监听: %s:%d", c.Host, c.Port)
 	server.Start()
 }
-func RegisterHandlers(engine *rest.Server) {
-	frontFS, err := fs.Sub(embeddedFront, "front")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	frontFileServer := http.StripPrefix("/manager", http.FileServer(http.FS(frontFS)))
-
-	assetsHandler := http.FileServer(http.FS(frontFS))
+func RegisterHandlers(engine *rest.Server, pcFS fs.FS, mobileFS fs.FS) {
+	pcIndexHandler := serveEmbeddedIndex(pcFS)
+	mobileIndexHandler := serveEmbeddedIndex(mobileFS)
 
 	// Serve custom icons
 	iconFileServer := http.StripPrefix("/src/config/image/", http.FileServer(http.Dir("/data/config/image")))
@@ -166,35 +173,90 @@ func RegisterHandlers(engine *rest.Server) {
 	engine.AddRoutes(
 		[]rest.Route{
 			{
-				Method: http.MethodGet,
-				Path:   "/manager",
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					frontFileServer.ServeHTTP(w, r)
-				},
+				Method:  http.MethodGet,
+				Path:    "/manager",
+				Handler: pcIndexHandler,
 			},
 			{
-				Method: http.MethodGet,
-				Path:   "/manager/:path",
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					frontFileServer.ServeHTTP(w, r)
-				},
+				Method:  http.MethodGet,
+				Path:    "/m",
+				Handler: mobileIndexHandler,
 			},
 			{
-				Method: http.MethodGet,
-				Path:   "/manager/assets/:path",
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					frontFileServer.ServeHTTP(w, r)
-				},
+				Method:  http.MethodGet,
+				Path:    "/logo.png",
+				Handler: serveEmbeddedFile(pcFS, "logo.png"),
 			},
 			{
-				Method: http.MethodGet,
-				Path:   "/assets/:path",
-				Handler: func(w http.ResponseWriter, r *http.Request) {
-					assetsHandler.ServeHTTP(w, r)
-				},
+				Method:  http.MethodGet,
+				Path:    "/manifest.json",
+				Handler: serveEmbeddedFile(pcFS, "manifest.json"),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/sw.js",
+				Handler: serveEmbeddedFile(pcFS, "sw.js"),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/icon.svg",
+				Handler: serveEmbeddedFile(mobileFS, "icon.svg"),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/icon-light-32x32.png",
+				Handler: serveEmbeddedFile(mobileFS, "icon-light-32x32.png"),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/icon-dark-32x32.png",
+				Handler: serveEmbeddedFile(mobileFS, "icon-dark-32x32.png"),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/apple-icon.png",
+				Handler: serveEmbeddedFile(mobileFS, "apple-icon.png"),
 			},
 		},
 	)
+}
+
+func mustSubFS(parent fs.FS, dir string) fs.FS {
+	subFS, err := fs.Sub(parent, dir)
+	if err != nil {
+		log.Fatalf("load embedded frontend %s failed: %v", dir, err)
+	}
+
+	return subFS
+}
+
+func serveEmbeddedIndex(staticFS fs.FS) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, err := fs.ReadFile(staticFS, "index.html")
+		if err != nil {
+			http.Error(w, "index.html not found", http.StatusNotFound)
+			return
+		}
+
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, _ = w.Write(content)
+	}
+}
+
+func serveEmbeddedFile(staticFS fs.FS, filePath string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		content, err := fs.ReadFile(staticFS, filePath)
+		if err != nil {
+			http.NotFound(w, r)
+			return
+		}
+
+		if contentType := mime.TypeByExtension(filepath.Ext(filePath)); contentType != "" {
+			w.Header().Set("Content-Type", contentType)
+		}
+
+		_, _ = w.Write(content)
+	}
 }
 
 // 检查并创建日志目录
