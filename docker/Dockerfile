@@ -3,10 +3,11 @@ FROM alpine
 LABEL authors="onlyLTY"
 WORKDIR /app
 
-ARG TARGETPLATFORM
+ARG TARGETOS
+ARG TARGETARCH
 
-COPY dc-back/dist/$TARGETPLATFORM/dockerCopilot ./dockerCopilot
-COPY dc-back/etc/. ./etc
+COPY release/${TARGETOS}/${TARGETARCH}/dockerCopilot ./dockerCopilot
+COPY release/etc/. ./etc
 COPY start.sh ./start.sh
 RUN apk add --no-cache tzdata \
     && chmod +x start.sh \
