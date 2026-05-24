@@ -179,6 +179,15 @@ func (r *Runtime) proxySummary(cfg svc.BackupRuntimeConfig) string {
 
 func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
 	go func() {
+		cfg, err := svc.LoadRuntimeConfigForRead()
+		if err != nil {
+			logx.Errorf("加载 Telegram 定时任务配置失败: %v", err)
+			return
+		}
+		warmSpec := strings.ToLower(strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *")))
+		if warmSpec == "off" || warmSpec == "false" || warmSpec == "0" || warmSpec == "no" {
+			return
+		}
 		warmCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
 		if err := r.runUpdateDetectionOnce(warmCtx, true); err != nil {
@@ -202,6 +211,15 @@ func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
 			spec := strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"))
 			if spec == "" {
 				spec = "0 18 * * *"
+			}
+			lowerSpec := strings.ToLower(spec)
+			if lowerSpec == "off" || lowerSpec == "false" || lowerSpec == "0" || lowerSpec == "no" {
+				select {
+				case <-ctx.Done():
+					return
+				case <-time.After(30 * time.Second):
+				}
+				continue
 			}
 			schedule, err := cron.ParseStandard(spec)
 			if err != nil {

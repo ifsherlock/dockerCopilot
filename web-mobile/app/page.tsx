@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Box,
   CheckCircle2,
+  Clock3,
   Copy,
   Download,
   Eye,
@@ -29,6 +30,7 @@ import {
   Sparkles,
   Square,
   Sun,
+  Tags,
   TerminalSquare,
   Trash2,
   Zap,
@@ -43,6 +45,7 @@ import {
   setStoredToken,
 } from "@/lib/api"
 import type {
+  AcceleratorLatencyInfo,
   ContainerInfo,
   ImageInfo,
   OperationLog,
@@ -54,13 +57,21 @@ type PageType = "containers" | "images" | "config" | "backups" | "logs" | "about
 type NoticeType = "success" | "error" | "info"
 type ContainerFilterKey = "all" | "running" | "updatable" | "paused"
 type ImageFilterKey = "all" | "inUse" | "unused" | "updatable"
+type ContainerLogLevel = "info" | "warn" | "error" | "debug" | "other"
+type ContainerLogFilterKey = "all" | "info" | "warn" | "error"
 
 type ConfigFormState = {
   botToken: string
   chatIds: string
   hostLanIP: string
   defaultImageAccelerator: string
+  enableUpdateCheck: boolean
   updateCheckCron: string
+  proxyType: string
+  proxyHost: string
+  proxyPort: string
+  proxyUsername: string
+  proxyPassword: string
   autoCleanImages: boolean
   cleanImagesCron: string
   autoUpdateContainers: boolean
@@ -85,7 +96,13 @@ const initialConfigForm: ConfigFormState = {
   chatIds: "",
   hostLanIP: "",
   defaultImageAccelerator: "",
-  updateCheckCron: "",
+  enableUpdateCheck: false,
+  updateCheckCron: "0 18 * * *",
+  proxyType: "none",
+  proxyHost: "",
+  proxyPort: "",
+  proxyUsername: "",
+  proxyPassword: "",
   autoCleanImages: false,
   cleanImagesCron: "",
   autoUpdateContainers: false,
@@ -94,6 +111,136 @@ const initialConfigForm: ConfigFormState = {
   backupJsonCron: "",
   autoBackupCompose: false,
   backupComposeCron: "",
+}
+
+const builtInImageAccelerators = ["docker.io", "docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"]
+
+function normalizeAcceleratorValue(value: string) {
+  return String(value || "")
+    .trim()
+    .replace(/^https?:\/\//i, "")
+    .replace(/\/+$/, "")
+}
+
+function resolveAcceleratorLatencySource(value: string) {
+  const normalized = normalizeAcceleratorValue(value)
+  if (!normalized) return ""
+  return normalized === "docker.io" ? "registry-1.docker.io" : normalized
+}
+
+function buildAcceleratorLatencyMap(list: AcceleratorLatencyInfo[]) {
+  return list.reduce<Record<string, AcceleratorLatencyInfo>>((acc, item) => {
+    const key = resolveAcceleratorLatencySource(item.source)
+    if (key) {
+      acc[key] = item
+    }
+    return acc
+  }, {})
+}
+
+function formatAcceleratorLatencyInfo(info?: AcceleratorLatencyInfo | null) {
+  if (!info) return "未测速"
+  if (info.status === "failed") return "失败"
+  if (info.latency < 0) return "超时"
+  return `${info.latency} ms`
+}
+
+function getAcceleratorLatencyTone(info?: AcceleratorLatencyInfo | null) {
+  if (!info) return "text-slate-500 dark:text-slate-400"
+  if (info.status === "failed" || info.latency < 0) return "text-red-600 dark:text-red-400"
+  if (info.latency <= 800) return "text-emerald-600 dark:text-emerald-400"
+  if (info.latency <= 2000) return "text-amber-600 dark:text-amber-400"
+  return "text-orange-600 dark:text-orange-400"
+}
+
+function formatAcceleratorSourceLabel(source: string, info?: AcceleratorLatencyInfo | null) {
+  return `${normalizeAcceleratorValue(source) || "docker.io"} · ${formatAcceleratorLatencyInfo(info)}`
+}
+
+function normalizeContainerLogLevel(line: string): ContainerLogLevel {
+  const normalized = String(line || "").trim().toUpperCase()
+  if (!normalized || normalized === "（无日志）") return "other"
+  if (/\[(ERROR|ERR|FATAL|PANIC)\]|\b(ERROR|ERR|FATAL|PANIC)\b/.test(normalized)) return "error"
+  if (/\[(WARN|WARNING)\]|\b(WARN|WARNING)\b/.test(normalized)) return "warn"
+  if (/\[(DEBUG|DBG)\]|\b(DEBUG|DBG)\b/.test(normalized)) return "debug"
+  if (/\[(INFO|INF|NOTICE)\]|\b(INFO|INF|NOTICE)\b/.test(normalized)) return "info"
+  return "other"
+}
+
+function stripContainerLogLevelPrefix(value: string) {
+  let text = String(value || "").trim()
+  let prev = ""
+
+  while (text && text !== prev) {
+    prev = text
+    text = text
+      .replace(/^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?\s*/i, "")
+      .replace(/^\[(ERROR|ERR|FATAL|PANIC|WARN|WARNING|DEBUG|DBG|INFO|INF|NOTICE)\]\s*/i, "")
+      .replace(/^(ERROR|ERR|FATAL|PANIC|WARN|WARNING|DEBUG|DBG|INFO|INF|NOTICE)\s*[:|\-]?\s*/i, "")
+      .replace(/^(level\s*[=:]\s*)?(error|err|fatal|panic|warn|warning|debug|dbg|info|inf|notice)\s*[:=|\-]?\s*/i, "")
+      .replace(/^[|:-]+\s*/, "")
+      .trim()
+  }
+
+  return text
+}
+
+function parseContainerLogLine(line: string) {
+  const raw = String(line || "").trim()
+  const timestampMatch = raw.match(/^(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:?\d{2})?)/)
+  const timestamp = timestampMatch?.[1] || ""
+  let rest = timestamp ? raw.slice(timestamp.length).trim() : raw
+
+  let containerPrefix = ""
+  const prefixMatch = rest.match(/^([a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)?)\s*\|\s*(.+)$/)
+  if (prefixMatch) {
+    containerPrefix = prefixMatch[1]
+    rest = prefixMatch[2]
+  }
+
+  const level = normalizeContainerLogLevel(rest || raw)
+  const message = stripContainerLogLevelPrefix(rest || raw) || rest || raw
+  return { raw, timestamp, containerPrefix, level, message }
+}
+
+function getContainerLogLevelMeta(level: ContainerLogLevel) {
+  switch (level) {
+    case "error":
+      return {
+        badge: "bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300",
+        dot: "bg-red-500",
+        wrapper: "border-red-200 bg-red-50/80 dark:border-red-900/40 dark:bg-red-900/15",
+        label: "ERROR",
+      }
+    case "warn":
+      return {
+        badge: "bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-300",
+        dot: "bg-amber-500",
+        wrapper: "border-amber-200 bg-amber-50/80 dark:border-amber-900/40 dark:bg-amber-900/15",
+        label: "WARN",
+      }
+    case "info":
+      return {
+        badge: "bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-300",
+        dot: "bg-blue-500",
+        wrapper: "border-blue-200 bg-blue-50/80 dark:border-blue-900/40 dark:bg-blue-900/15",
+        label: "INFO",
+      }
+    case "debug":
+      return {
+        badge: "bg-violet-100 text-violet-700 dark:bg-violet-900/40 dark:text-violet-300",
+        dot: "bg-violet-500",
+        wrapper: "border-violet-200 bg-violet-50/80 dark:border-violet-900/40 dark:bg-violet-900/15",
+        label: "DEBUG",
+      }
+    default:
+      return {
+        badge: "bg-slate-100 text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+        dot: "bg-slate-400",
+        wrapper: "border-slate-200 bg-slate-50/80 dark:border-slate-700 dark:bg-slate-800/60",
+        label: "LOG",
+      }
+  }
 }
 
 function getErrorMessage(error: unknown, fallback: string) {
@@ -175,20 +322,26 @@ function StatCard({
   accent,
   active = false,
   onClick,
+  disabled = false,
 }: {
   label: string
   value: string | number
   accent: string
   active?: boolean
   onClick?: () => void
+  disabled?: boolean
 }) {
-  if (onClick) {
+  if (onClick || disabled) {
     return (
       <button
         type="button"
         onClick={onClick}
+        disabled={disabled}
         className={cn(
-          "rounded-2xl bg-white dark:bg-slate-900 p-4 text-left shadow-sm ring-1 transition-all hover:-translate-y-0.5 hover:shadow-md",
+          "rounded-2xl bg-white dark:bg-slate-900 p-4 text-left shadow-sm ring-1 transition-all",
+          disabled
+            ? "cursor-not-allowed opacity-60"
+            : "cursor-pointer hover:-translate-y-0.5 hover:shadow-md",
           active ? "ring-blue-300 dark:ring-blue-700 bg-blue-50/60 dark:bg-blue-950/30" : "ring-slate-100 dark:ring-slate-700"
         )}
       >
@@ -300,6 +453,27 @@ function shouldUpdateVersion(currentVersion?: string, latestVersion?: string) {
   return latest.patch > current.patch
 }
 
+function detectContainerLogLevel(line: string): "info" | "warn" | "error" | null {
+  const normalized = String(line || "").trim()
+  if (!normalized || normalized === "（无日志）") {
+    return null
+  }
+
+  const match = normalized.match(/\b(trace|debug|info|notice|warn|warning|error|err|fatal|panic)\b/i)
+  if (!match) {
+    return null
+  }
+
+  const level = match[1].toLowerCase()
+  if (level === "warn" || level === "warning") {
+    return "warn"
+  }
+  if (level === "error" || level === "err" || level === "fatal" || level === "panic") {
+    return "error"
+  }
+  return "info"
+}
+
 export default function DockerCopilotMobilePage() {
   const [activePage, setActivePage] = useState<PageType>("containers")
   const [booting, setBooting] = useState(true)
@@ -349,6 +523,12 @@ export default function DockerCopilotMobilePage() {
 
   const [configForm, setConfigForm] = useState<ConfigFormState>(initialConfigForm)
   const [configSaving, setConfigSaving] = useState(false)
+  const [showBotToken, setShowBotToken] = useState(false)
+  const [showLogTimestamps, setShowLogTimestamps] = useState(true)
+  const [showLogContainerName, setShowLogContainerName] = useState(false)
+  const [imageAccelerators, setImageAccelerators] = useState<string[]>([])
+  const [newImageAccelerator, setNewImageAccelerator] = useState("")
+  const [acceleratorLatencyMap, setAcceleratorLatencyMap] = useState<Record<string, AcceleratorLatencyInfo>>({})
 
   const [updateBlacklist, setUpdateBlacklist] = useState<string[]>([])
   const [blacklistDraft, setBlacklistDraft] = useState("")
@@ -359,10 +539,43 @@ export default function DockerCopilotMobilePage() {
   const [pullImageName, setPullImageName] = useState("")
   const [pullImageSource, setPullImageSource] = useState("")
   const [pullImageDropdownOpen, setPullImageDropdownOpen] = useState(false)
+  const [containerLogFilter, setContainerLogFilter] = useState<ContainerLogFilterKey>("all")
 
   const currentOrigin = typeof window !== "undefined" ? window.location.origin : ""
   const [themeMode, setThemeMode] = useState<"light" | "dark">("light")
   const ThemeIcon = themeMode === "dark" ? Sun : Moon
+  const imageAcceleratorOptions = useMemo(() => {
+    return Array.from(
+      new Set(
+        [...builtInImageAccelerators, configForm.defaultImageAccelerator, ...imageAccelerators]
+          .map(normalizeAcceleratorValue)
+          .filter(Boolean)
+      )
+    )
+  }, [configForm.defaultImageAccelerator, imageAccelerators])
+
+  const pullImageSourceOptions = useMemo(() => {
+    return Array.from(
+      new Set(["docker.io", ...imageAcceleratorOptions].map(normalizeAcceleratorValue).filter(Boolean))
+    ).map((source) => {
+      const latencyInfo = acceleratorLatencyMap[resolveAcceleratorLatencySource(source)] ?? null
+      return {
+        value: source,
+        label: formatAcceleratorSourceLabel(source, latencyInfo),
+        latencyInfo,
+      }
+    })
+  }, [acceleratorLatencyMap, imageAcceleratorOptions])
+
+  const currentPullImageSource = useMemo(
+    () => normalizeAcceleratorValue(pullImageSource) || normalizeAcceleratorValue(configForm.defaultImageAccelerator) || "docker.io",
+    [configForm.defaultImageAccelerator, pullImageSource]
+  )
+
+  const currentPullImageSourceInfo = useMemo(
+    () => acceleratorLatencyMap[resolveAcceleratorLatencySource(currentPullImageSource)] ?? null,
+    [acceleratorLatencyMap, currentPullImageSource]
+  )
 
   // 通知自动消失（3秒后清除）
   const showNotice = useCallback((n: { type: NoticeType; message: string } | null) => {
@@ -396,10 +609,29 @@ export default function DockerCopilotMobilePage() {
     document.documentElement.classList.toggle("dark", mode === "dark")
   }, [])
 
+  useEffect(() => {
+    const storedTimestamps = localStorage.getItem("mobile-log-show-timestamps")
+    const storedContainerName = localStorage.getItem("mobile-log-show-container-name")
+    if (storedTimestamps !== null) setShowLogTimestamps(storedTimestamps !== "false")
+    if (storedContainerName !== null) setShowLogContainerName(storedContainerName === "true")
+  }, [])
+
   // 持久化主题
   useEffect(() => {
     localStorage.setItem("mobile-theme", themeMode)
   }, [themeMode])
+
+  useEffect(() => {
+    localStorage.setItem("mobile-log-show-timestamps", String(showLogTimestamps))
+  }, [showLogTimestamps])
+
+  useEffect(() => {
+    localStorage.setItem("mobile-log-show-container-name", String(showLogContainerName))
+  }, [showLogContainerName])
+
+  useEffect(() => {
+    setContainerLogFilter("all")
+  }, [selectedLogContainerId])
 
   const loadVersionStatus = useCallback(async () => {
     try {
@@ -441,6 +673,15 @@ export default function DockerCopilotMobilePage() {
     }
   }, [])
 
+  const loadAcceleratorLatency = useCallback(async () => {
+    try {
+      const list = await mobileApi.getAcceleratorLatency()
+      setAcceleratorLatencyMap(buildAcceleratorLatencyMap(Array.isArray(list) ? list : []))
+    } catch {
+      setAcceleratorLatencyMap({})
+    }
+  }, [])
+
   // 刷新时自动清除通知
   const refreshAll = useCallback(async () => {
     setNotice(null)
@@ -464,12 +705,31 @@ export default function DockerCopilotMobilePage() {
       if (cfgRes.status === "fulfilled") {
         const cfg = cfgRes.value
         setConfig(cfg)
+        const updateCheckCronRaw = String(cfg.telegram?.update_check_cron ?? "").trim()
+        const updateCheckDisabled = ["off", "false", "0", "no"].includes(updateCheckCronRaw.toLowerCase())
+        const accelerators = Array.from(
+          new Set(
+            [...builtInImageAccelerators, ...(cfg.telegram?.image_accelerators ?? [])]
+              .map(normalizeAcceleratorValue)
+              .filter(Boolean)
+          )
+        )
+
+        setImageAccelerators(accelerators)
+        setNewImageAccelerator("")
+        setPullImageSource(normalizeAcceleratorValue(cfg.telegram?.default_image_accelerator ?? "") || "docker.io")
         setConfigForm({
           botToken: cfg.telegram?.bot_token ?? "",
           chatIds: (cfg.telegram?.chat_ids ?? []).join(", "),
           hostLanIP: cfg.dockercopilot?.host_lan_ip ?? "",
-          defaultImageAccelerator: cfg.telegram?.default_image_accelerator ?? "",
-          updateCheckCron: cfg.telegram?.update_check_cron ?? "",
+          defaultImageAccelerator: normalizeAcceleratorValue(cfg.telegram?.default_image_accelerator ?? "") || "docker.io",
+          enableUpdateCheck: Boolean(updateCheckCronRaw) && !updateCheckDisabled,
+          updateCheckCron: updateCheckDisabled ? "0 18 * * *" : updateCheckCronRaw || "0 18 * * *",
+          proxyType: cfg.telegram?.proxy?.type ?? "none",
+          proxyHost: cfg.telegram?.proxy?.host ?? "",
+          proxyPort: cfg.telegram?.proxy?.port ? String(cfg.telegram.proxy.port) : "",
+          proxyUsername: cfg.telegram?.proxy?.username ?? "",
+          proxyPassword: cfg.telegram?.proxy?.password ?? "",
           autoCleanImages: cfg.telegram?.auto_clean_images ?? false,
           cleanImagesCron: cfg.telegram?.clean_images_cron ?? "3 2 * * *",
           autoUpdateContainers: cfg.telegram?.auto_update_containers ?? false,
@@ -483,6 +743,7 @@ export default function DockerCopilotMobilePage() {
       if (blRes.status === "fulfilled") setUpdateBlacklist(blRes.value)
       if (iconRes.status === "fulfilled") setIcons(iconRes.value)
       await loadVersionStatus()
+      await loadAcceleratorLatency()
     } catch (err) {
       if (!isUnauthorizedError(err)) {
         setPageError(getErrorMessage(err, "刷新失败"))
@@ -490,7 +751,7 @@ export default function DockerCopilotMobilePage() {
     } finally {
       setRefreshing(false)
     }
-  }, [loadVersionStatus])
+  }, [loadAcceleratorLatency, loadVersionStatus])
 
   // 登录
   const handleLogin = useCallback(async () => {
@@ -832,19 +1093,25 @@ export default function DockerCopilotMobilePage() {
     }
     setPendingAction("pull")
     try {
-      const source = pullImageSource || "docker.io"
+      const source = currentPullImageSource
       await mobileApi.pullImage(pullImageName.trim(), source, pullImageName.trim())
       showNotice({ type: "success", message: "拉取任务已提交" })
       setPullImageName("")
-      setPullImageSource("")
-      const iRes = await mobileApi.getImages()
+      setPullImageSource(source)
+      const [iRes, oRes] = await Promise.all([
+        mobileApi.getImages(),
+        mobileApi.getOperationLogs().catch(() => null),
+      ])
       setImages(iRes)
+      if (oRes) {
+        setOperationLogs(oRes)
+      }
     } catch (err) {
       showNotice({ type: "error", message: getErrorMessage(err, "拉取失败") })
     } finally {
       setPendingAction("")
     }
-  }, [pullImageName, pullImageSource, showNotice])
+  }, [currentPullImageSource, pullImageName, showNotice])
 
   // 获取容器日志
   const handleFetchContainerLogs = useCallback(async () => {
@@ -915,21 +1182,44 @@ export default function DockerCopilotMobilePage() {
   const handleSaveConfig = useCallback(async () => {
     setConfigSaving(true)
     try {
+      const normalizedProxyType = configForm.proxyType === "http" || configForm.proxyType === "socks5" ? configForm.proxyType : "none"
+      const proxyEnabled = normalizedProxyType !== "none"
+      const parsedProxyPort = Number.parseInt(configForm.proxyPort.trim(), 10)
+      const normalizedDefaultImageAccelerator = normalizeAcceleratorValue(configForm.defaultImageAccelerator)
+      const normalizedImageAccelerators = Array.from(
+        new Set(
+          [normalizedDefaultImageAccelerator, ...imageAccelerators]
+            .map(normalizeAcceleratorValue)
+            .filter(Boolean)
+        )
+      )
+
       await mobileApi.saveConfig({
         botToken: configForm.botToken || undefined,
         chatIds: configForm.chatIds || undefined,
         hostLanIP: configForm.hostLanIP || undefined,
-        defaultImageAccelerator: configForm.defaultImageAccelerator || undefined,
-        updateCheckCron: configForm.updateCheckCron || undefined,
+        imageAccelerators: normalizedImageAccelerators.join(",") || undefined,
+        defaultImageAccelerator: normalizedDefaultImageAccelerator || undefined,
+        updateCheckCron: configForm.enableUpdateCheck ? configForm.updateCheckCron || "0 18 * * *" : "off",
         autoCleanImages: configForm.autoCleanImages,
         cleanImagesCron: configForm.cleanImagesCron || undefined,
         autoUpdateContainers: configForm.autoUpdateContainers,
         updateContainersCron: configForm.updateContainersCron || undefined,
+        proxyType: normalizedProxyType,
+        proxyHost: proxyEnabled ? configForm.proxyHost || undefined : undefined,
+        proxyPort: proxyEnabled && Number.isFinite(parsedProxyPort) ? parsedProxyPort : undefined,
+        proxyUsername: proxyEnabled ? configForm.proxyUsername || undefined : undefined,
+        proxyPassword: proxyEnabled ? configForm.proxyPassword || undefined : undefined,
         autoBackupJson: configForm.autoBackupJson,
         backupJsonCron: configForm.backupJsonCron || undefined,
         autoBackupCompose: configForm.autoBackupCompose,
         backupComposeCron: configForm.backupComposeCron || undefined,
       })
+      setImageAccelerators(normalizedImageAccelerators)
+      setConfigForm((prev) => ({
+        ...prev,
+        defaultImageAccelerator: normalizedDefaultImageAccelerator,
+      }))
       showNotice({ type: "success", message: "配置已保存" })
       const cfgRes = await mobileApi.getConfig()
       setConfig(cfgRes)
@@ -938,7 +1228,62 @@ export default function DockerCopilotMobilePage() {
     } finally {
       setConfigSaving(false)
     }
-  }, [configForm, showNotice])
+  }, [configForm, imageAccelerators, showNotice])
+
+  const handleAddImageAccelerator = useCallback(async () => {
+    const value = normalizeAcceleratorValue(newImageAccelerator)
+    if (!value) return
+
+    const nextList = Array.from(
+      new Set([...imageAccelerators, value].map(normalizeAcceleratorValue).filter(Boolean))
+    )
+    const nextDefault = normalizeAcceleratorValue(configForm.defaultImageAccelerator) || value
+
+    try {
+      await mobileApi.saveConfig({
+        imageAccelerators: nextList.join(",") || undefined,
+        defaultImageAccelerator: nextDefault || undefined,
+      })
+      setImageAccelerators(nextList)
+      setConfigForm((prev) => ({
+        ...prev,
+        defaultImageAccelerator: nextDefault,
+      }))
+      setPullImageSource(nextDefault || "docker.io")
+      setNewImageAccelerator("")
+      const cfgRes = await mobileApi.getConfig()
+      setConfig(cfgRes)
+      showNotice({ type: "success", message: "镜像加速源已添加" })
+    } catch (err) {
+      showNotice({ type: "error", message: getErrorMessage(err, "添加失败") })
+    }
+  }, [configForm.defaultImageAccelerator, imageAccelerators, newImageAccelerator, showNotice])
+
+  const handleSelectImageAccelerator = useCallback(
+    async (value: string) => {
+      const normalizedValue = normalizeAcceleratorValue(value)
+      if (!normalizedValue) return
+
+      setPullImageSource(normalizedValue)
+      try {
+        await mobileApi.saveConfig({
+          imageAccelerators: imageAccelerators.join(",") || undefined,
+          defaultImageAccelerator: normalizedValue,
+        })
+        setConfigForm((prev) => ({
+          ...prev,
+          defaultImageAccelerator: normalizedValue,
+        }))
+        const cfgRes = await mobileApi.getConfig()
+        setConfig(cfgRes)
+        showNotice({ type: "success", message: `默认加速源已切换为 ${normalizedValue}` })
+      } catch (err) {
+        showNotice({ type: "error", message: getErrorMessage(err, "切换失败") })
+      }
+    },
+    [imageAccelerators, showNotice]
+  )
+
 
   // 镜像名标准化
   const normalizeImageName = useCallback((value: string) => {
@@ -1194,13 +1539,38 @@ export default function DockerCopilotMobilePage() {
     return { total, inUse, unused, updatable }
   }, [images, isImageUpdateIgnored])
 
+  const parsedContainerLogs = useMemo(() => {
+    return containerLogs
+      .split(/\r?\n/)
+      .map((line) => parseContainerLogLine(line))
+      .filter((line) => line.raw.trim() && line.raw !== "（无日志）")
+  }, [containerLogs])
+
   const logStats = useMemo(() => {
-    const total = operationLogs.length
-    const info = operationLogs.filter((l) => l.type === "info" || l.type === "INFO").length
-    const warn = operationLogs.filter((l) => l.type === "warn" || l.type === "WARN" || l.type === "warning" || l.type === "WARNING").length
-    const error = operationLogs.filter((l) => l.type === "error" || l.type === "ERROR" || l.type === "err" || l.type === "ERR").length
-    return { total, info, warn, error }
-  }, [operationLogs])
+    const stats = parsedContainerLogs.reduce(
+      (acc, line) => {
+        if (line.level === "info") acc.info += 1
+        if (line.level === "warn") acc.warn += 1
+        if (line.level === "error") acc.error += 1
+        return acc
+      },
+      { total: parsedContainerLogs.length, info: 0, warn: 0, error: 0 }
+    )
+
+    return stats
+  }, [parsedContainerLogs])
+
+  const filteredContainerLogs = useMemo(() => {
+    if (containerLogFilter === "all") return parsedContainerLogs
+    return parsedContainerLogs.filter((line) => line.level === containerLogFilter)
+  }, [containerLogFilter, parsedContainerLogs])
+
+  const selectedLogContainer = useMemo(
+    () => containers.find((container) => container.id === selectedLogContainerId) ?? null,
+    [containers, selectedLogContainerId]
+  )
+
+  const canFilterContainerLogs = Boolean(selectedLogContainerId)
 
   // 过滤
   const filteredContainers = useMemo(() => {
@@ -1613,7 +1983,7 @@ export default function DockerCopilotMobilePage() {
             <div className="grid grid-cols-4 gap-3">
               <StatCard label="总数" value={imageStats.total} accent="bg-slate-400" active={imageFilter === "all"} onClick={() => setImageFilter("all")} />
               <StatCard label="使用" value={imageStats.inUse} accent="bg-emerald-500" active={imageFilter === "inUse"} onClick={() => setImageFilter((prev) => (prev === "inUse" ? "all" : "inUse"))} />
-              <StatCard label="空隙" value={imageStats.unused} accent="bg-amber-500" active={imageFilter === "unused"} onClick={() => setImageFilter((prev) => (prev === "unused" ? "all" : "unused"))} />
+              <StatCard label="空闲" value={imageStats.unused} accent="bg-amber-500" active={imageFilter === "unused"} onClick={() => setImageFilter((prev) => (prev === "unused" ? "all" : "unused"))} />
               <StatCard label="更新" value={imageStats.updatable} accent="bg-blue-500" active={imageFilter === "updatable"} onClick={() => setImageFilter((prev) => (prev === "updatable" ? "all" : "updatable"))} />
             </div>
 
@@ -1752,25 +2122,43 @@ export default function DockerCopilotMobilePage() {
             <div className="rounded-2xl bg-white dark:bg-slate-900 p-5 shadow-sm ring-1 ring-slate-100 dark:ring-slate-700">
               <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4">基础配置</h2>
               <div className="space-y-4">
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Bot Token</label>
-                  <input
-                    type="text"
-                    value={configForm.botToken}
-                    onChange={(e) => setConfigForm((p) => ({ ...p, botToken: e.target.value }))}
-                    placeholder="Telegram Bot Token"
-                    className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Chat IDs</label>
-                  <input
-                    type="text"
-                    value={configForm.chatIds}
-                    onChange={(e) => setConfigForm((p) => ({ ...p, chatIds: e.target.value }))}
-                    placeholder="多个 ID 用逗号分隔"
-                    className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
-                  />
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="mb-3">
+                    <div className="text-sm font-medium text-slate-700 dark:text-slate-300">Telegram 通知</div>
+                  </div>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">TG Bot Token</label>
+                      <div className="relative">
+                        <input
+                          type={showBotToken ? "text" : "password"}
+                          value={configForm.botToken}
+                          onChange={(e) => setConfigForm((p) => ({ ...p, botToken: e.target.value }))}
+                          placeholder="Telegram Bot Token"
+                          className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 pr-11 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowBotToken((prev) => !prev)}
+                          title={showBotToken ? "隐藏 Token" : "显示 Token"}
+                          aria-label={showBotToken ? "隐藏 Token" : "显示 Token"}
+                          className="absolute inset-y-0 right-0 flex w-11 items-center justify-center text-slate-400 transition-colors hover:text-slate-600 dark:hover:text-slate-200"
+                        >
+                          {showBotToken ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                        </button>
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">Chat IDs</label>
+                      <input
+                        type="text"
+                        value={configForm.chatIds}
+                        onChange={(e) => setConfigForm((p) => ({ ...p, chatIds: e.target.value }))}
+                        placeholder="多个 ID 用逗号分隔"
+                        className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                      />
+                    </div>
+                  </div>
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">主机 LAN IP</label>
@@ -1782,25 +2170,34 @@ export default function DockerCopilotMobilePage() {
                     className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">默认镜像加速器</label>
-                  <input
-                    type="text"
-                    value={configForm.defaultImageAccelerator}
-                    onChange={(e) => setConfigForm((p) => ({ ...p, defaultImageAccelerator: e.target.value }))}
-                    placeholder="docker.io"
-                    className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">更新检查 Cron</label>
-                  <input
-                    type="text"
-                    value={configForm.updateCheckCron}
-                    onChange={(e) => setConfigForm((p) => ({ ...p, updateCheckCron: e.target.value }))}
-                    placeholder="0 */6 * * *"
-                    className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
-                  />
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+                  <label className="flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-300">
+                    <input
+                      type="checkbox"
+                      checked={configForm.enableUpdateCheck}
+                      onChange={(e) =>
+                        setConfigForm((p) => ({
+                          ...p,
+                          enableUpdateCheck: e.target.checked,
+                          updateCheckCron:
+                            !p.updateCheckCron || ["off", "false", "0", "no"].includes(p.updateCheckCron.trim().toLowerCase())
+                              ? "0 18 * * *"
+                              : p.updateCheckCron,
+                        }))
+                      }
+                      className="h-4 w-4 rounded border-slate-300 text-blue-500 focus:ring-blue-400"
+                    />
+                    自动检查更新
+                  </label>
+                  {configForm.enableUpdateCheck && (
+                    <input
+                      type="text"
+                      value={configForm.updateCheckCron}
+                      onChange={(e) => setConfigForm((p) => ({ ...p, updateCheckCron: e.target.value }))}
+                      placeholder="0 18 * * *"
+                      className="mt-3 block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                    />
+                  )}
                 </div>
                 <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
                   <label className="flex items-center gap-3 text-sm font-medium text-slate-700 dark:text-slate-300">
@@ -1882,6 +2279,95 @@ export default function DockerCopilotMobilePage() {
                     />
                   )}
                 </div>
+                <div className="rounded-xl border border-slate-200 dark:border-slate-700 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="text-sm font-medium text-slate-700 dark:text-slate-300">网络代理配置</div>
+                      <p className="mt-1 text-xs text-slate-500 dark:text-slate-400">支持 Telegram Bot 使用 SOCKS5 或 HTTP 代理。</p>
+                    </div>
+                    <label className="flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                      <input
+                        type="checkbox"
+                        checked={configForm.proxyType !== "none"}
+                        onChange={(e) =>
+                          setConfigForm((p) => ({
+                            ...p,
+                            proxyType: e.target.checked ? (p.proxyType === "none" ? "socks5" : p.proxyType) : "none",
+                          }))
+                        }
+                        className="h-4 w-4 rounded border-slate-300 text-blue-500 focus:ring-blue-400"
+                      />
+                      {configForm.proxyType === "none" ? "无代理" : "代理开启"}
+                    </label>
+                  </div>
+                  {configForm.proxyType !== "none" && (
+                    <div className="mt-3 space-y-3">
+                      <div className="flex flex-wrap gap-3">
+                        {[
+                          { value: "socks5", label: "SOCKS5" },
+                          { value: "http", label: "HTTP" },
+                        ].map((opt) => (
+                          <label
+                            key={opt.value}
+                            className="inline-flex items-center gap-2 rounded-full border border-slate-200 dark:border-slate-700 px-3 py-1.5 text-sm text-slate-700 dark:text-slate-300"
+                          >
+                            <input
+                              type="radio"
+                              name="proxy_type"
+                              checked={configForm.proxyType === opt.value}
+                              onChange={() => setConfigForm((p) => ({ ...p, proxyType: opt.value }))}
+                              className="h-4 w-4 border-slate-300 text-blue-500 focus:ring-blue-400"
+                            />
+                            <span>{opt.label}</span>
+                          </label>
+                        ))}
+                      </div>
+                      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">代理地址</label>
+                          <input
+                            type="text"
+                            value={configForm.proxyHost}
+                            onChange={(e) => setConfigForm((p) => ({ ...p, proxyHost: e.target.value }))}
+                            placeholder="127.0.0.1"
+                            className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">代理端口</label>
+                          <input
+                            type="text"
+                            inputMode="numeric"
+                            value={configForm.proxyPort}
+                            onChange={(e) => setConfigForm((p) => ({ ...p, proxyPort: e.target.value.replace(/[^\d]/g, "") }))}
+                            placeholder="7890"
+                            className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">代理用户名</label>
+                          <input
+                            type="text"
+                            value={configForm.proxyUsername}
+                            onChange={(e) => setConfigForm((p) => ({ ...p, proxyUsername: e.target.value }))}
+                            placeholder="可选"
+                            className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">代理密码</label>
+                          <input
+                            type="password"
+                            value={configForm.proxyPassword}
+                            onChange={(e) => setConfigForm((p) => ({ ...p, proxyPassword: e.target.value }))}
+                            placeholder="可选"
+                            className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
+                </div>
                 <button
                   type="button"
                   onClick={handleSaveConfig}
@@ -1955,10 +2441,11 @@ export default function DockerCopilotMobilePage() {
           <div className="space-y-4">
             {/* 镜像拉取表单 - ComboBox */}
             <div className="rounded-2xl bg-white dark:bg-slate-900 p-5 shadow-sm ring-1 ring-slate-100 dark:ring-slate-700">
-              <h2 className="text-base font-bold text-slate-900 dark:text-slate-100 mb-4">拉取镜像</h2>
-              <div className="space-y-3">
-                <div className="relative">
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">镜像名称</label>
+              <h2 className="mb-4 text-base font-bold text-slate-900 dark:text-slate-100">加速拉取</h2>
+              <div className="space-y-4">
+
+                <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">镜像名称</label>
                   <div className="relative">
                     <input
                       type="text"
@@ -1969,11 +2456,11 @@ export default function DockerCopilotMobilePage() {
                       }}
                       onFocus={() => setPullImageDropdownOpen(true)}
                       onBlur={() => setTimeout(() => setPullImageDropdownOpen(false), 200)}
-                      placeholder="如 nginx:latest 或手动输入"
-                      className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                      placeholder="如 nginx:latest 或手动输入完整镜像名"
+                      className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
                     />
                     {pullImageDropdownOpen && filteredPullSuggestions.length > 0 && (
-                      <div className="absolute z-10 mt-1 w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 shadow-lg max-h-48 overflow-y-auto">
+                      <div className="absolute z-10 mt-1 max-h-48 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-lg dark:border-slate-700 dark:bg-slate-900">
                         {filteredPullSuggestions.map((s) => (
                           <button
                             key={s}
@@ -1982,7 +2469,7 @@ export default function DockerCopilotMobilePage() {
                               setPullImageName(s)
                               setPullImageDropdownOpen(false)
                             }}
-                            className="block w-full px-4 py-2 text-left text-sm text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-700 transition-colors"
+                            className="block w-full px-4 py-2 text-left text-sm text-slate-700 transition-colors hover:bg-slate-50 dark:text-slate-300 dark:hover:bg-slate-700"
                           >
                             {s}
                           </button>
@@ -1990,30 +2477,47 @@ export default function DockerCopilotMobilePage() {
                       </div>
                     )}
                   </div>
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">拉取源</label>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">选中任一源后会立即保存为默认拉取源</span>
+                  </div>
+                  <select
+                    value={currentPullImageSource}
+                    onChange={(e) => void handleSelectImageAccelerator(e.target.value)}
+                    className="mt-1.5 block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                  >
+                    {pullImageSourceOptions.map((item) => (
+                      <option key={item.value} value={item.value}>
+                        {item.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <div className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                    <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                      <span>当前默认拉取源：</span>
+                      <span className="font-semibold text-violet-600 dark:text-violet-400">{currentPullImageSource}</span>
+                      <span className={cn("font-medium", getAcceleratorLatencyTone(currentPullImageSourceInfo))}>
+                        {formatAcceleratorLatencyInfo(currentPullImageSourceInfo)}
+                      </span>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handlePullImage}
+                    disabled={pendingAction === "pull"}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-purple-500 px-4 py-3 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-purple-600 disabled:opacity-50"
+                  >
+                    {pendingAction === "pull" ? (
+                      <LoaderCircle className="h-4 w-4 animate-spin" />
+                    ) : (
+                      <Download className="h-4 w-4" />
+                    )}
+                    {pendingAction === "pull" ? "拉取中..." : "拉取镜像"}
+                  </button>
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 dark:text-slate-300 mb-1.5">加速源</label>
-                  <input
-                    type="text"
-                    value={pullImageSource}
-                    onChange={(e) => setPullImageSource(e.target.value)}
-                    placeholder="docker.io（可选）"
-                    className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
-                  />
-                </div>
-                <button
-                  type="button"
-                  onClick={handlePullImage}
-                  disabled={pendingAction === "pull"}
-                  className="flex w-full items-center justify-center gap-2 rounded-xl bg-purple-500 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-purple-600 disabled:opacity-50"
-                >
-                  {pendingAction === "pull" ? (
-                    <LoaderCircle className="h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="h-4 w-4" />
-                  )}
-                  {pendingAction === "pull" ? "拉取中..." : "拉取镜像"}
-                </button>
               </div>
             </div>
 
@@ -2049,27 +2553,100 @@ export default function DockerCopilotMobilePage() {
                 </div>
               )}
             </div>
+
+            <div className="rounded-xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">镜像加速源</h3>
+                  <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">添加自定义源后，可在上方拉取源下拉中直接选择并设为默认源。</p>
+                </div>
+                <span className="rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-300">
+                  {pullImageSourceOptions.length} 个
+                </span>
+              </div>
+
+              <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                <input
+                  type="text"
+                  value={newImageAccelerator}
+                  onChange={(e) => setNewImageAccelerator(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault()
+                      void handleAddImageAccelerator()
+                    }
+                  }}
+                  placeholder="新增自定义源，如 docker.1ms.run"
+                  className="block w-full rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 px-4 py-2.5 text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                />
+                <button
+                  type="button"
+                  onClick={() => void handleAddImageAccelerator()}
+                  className="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2.5 text-sm font-medium text-blue-600 transition-colors hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30"
+                >
+                  添加并设为可选
+                </button>
+              </div>
+            </div>
           </div>
         )}
 
         {/* ============ 日志页 ============ */}
         {activePage === "logs" && (
           <div className="space-y-4">
-            {/* 统计卡片：4个一行 */}
-            <div className="grid grid-cols-4 gap-3">
-              <StatCard label="总数" value={logStats.total} accent="bg-slate-400" />
-              <StatCard label="信息" value={logStats.info} accent="bg-blue-500" />
-              <StatCard label="警告" value={logStats.warn} accent="bg-amber-500" />
-              <StatCard label="错误" value={logStats.error} accent="bg-red-500" />
+            {/* 统计卡片：基于当前已读取的容器日志逐行解析 */}
+            <div className="space-y-2">
+              <div className="grid grid-cols-4 gap-3">
+                <StatCard
+                  label="总数"
+                  value={logStats.total}
+                  accent="bg-slate-400"
+                  active={containerLogFilter === "all"}
+                  onClick={canFilterContainerLogs ? () => setContainerLogFilter("all") : undefined}
+                  disabled={!canFilterContainerLogs}
+                />
+                <StatCard
+                  label="信息"
+                  value={logStats.info}
+                  accent="bg-blue-500"
+                  active={containerLogFilter === "info"}
+                  onClick={canFilterContainerLogs ? () => setContainerLogFilter("info") : undefined}
+                  disabled={!canFilterContainerLogs}
+                />
+                <StatCard
+                  label="警告"
+                  value={logStats.warn}
+                  accent="bg-amber-500"
+                  active={containerLogFilter === "warn"}
+                  onClick={canFilterContainerLogs ? () => setContainerLogFilter("warn") : undefined}
+                  disabled={!canFilterContainerLogs}
+                />
+                <StatCard
+                  label="错误"
+                  value={logStats.error}
+                  accent="bg-red-500"
+                  active={containerLogFilter === "error"}
+                  onClick={canFilterContainerLogs ? () => setContainerLogFilter("error") : undefined}
+                  disabled={!canFilterContainerLogs}
+                />
+              </div>
+              <p className="px-1 text-xs text-slate-500 dark:text-slate-400">点击统计卡可快速筛选当前容器日志；未选择容器时筛选不可用。</p>
             </div>
 
             {/* 容器选择 + 按钮（同一行） */}
             <div className="rounded-2xl bg-white dark:bg-slate-900 p-4 shadow-sm ring-1 ring-slate-100 dark:ring-slate-700">
-              <div className="flex items-center gap-2">
+              <div className="flex flex-wrap items-center gap-2">
                 <select
                   value={selectedLogContainerId}
-                  onChange={(e) => setSelectedLogContainerId(e.target.value)}
-                  className="flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
+                  onChange={(e) => {
+                    const nextId = e.target.value
+                    setSelectedLogContainerId(nextId)
+                    if (!nextId) {
+                      setContainerLogs("")
+                      setContainerLogsError("")
+                    }
+                  }}
+                  className="min-w-0 flex-1 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 px-3 py-2 text-xs text-slate-900 dark:text-slate-100 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-100 dark:focus:ring-blue-900"
                 >
                   <option value="">选择容器</option>
                   {containers.map((c) => (
@@ -2082,23 +2659,49 @@ export default function DockerCopilotMobilePage() {
                   type="button"
                   onClick={handleFetchContainerLogs}
                   disabled={containerLogsLoading || !selectedLogContainerId}
-                  className="flex items-center gap-0 min-[390px]:gap-1.5 rounded-xl bg-blue-50 dark:bg-blue-900/20 px-3 py-2 text-xs font-medium text-blue-600 dark:text-blue-400 hover:bg-blue-100 dark:hover:bg-blue-900/40 disabled:opacity-50 transition-colors"
+                  title="读取日志"
+                  aria-label="读取日志"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600 transition-colors hover:bg-blue-100 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/40 disabled:opacity-50"
                 >
-                  {containerLogsLoading ? (
-                    <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
-                  ) : (
-                    <TerminalSquare className="h-3.5 w-3.5" />
-                  )}
-                  <span className="hidden min-[390px]:inline">读取</span>
+                  {containerLogsLoading ? <LoaderCircle className="h-3.5 w-3.5 animate-spin" /> : <TerminalSquare className="h-3.5 w-3.5" />}
                 </button>
                 <button
                   type="button"
                   onClick={handleCopyLogs}
                   disabled={!containerLogs}
-                  className="flex items-center gap-0 min-[390px]:gap-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 px-3 py-2 text-xs font-medium text-slate-600 dark:text-slate-400 hover:bg-slate-200 dark:hover:bg-slate-700 disabled:opacity-50 transition-colors"
+                  title="复制日志"
+                  aria-label="复制日志"
+                  className="flex h-10 w-10 items-center justify-center rounded-xl bg-slate-100 text-slate-600 transition-colors hover:bg-slate-200 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700 disabled:opacity-50"
                 >
                   <Copy className="h-3.5 w-3.5" />
-                  <span className="hidden min-[390px]:inline">复制</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLogTimestamps((prev) => !prev)}
+                  title={showLogTimestamps ? "隐藏时间戳" : "显示时间戳"}
+                  aria-label={showLogTimestamps ? "隐藏时间戳" : "显示时间戳"}
+                  className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-xl border transition-colors",
+                    showLogTimestamps
+                      ? "border-sky-200 bg-sky-50 text-sky-600 dark:border-sky-900/50 dark:bg-sky-900/20 dark:text-sky-400"
+                      : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                  )}
+                >
+                  <Clock3 className="h-3.5 w-3.5" />
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLogContainerName((prev) => !prev)}
+                  title={showLogContainerName ? "隐藏容器名" : "显示容器名"}
+                  aria-label={showLogContainerName ? "隐藏容器名" : "显示容器名"}
+                  className={cn(
+                    "flex h-10 w-10 items-center justify-center rounded-xl border transition-colors",
+                    showLogContainerName
+                      ? "border-emerald-200 bg-emerald-50 text-emerald-600 dark:border-emerald-900/50 dark:bg-emerald-900/20 dark:text-emerald-400"
+                      : "border-slate-200 bg-slate-50 text-slate-500 hover:bg-slate-100 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-400 dark:hover:bg-slate-700"
+                  )}
+                >
+                  <Tags className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
@@ -2109,16 +2712,49 @@ export default function DockerCopilotMobilePage() {
                 {containerLogsError}
               </div>
             )}
-            {containerLogs && (
+            {parsedContainerLogs.length > 0 ? (
               <div className="rounded-2xl bg-white dark:bg-slate-900 p-4 shadow-sm ring-1 ring-slate-100 dark:ring-slate-700">
-                <pre className="text-xs text-slate-700 dark:text-slate-300 whitespace-pre-wrap break-all font-mono max-h-96 overflow-y-auto">
-                  {containerLogs}
-                </pre>
+                <div className="max-h-96 overflow-y-auto space-y-2">
+                  {filteredContainerLogs.length > 0 ? (
+                    filteredContainerLogs.map((line, idx) => {
+                      const meta = getContainerLogLevelMeta(line.level)
+                      const displayContainerName = line.containerPrefix || selectedLogContainer?.name || "--"
+                      return (
+                        <div key={idx} className={cn("rounded-xl border px-3 py-2", meta.wrapper)}>
+                          <div className="flex items-start gap-2">
+                            <span className={cn("mt-1 h-2.5 w-2.5 shrink-0 rounded-full", meta.dot)} />
+                            <div className="min-w-0 flex-1">
+                              <div className="flex flex-wrap items-center gap-1.5 text-[10px] font-medium">
+                                <span className={cn("rounded-full px-2.5 py-1 text-[10px] font-semibold tracking-wide", meta.badge)}>{meta.label}</span>
+                                {showLogTimestamps && line.timestamp ? (
+                                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-slate-500 dark:bg-slate-900/80 dark:text-slate-400">
+                                    {line.timestamp}
+                                  </span>
+                                ) : null}
+                                {showLogContainerName ? (
+                                  <span className="rounded-full bg-white/80 px-2 py-0.5 text-emerald-600 dark:bg-slate-900/80 dark:text-emerald-400">
+                                    {displayContainerName}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-1.5 whitespace-pre-wrap break-all font-mono text-xs leading-5 text-slate-700 dark:text-slate-200">
+                                {line.message || line.raw}
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })
+                  ) : (
+                    <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50/80 px-4 py-6 text-center text-sm text-slate-500 dark:border-slate-700 dark:bg-slate-800/40 dark:text-slate-400">
+                      当前筛选条件下暂无日志
+                    </div>
+                  )}
+                </div>
               </div>
-            )}
-            {!containerLogs && !containerLogsLoading && !containerLogsError && (
+            ) : !containerLogsLoading ? (
               <EmptyState title="选择容器查看日志" description="请在上方选择一个容器并点击读取" />
-            )}
+            ) : null}
           </div>
         )}
 

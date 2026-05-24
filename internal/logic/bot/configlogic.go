@@ -245,6 +245,11 @@ func normalizeCronExpr(expr string) string {
 	return strings.Join(strings.Fields(strings.TrimSpace(expr)), " ")
 }
 
+func isDisabledCronExpr(expr string) bool {
+	s := strings.ToLower(normalizeCronExpr(expr))
+	return s == "off" || s == "false" || s == "0" || s == "no"
+}
+
 func validateCronField(field string, min int, max int) error {
 	if field == "" {
 		return fmt.Errorf("不能为空")
@@ -373,12 +378,18 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	backupJSONCronReq := requestOrExisting(req.BackupJsonCron, cfg.Telegram, "backup_json_cron", "0 1 * * *")
 	backupComposeCronReq := requestOrExisting(req.BackupComposeCron, cfg.Telegram, "backup_compose_cron", "30 1 * * *")
 
-	updateCheckCron, cronErr := validateCronExpr("更新检测 Cron", updateCheckCronReq)
-	if cronErr != nil {
-		resp.Code = 400
-		resp.Msg = cronErr.Error()
-		resp.Data = map[string]interface{}{}
-		return resp, nil
+	updateCheckCron := normalizeCronExpr(updateCheckCronReq)
+	if isDisabledCronExpr(updateCheckCron) {
+		updateCheckCron = "off"
+	} else {
+		var cronErr error
+		updateCheckCron, cronErr = validateCronExpr("更新检测 Cron", updateCheckCronReq)
+		if cronErr != nil {
+			resp.Code = 400
+			resp.Msg = cronErr.Error()
+			resp.Data = map[string]interface{}{}
+			return resp, nil
+		}
 	}
 	cleanImagesCron, cronErr := validateCronExpr("清理 Cron", cleanImagesCronReq)
 	if cronErr != nil {
