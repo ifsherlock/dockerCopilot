@@ -166,13 +166,21 @@ jobs:
       - name: Normalize docker context
         run: |
           rm -rf release
-          mkdir -p release/linux
+          mkdir -p release/linux release/etc
           if [ -d release-download/docker-context/linux ] || [ -d release-download/docker-context/etc ]; then
-            mv release-download/docker-context/linux release/linux || true
-            mv release-download/docker-context/etc release/etc || true
+            if [ -d release-download/docker-context/linux ]; then
+              cp -R release-download/docker-context/linux/. release/linux/
+            fi
+            if [ -d release-download/docker-context/etc ]; then
+              cp -R release-download/docker-context/etc/. release/etc/
+            fi
           else
-            mv release-download/linux release/linux || true
-            mv release-download/etc release/etc || true
+            if [ -d release-download/linux ]; then
+              cp -R release-download/linux/. release/linux/
+            fi
+            if [ -d release-download/etc ]; then
+              cp -R release-download/etc/. release/etc/
+            fi
           fi
           test -f release/linux/amd64/dockerCopilot
           test -f release/linux/arm64/dockerCopilot
@@ -239,13 +247,21 @@ jobs:
         if: steps.dockerhub.outputs.enabled == 'true'
         run: |
           rm -rf release
-          mkdir -p release/linux
+          mkdir -p release/linux release/etc
           if [ -d release-download/docker-context/linux ] || [ -d release-download/docker-context/etc ]; then
-            mv release-download/docker-context/linux release/linux || true
-            mv release-download/docker-context/etc release/etc || true
+            if [ -d release-download/docker-context/linux ]; then
+              cp -R release-download/docker-context/linux/. release/linux/
+            fi
+            if [ -d release-download/docker-context/etc ]; then
+              cp -R release-download/docker-context/etc/. release/etc/
+            fi
           else
-            mv release-download/linux release/linux || true
-            mv release-download/etc release/etc || true
+            if [ -d release-download/linux ]; then
+              cp -R release-download/linux/. release/linux/
+            fi
+            if [ -d release-download/etc ]; then
+              cp -R release-download/etc/. release/etc/
+            fi
           fi
           test -f release/linux/amd64/dockerCopilot
           test -f release/linux/arm64/dockerCopilot
