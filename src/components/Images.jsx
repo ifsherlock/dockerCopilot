@@ -538,6 +538,11 @@ export function Images() {
     return v
   }
 
+  const selectAcceleratorSource = (value) => {
+    setAcceleratorModal(prev => ({ ...prev, selectedSource: value }))
+    persistAccelerators(accelerators, value === '__official__' ? '' : value === '__cn_mirror__' ? 'docker.1ms.run' : value)
+  }
+
   const getImageUpdateActionState = (image) => {
     const key = image?.id || image?.name || ''
     return imageUpdateActions[key] || null
@@ -806,7 +811,7 @@ export function Images() {
           title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
         >
           <RefreshCw className="h-3.5 w-3.5" />
-          <span>更新</span>
+          <span className="hidden sm:inline">更新</span>
         </button>
       </div>
     )
@@ -1277,7 +1282,8 @@ export function Images() {
 
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
-        <div className="grid grid-cols-2 sm:grid-cols-6 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 min-h-[116px]">
+        <div className="overflow-x-auto rounded-3xl shadow-lg">
+          <div className="grid min-w-[410px] grid-flow-col auto-cols-fr gap-0 rounded-3xl overflow-hidden border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 min-h-[116px] sm:min-w-0 sm:grid-cols-6 sm:grid-flow-row">
           {/* 总镜像数 */}
           <button
             onClick={() => setFilterStatus(null)}
@@ -1291,7 +1297,7 @@ export function Images() {
               <div className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400 transition-transform duration-300 group-hover:scale-110">
                 {images.length}
               </div>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">总镜像</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">镜像</div>
             </div>
           </button>
 
@@ -1308,7 +1314,7 @@ export function Images() {
               <div className="text-2xl sm:text-3xl font-bold text-green-600 dark:text-green-400 transition-transform duration-300 group-hover:scale-110">
                 {images.filter(img => img.inUsed).length}
               </div>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">使用中</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">使用</div>
             </div>
           </button>
 
@@ -1325,7 +1331,7 @@ export function Images() {
               <div className="text-2xl sm:text-3xl font-bold text-yellow-600 dark:text-yellow-400 transition-transform duration-300 group-hover:scale-110">
                 {images.filter(img => !img.inUsed).length}
               </div>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">未使用</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">空闲</div>
             </div>
           </button>
 
@@ -1342,7 +1348,7 @@ export function Images() {
               <div className="text-2xl sm:text-3xl font-bold text-orange-600 dark:text-orange-400 transition-transform duration-300 group-hover:scale-110">
                 {images.filter(img => img.tag === 'None' || img.tag === '<none>').length}
               </div>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">无Tag</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">无tag</div>
             </div>
           </button>
 
@@ -1359,7 +1365,7 @@ export function Images() {
               <div className="text-2xl sm:text-3xl font-bold text-sky-600 dark:text-sky-400 transition-transform duration-300 group-hover:scale-110">
                 {updatedImages.length}
               </div>
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">有更新</div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">更新</div>
             </div>
           </button>
 
@@ -1371,121 +1377,122 @@ export function Images() {
             <div className="absolute inset-0 bg-gradient-to-br from-sky-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative flex flex-col items-center">
               <Zap className="h-7 w-7 text-yellow-500 dark:text-yellow-400 mb-2 transition-transform duration-300 group-hover:scale-110 fill-current stroke-[2.2]" />
-              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400"><span className="hidden sm:inline">加速源配置</span><span className="sm:hidden">加速源</span></div>
+              <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400">加速</div>
             </div>
           </button>
         </div>
+        </div>
 
         <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4 shadow-sm">
-          <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-center lg:gap-2">
-            {viewMode === 'card' && !isBatchMode && (
-              <button
-                onClick={() => setIsBatchMode(true)}
-                className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
-                title="批量操作"
-              >
-                <CheckSquare className="h-4 w-4" />
-                <span className="hidden sm:inline">批量操作</span>
-              </button>
-            )}
-            {viewMode === 'card' && isBatchMode && (
-              <button
-                onClick={() => {
-                  setIsBatchMode(false)
-                  setSelectedImages([])
-                }}
-                className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
-                title="退出批量"
-              >
-                <CheckSquare className="h-4 w-4" />
-                <span className="hidden sm:inline">退出批量</span>
-              </button>
-            )}
-            {(viewMode === 'table' || isBatchMode || selectedImages.length > 0) && (() => {
-              const allVisibleSelected = filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))
-              const hasIgnoredSelected = selectedImages.some(id => {
-                const img = images.find(item => item.id === id)
-                return img && isImageUpdateIgnored(img)
-              })
-              const hasNormalSelected = selectedImages.some(id => {
-                const img = images.find(item => item.id === id)
-                return img && !isImageUpdateIgnored(img)
-              })
-              return (
-                <>
-                  <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                    <button
-                      onClick={toggleSelectAllImages}
-                      disabled={isLoading || filteredImages.length === 0 || (viewMode === 'card' && !isBatchMode)}
-                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-blue-100 px-2.5 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 sm:h-auto sm:min-w-0 sm:px-3"
-                      title={allVisibleSelected ? '取消全选' : '全选'}
-                    >
-                      <CheckSquare className="h-4 w-4" />
-                      <span className="hidden sm:inline">{allVisibleSelected ? '取消全选' : '全选'}</span>
-                    </button>
-                    {!allVisibleSelected && selectedImages.length > 0 && (
+          <div className="flex flex-col gap-3">
+            <div className="overflow-x-auto pb-1">
+              <div className="flex min-w-max items-center gap-1.5 sm:gap-2">
+                {viewMode === 'card' && !isBatchMode && (
+                  <button
+                    onClick={() => setIsBatchMode(true)}
+                    className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                    title="批量操作"
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                    <span className="hidden sm:inline">批量操作</span>
+                  </button>
+                )}
+                {viewMode === 'card' && isBatchMode && (
+                  <button
+                    onClick={() => {
+                      setIsBatchMode(false)
+                      setSelectedImages([])
+                    }}
+                    className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                    title="退出批量"
+                  >
+                    <CheckSquare className="h-4 w-4" />
+                    <span className="hidden sm:inline">退出批量</span>
+                  </button>
+                )}
+                {(viewMode === 'table' || isBatchMode || selectedImages.length > 0) && (() => {
+                  const allVisibleSelected = filteredImages.length > 0 && filteredImages.every(img => selectedImages.includes(img.id))
+                  const hasIgnoredSelected = selectedImages.some(id => {
+                    const img = images.find(item => item.id === id)
+                    return img && isImageUpdateIgnored(img)
+                  })
+                  const hasNormalSelected = selectedImages.some(id => {
+                    const img = images.find(item => item.id === id)
+                    return img && !isImageUpdateIgnored(img)
+                  })
+                  return (
+                    <div className="flex min-w-max items-center gap-1.5 sm:gap-2">
                       <button
-                        onClick={() => setSelectedImages([])}
-                        disabled={isLoading}
-                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                        onClick={toggleSelectAllImages}
+                        disabled={isLoading || filteredImages.length === 0 || (viewMode === 'card' && !isBatchMode)}
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-blue-100 px-2.5 py-2 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-200 disabled:opacity-50 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                        title={allVisibleSelected ? '取消全选' : '全选'}
                       >
-                        <X className="h-4 w-4" />
-                        <span className="hidden sm:inline">取消选择</span>
+                        <CheckSquare className="h-4 w-4" />
+                        <span className="hidden sm:inline">{allVisibleSelected ? '取消全选' : '全选'}</span>
                       </button>
-                    )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-                    <button
-                      onClick={handleBatchUpdate}
-                      disabled={isLoading || selectedImages.length === 0 || !images.some(img => selectedImages.includes(img.id) && img.haveUpdate)}
-                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-sky-100 px-2.5 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-200 disabled:opacity-50 dark:bg-sky-900/40 dark:text-sky-200 dark:hover:bg-sky-900/60 sm:h-auto sm:min-w-0 sm:px-3"
-                    >
-                      <RefreshCw className="h-4 w-4" />
-                      <span className="hidden sm:inline">更新</span>
-                    </button>
-                    {hasNormalSelected && (
+                      {!allVisibleSelected && selectedImages.length > 0 && (
+                        <button
+                          onClick={() => setSelectedImages([])}
+                          disabled={isLoading}
+                          className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                        >
+                          <X className="h-4 w-4" />
+                          <span className="hidden sm:inline">取消选择</span>
+                        </button>
+                      )}
                       <button
-                        onClick={handleBatchIgnore}
+                        onClick={handleBatchUpdate}
+                        disabled={isLoading || selectedImages.length === 0 || !images.some(img => selectedImages.includes(img.id) && img.haveUpdate)}
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-sky-100 px-2.5 py-2 text-xs font-medium text-sky-700 transition-colors hover:bg-sky-200 disabled:opacity-50 dark:bg-sky-900/40 dark:text-sky-200 dark:hover:bg-sky-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                      >
+                        <RefreshCw className="h-4 w-4" />
+                        <span className="hidden sm:inline">更新</span>
+                      </button>
+                      {hasNormalSelected && (
+                        <button
+                          onClick={handleBatchIgnore}
+                          disabled={isLoading || selectedImages.length === 0}
+                          className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                        >
+                          <Ban className="h-4 w-4" />
+                          <span className="hidden sm:inline">忽略</span>
+                        </button>
+                      )}
+                      {hasIgnoredSelected && (
+                        <button
+                          onClick={handleBatchUnignore}
+                          disabled={isLoading || selectedImages.length === 0}
+                          className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-amber-100 px-2.5 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                        >
+                          <Ban className="h-4 w-4" />
+                          <span className="hidden sm:inline">取消忽略</span>
+                        </button>
+                      )}
+                      <button
+                        onClick={openBatchDelete}
                         disabled={isLoading || selectedImages.length === 0}
-                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-red-100 px-2.5 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60 sm:h-auto sm:min-w-0 sm:px-3"
                       >
-                        <Ban className="h-4 w-4" />
-                        <span className="hidden sm:inline">忽略</span>
+                        <Trash2 className="h-4 w-4" />
+                        <span className="hidden sm:inline">删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
                       </button>
-                    )}
-                    {hasIgnoredSelected && (
                       <button
-                        onClick={handleBatchUnignore}
+                        onClick={() => openConfirmBatchDelete(true)}
                         disabled={isLoading || selectedImages.length === 0}
-                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-amber-100 px-2.5 py-2 text-xs font-medium text-amber-700 transition-colors hover:bg-amber-200 disabled:opacity-50 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60 sm:h-auto sm:min-w-0 sm:px-3"
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-orange-100 px-2.5 py-2 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-900/40 dark:text-orange-200 dark:hover:bg-orange-900/60 sm:h-auto sm:min-w-0 sm:px-3"
                       >
-                        <Ban className="h-4 w-4" />
-                        <span className="hidden sm:inline">取消忽略</span>
+                        <Trash2 className="h-4 w-4" />
+                        <span className="hidden sm:inline">强删{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
                       </button>
-                    )}
-                    <button
-                      onClick={openBatchDelete}
-                      disabled={isLoading || selectedImages.length === 0}
-                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-red-100 px-2.5 py-2 text-xs font-medium text-red-700 transition-colors hover:bg-red-200 disabled:opacity-50 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60 sm:h-auto sm:min-w-0 sm:px-3"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">删除{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
-                    </button>
-                    <button
-                      onClick={() => openConfirmBatchDelete(true)}
-                      disabled={isLoading || selectedImages.length === 0}
-                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-orange-100 px-2.5 py-2 text-xs font-medium text-orange-700 transition-colors hover:bg-orange-200 disabled:opacity-50 dark:bg-orange-900/40 dark:text-orange-200 dark:hover:bg-orange-900/60 sm:h-auto sm:min-w-0 sm:px-3"
-                    >
-                      <Trash2 className="h-4 w-4" />
-                      <span className="hidden sm:inline">强删{selectedImages.length > 0 ? `(${selectedImages.length})` : ''}</span>
-                    </button>
-                  </div>
-                </>
-              )
-            })()}
+                    </div>
+                  )
+                })()}
+              </div>
+            </div>
 
-            <div className="ml-0 flex w-full flex-wrap items-center gap-1.5 sm:gap-2 lg:ml-auto lg:w-auto lg:flex-nowrap">
-              <div className="relative min-w-0 flex-1 sm:w-60 lg:w-60">
+            <div className="flex items-center gap-2">
+              <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
                   type="text"
@@ -1495,23 +1502,21 @@ export function Images() {
                   className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-8 pr-2 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
                 />
               </div>
-              <div className="flex items-center gap-1.5 sm:gap-2">
-                <button
-                  onClick={handleRefresh}
-                  disabled={isLoading || isRefreshing}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 px-0 py-0 text-white transition-colors hover:bg-primary-700 disabled:opacity-50 sm:h-auto sm:w-auto sm:px-4 sm:py-2"
-                >
-                  <RefreshCw className="h-4 w-4" />
-                  <span className="hidden sm:inline">刷新</span>
-                </button>
-                <button
-                  onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
-                  className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-700 sm:h-auto sm:w-auto sm:px-3 sm:py-2"
-                  title={viewMode === 'card' ? '切换到表格视图' : '切换到卡片视图'}
-                >
-                  {viewMode === 'card' ? <LayoutList className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
-                </button>
-              </div>
+              <button
+                onClick={handleRefresh}
+                disabled={isLoading || isRefreshing}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 px-0 py-0 text-white transition-colors hover:bg-primary-700 disabled:opacity-50 sm:h-auto sm:w-auto sm:px-4 sm:py-2"
+              >
+                <RefreshCw className="h-4 w-4" />
+                <span className="hidden sm:inline">刷新</span>
+              </button>
+              <button
+                onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-700 sm:h-auto sm:w-auto sm:px-3 sm:py-2"
+                title={viewMode === 'card' ? '切换到表格视图' : '切换到卡片视图'}
+              >
+                {viewMode === 'card' ? <LayoutList className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
+              </button>
             </div>
           </div>
         </div>
@@ -1608,7 +1613,7 @@ export function Images() {
                         <div className="flex items-center gap-3">
                           <div className="h-9 w-9 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                             <SafeImage
-                              src={getImageLogo(image.name, customIcons)}
+                              src={getImageLogo(buildPullTarget(image) || image.name, customIcons)}
                               alt={image.name}
                               className="h-9 w-9 object-cover"
                               fallback={<HardDrive className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
@@ -1736,7 +1741,7 @@ export function Images() {
                   <div className="flex items-start gap-2.5 sm:gap-3 mb-2">
                     <div className="h-9 w-9 sm:h-10 sm:w-10 bg-gray-100 dark:bg-gray-700 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                       <SafeImage
-                        src={getImageLogo(image.name, customIcons)}
+                        src={getImageLogo(buildPullTarget(image) || image.name, customIcons)}
                         alt={image.name}
                         className="h-9 w-9 sm:h-10 sm:w-10 object-cover"
                         fallback={<HardDrive className="h-4 w-4 sm:h-5 sm:w-5 text-gray-500 dark:text-gray-400" />}
@@ -1781,7 +1786,7 @@ export function Images() {
 
                     <div className="absolute top-0 right-0 z-10">
                       <button
-                        onClick={(e) => { e.stopPropagation(); openAcceleratorModal(image.name) }}
+                        onClick={(e) => { e.stopPropagation(); openAcceleratorModal(buildPullTarget(image) || image.name) }}
                         className="inline-flex items-center justify-center p-0.5 text-amber-500 hover:text-amber-600 dark:hover:text-amber-300 transition-colors active:scale-95"
                         title={`为 ${image.name}:${image.tag} 打开加速拉取`}
                       >
@@ -1865,14 +1870,14 @@ export function Images() {
                               title={isImageUpdateIgnored(image) ? '这个镜像已在更新黑名单中' : image.haveUpdate ? '直接按系统默认源更新' : '当前没有检测到可用更新'}
                             >
                               <RefreshCw className="h-4 w-4" />
-                              <span>更新</span>
+                              <span className="hidden sm:inline">更新</span>
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: false }) }}
                               className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                             >
                               <Trash2 className="h-4 w-4" />
-                              <span>删除</span>
+                              <span className="hidden sm:inline">删除</span>
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); setDeleteModal({ isOpen: true, image, force: true }) }}
@@ -1880,7 +1885,7 @@ export function Images() {
                               title="强制删除镜像"
                             >
                               <Trash2 className="h-4 w-4" />
-                              <span>强删</span>
+                              <span className="hidden sm:inline">强删</span>
                             </button>
                             <button
                               onClick={(e) => { e.stopPropagation(); (isImageUpdateIgnored(image) ? unignoreImageUpdate(image) : ignoreImageUpdate(image)) }}
@@ -1892,7 +1897,7 @@ export function Images() {
                               )}
                             >
                               <Ban className="h-4 w-4" />
-                              <span>{isImageUpdateIgnored(image) ? '取消' : '忽略'}</span>
+                              <span className="hidden sm:inline">{isImageUpdateIgnored(image) ? '取消' : '忽略'}</span>
                             </button>
                           </>
                         )}
@@ -1935,7 +1940,7 @@ export function Images() {
                   <div key={img.id} className="flex items-center gap-3 p-3 bg-white dark:bg-gray-700 rounded-xl hover:shadow-md transition-all duration-200">
                     <div className="h-8 w-8 bg-gray-200 dark:bg-gray-600 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden">
                       <SafeImage
-                        src={getImageLogo(img.name, customIcons)}
+                        src={getImageLogo(buildPullTarget(img) || img.name, customIcons)}
                         alt={img.name}
                         className="h-8 w-8 object-cover"
                         fallback={<HardDrive className="h-4 w-4 text-gray-500 dark:text-gray-400" />}
@@ -1988,72 +1993,144 @@ export function Images() {
       )}
 
       {acceleratorModal.isOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-3xl w-full overflow-hidden">
-            <div className="h-1 bg-gradient-to-r from-sky-400 via-blue-500 to-cyan-500"></div>
-            <div className="p-6 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between">
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-2xl bg-sky-100 dark:bg-sky-900/40 flex items-center justify-center"><Zap className="h-6 w-6 text-sky-600 dark:text-sky-300 fill-current stroke-[2.2]" /></div>
-                <div>
-                  <h3 className="text-lg font-bold text-gray-900 dark:text-white">加速拉取镜像</h3>
-                  <p className="text-xs text-gray-500 dark:text-gray-400 mt-1"></p>
+        <div className="fixed inset-0 z-50 bg-black/40 backdrop-blur-sm p-2 sm:p-4 animate-fadeIn">
+          <div className="mx-auto flex h-full w-full max-w-3xl items-center justify-center">
+            <div className="flex max-h-[92vh] w-full flex-col overflow-hidden rounded-3xl bg-white shadow-2xl dark:bg-gray-800">
+              <div className="h-1 bg-gradient-to-r from-sky-400 via-blue-500 to-cyan-500"></div>
+              <div className="flex items-center justify-between gap-3 border-b border-gray-200 p-4 dark:border-gray-700 sm:p-6">
+                <div className="flex min-w-0 items-center gap-3">
+                  <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-2xl bg-sky-100 dark:bg-sky-900/40 sm:h-11 sm:w-11">
+                    <Zap className="h-5 w-5 fill-current stroke-[2.2] text-sky-600 dark:text-sky-300 sm:h-6 sm:w-6" />
+                  </div>
+                  <div className="min-w-0">
+                    <h3 className="truncate text-base font-bold text-gray-900 dark:text-white sm:text-lg">加速拉取镜像</h3>
+                    <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">410 宽度下按移动端卡片布局自适应显示</p>
+                  </div>
                 </div>
+                <button
+                  onClick={() => setAcceleratorModal({ isOpen: false, imageName: '', taskId: '', logs: '', selectedSource: '' })}
+                  className="rounded-xl p-2 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-700 dark:text-gray-400 dark:hover:bg-gray-700 dark:hover:text-gray-200"
+                >
+                  <X className="h-5 w-5" />
+                </button>
               </div>
-              <button onClick={() => setAcceleratorModal({ isOpen: false, imageName: '', taskId: '', logs: '', selectedSource: '' })} className="p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-gray-700"><X className="h-5 w-5" /></button>
-            </div>
-            <div className="p-6 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">镜像名</label>
-                  <input value={acceleratorModal.imageName} onChange={(e) => setAcceleratorModal(prev => ({ ...prev, imageName: e.target.value }))} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="例如 library/nginx:latest" />
-                </div>
-                <div>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="block text-sm font-medium text-gray-700 dark:text-gray-300">镜像源</label>
+
+              <div className="space-y-4 overflow-y-auto p-4 sm:space-y-5 sm:p-6">
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-slate-300">镜像名称</label>
+                  <input
+                    value={acceleratorModal.imageName}
+                    onChange={(e) => setAcceleratorModal(prev => ({ ...prev, imageName: e.target.value }))}
+                    className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                    placeholder="例如 library/nginx:latest"
+                  />
+
+                  <div className="mt-3 flex items-center justify-between gap-2">
+                    <label className="block text-sm font-medium text-slate-700 dark:text-slate-300">拉取源</label>
                     <button
                       type="button"
                       onClick={testAcceleratorLatency}
-                      className="text-xs text-gray-500 dark:text-gray-400 flex items-center gap-1 hover:text-sky-600 dark:hover:text-sky-300"
+                      className="inline-flex items-center gap-1 text-xs text-slate-500 transition-colors hover:text-sky-600 dark:text-slate-400 dark:hover:text-sky-300"
                     >
                       <Gauge className={cn("h-3.5 w-3.5", testingAccelerators && "animate-pulse text-sky-500")} />
                       {testingAccelerators ? '测速中...' : '重新测速'}
                     </button>
                   </div>
-                  <select value={acceleratorModal.selectedSource} onChange={(e) => { setAcceleratorModal(prev => ({ ...prev, selectedSource: e.target.value })); persistAccelerators(accelerators, e.target.value === '__official__' ? '' : e.target.value === '__cn_mirror__' ? 'docker.1ms.run' : e.target.value) }} className="w-full px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100">
+                  <select
+                    value={acceleratorModal.selectedSource}
+                    onChange={(e) => selectAcceleratorSource(e.target.value)}
+                    className="mt-2 w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100"
+                  >
                     {acceleratorOptions.map(opt => <option key={opt.value} value={opt.value}>{opt.label} · {formatLatency(opt.value)}</option>)}
                   </select>
+
+                  <div className="mt-2 rounded-xl bg-slate-100 px-3 py-2 text-xs text-slate-500 dark:bg-slate-900 dark:text-slate-400">
+                    当前默认源：{acceleratorOptions.find(opt => opt.value === acceleratorModal.selectedSource)?.label || '未选择'}
+                  </div>
+
+                  <button
+                    onClick={startAcceleratedPull}
+                    className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-500 px-4 py-3 text-sm font-semibold text-white transition-colors hover:from-sky-600 hover:to-blue-600"
+                  >
+                    <Zap className="h-4 w-4 fill-current stroke-[2.2]" />
+                    开始加速拉取
+                  </button>
                 </div>
-              </div>
-              <div className="rounded-2xl border border-gray-200 dark:border-gray-700 p-4 bg-gray-50 dark:bg-gray-900/40">
-                <div className="flex gap-2">
-                  <input value={newAccelerator} onChange={(e) => setNewAccelerator(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') addAccelerator() }} className="flex-1 px-3 py-2 rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm text-gray-900 dark:text-gray-100 placeholder:text-gray-400 dark:placeholder:text-gray-500" placeholder="输入加速源,回车保存" />
-                  <button onClick={addAccelerator} className="px-4 py-2 rounded-xl bg-sky-600 text-white text-sm font-medium hover:bg-sky-700 flex items-center gap-1"><Plus className="h-4 w-4" />添加</button>
-                </div>
-                <div className="flex flex-wrap gap-2 mt-3">
-                  {acceleratorOptions.map(opt => <div key={opt.value} className={cn("px-2 py-1 text-xs rounded-lg border flex items-center gap-2", acceleratorModal.selectedSource === opt.value ? "bg-sky-100 text-sky-700 border-sky-300 dark:bg-sky-900/30 dark:text-sky-300" : "border-gray-200 dark:border-gray-700 text-gray-600 dark:text-gray-300")}>
-                    <button type="button" onClick={() => setAcceleratorModal(prev => ({ ...prev, selectedSource: opt.value }))} className="inline-flex items-center gap-1">
-                      <span>{opt.label}</span>
-                      <span className={cn("font-mono", latencyClassName(opt.value))}>{formatLatency(opt.value)}</span>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <h3 className="text-sm font-medium text-slate-700 dark:text-slate-300">镜像加速源</h3>
+                      <p className="mt-1 text-xs leading-5 text-slate-500 dark:text-slate-400">添加自定义源后，可在上方拉取源下拉中直接选择，并保存为默认拉取源。</p>
+                    </div>
+                    <span className="flex-shrink-0 rounded-full bg-white px-2.5 py-1 text-[11px] font-medium text-slate-500 shadow-sm dark:bg-slate-900 dark:text-slate-300">
+                      {acceleratorOptions.length} 个
+                    </span>
+                  </div>
+
+                  <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto]">
+                    <input
+                      value={newAccelerator}
+                      onChange={(e) => setNewAccelerator(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') addAccelerator() }}
+                      className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 placeholder:text-gray-400 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-100 dark:placeholder:text-gray-500"
+                      placeholder="输入加速源,回车保存"
+                    />
+                    <button
+                      onClick={addAccelerator}
+                      className="inline-flex items-center justify-center gap-1 rounded-xl bg-sky-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-sky-700"
+                    >
+                      <Plus className="h-4 w-4" />
+                      添加并设为可选
                     </button>
-                    {!opt.value.startsWith('__') && (
-                      <button
-                        type="button"
-                        onClick={() => setConfirmRemoveAccelerator({ isOpen: true, source: opt.value })}
-                        className="rounded p-0.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20"
-                        title="删除这个加速源"
+                  </div>
+
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {acceleratorOptions.map(opt => (
+                      <div
+                        key={opt.value}
+                        className={cn(
+                          "flex max-w-full items-center gap-2 rounded-xl border px-3 py-2 text-xs",
+                          acceleratorModal.selectedSource === opt.value
+                            ? "border-sky-300 bg-sky-100 text-sky-700 dark:border-sky-700 dark:bg-sky-900/30 dark:text-sky-300"
+                            : "border-gray-200 text-gray-600 dark:border-gray-700 dark:text-gray-300"
+                        )}
                       >
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </button>
-                    )}
-                  </div>)}
+                        <button
+                          type="button"
+                          onClick={() => selectAcceleratorSource(opt.value)}
+                          className="inline-flex min-w-0 items-center gap-1 text-left"
+                        >
+                          <span className="truncate">{opt.label}</span>
+                          <span className={cn("font-mono", latencyClassName(opt.value))}>{formatLatency(opt.value)}</span>
+                        </button>
+                        {!opt.value.startsWith('__') && (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmRemoveAccelerator({ isOpen: true, source: opt.value })}
+                            className="rounded p-0.5 text-red-500 transition-colors hover:bg-red-50 dark:hover:bg-red-900/20"
+                            title="删除这个加速源"
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
-              </div>
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <label className="text-sm font-medium text-gray-700 dark:text-gray-300 flex items-center gap-2"><Logs className="h-4 w-4" />日志输出</label>
-                  <button onClick={startAcceleratedPull} className="px-4 py-2 rounded-xl bg-gradient-to-r from-sky-500 to-blue-500 text-white text-sm font-semibold hover:from-sky-600 hover:to-blue-600">开始加速拉取</button>
+
+                <div className="rounded-2xl border border-slate-200 bg-slate-50/80 p-4 dark:border-slate-700 dark:bg-slate-800/40">
+                  <div className="mb-2 flex items-center justify-between gap-3">
+                    <label className="inline-flex items-center gap-2 text-sm font-medium text-slate-700 dark:text-slate-300">
+                      <Logs className="h-4 w-4" />
+                      日志输出
+                    </label>
+                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
+                      {acceleratorModal.taskId ? '任务进行中' : '等待开始'}
+                    </span>
+                  </div>
+                  <pre className="h-48 overflow-auto rounded-2xl bg-gray-950 p-4 text-xs text-green-300 whitespace-pre-wrap sm:h-56">{acceleratorModal.logs || '等待开始拉取...'}</pre>
                 </div>
-                <pre className="h-56 overflow-auto rounded-2xl bg-gray-950 text-green-300 text-xs p-4 whitespace-pre-wrap">{acceleratorModal.logs || '等待开始拉取...'}</pre>
               </div>
             </div>
           </div>

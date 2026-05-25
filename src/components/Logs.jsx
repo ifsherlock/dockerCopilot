@@ -53,6 +53,8 @@ export function LogsPage() {
   const [logTheme, setLogTheme] = useState(() => localStorage.getItem('docker_copilot_logs_theme') || 'dark')
   const [showTimestamps, setShowTimestamps] = useState(() => localStorage.getItem('docker_copilot_logs_show_timestamps') !== 'false')
   const [showContainerPrefix, setShowContainerPrefix] = useState(() => localStorage.getItem('docker_copilot_logs_show_container_prefix') === 'true')
+  const [levelFilterMenuOpen, setLevelFilterMenuOpen] = useState(false)
+  const [mobileMoreOpen, setMobileMoreOpen] = useState(false)
 
   const wrapAsCodeBlock = (value) => {
     const text = String(value || '').replace(/\s+$/g, '')
@@ -195,6 +197,13 @@ export function LogsPage() {
   }, [containers, keyword, favoriteContainerIds])
 
   const selectedContainer = containers.find(item => item.id === selectedId)
+  const levelFilterLabelMap = {
+    all: '全部',
+    error: 'ERROR',
+    warn: 'WARN',
+    info: 'INFO',
+    debug: 'DEBUG'
+  }
 
   const toggleFavorite = (containerId) => {
     setFavoriteContainerIds(prev => prev.includes(containerId)
@@ -406,8 +415,40 @@ export function LogsPage() {
         </div>
       </div>
 
+      <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 xl:hidden">
+        <div className="flex items-center gap-2">
+          <div className="min-w-0 flex-1">
+            <select
+              value={selectedId}
+              onChange={(e) => setSelectedId(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm text-gray-900 outline-none focus:border-blue-500 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+            >
+              {containers.length === 0 ? (
+                <option value="">暂无容器</option>
+              ) : (
+                containers.map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.name || item.id}
+                  </option>
+                ))
+              )}
+            </select>
+            <div className="mt-2 truncate text-[11px] text-gray-500 dark:text-gray-400">
+              {selectedContainer?.usingImage || selectedContainer?.createImage || '请选择容器后查看日志'}
+            </div>
+          </div>
+          <button
+            onClick={loadContainers}
+            className="inline-flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-700 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-400 dark:hover:bg-gray-800 dark:hover:text-gray-200"
+            title="刷新容器列表"
+          >
+            <RefreshCw className={`h-4 w-4 ${loadingContainers ? 'animate-spin' : ''}`} />
+          </button>
+        </div>
+      </div>
+
       <div className={`grid grid-cols-1 gap-3 ${containerPaneCollapsed ? 'xl:grid-cols-[88px_minmax(0,1fr)]' : 'xl:grid-cols-[236px_minmax(0,1fr)]'}`}>
-        <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800">
+        <div className="hidden rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 xl:block">
           <div className="mb-2 flex items-center justify-between gap-2">
             <button
               onClick={loadContainers}
@@ -498,17 +539,97 @@ export function LogsPage() {
 
         <div className={`rounded-2xl border p-0 shadow-sm overflow-hidden ${darkTheme ? 'border-gray-800 bg-[#0b0f14]' : 'border-gray-200 bg-white'} ${containerPaneCollapsed ? 'xl:min-h-[78vh]' : ''}`}>
           <div className={`border-b px-4 py-3 ${darkTheme ? 'border-gray-800 bg-[#10161d]' : 'border-gray-200 bg-slate-50'}`}>
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+            <div className="hidden xl:flex xl:flex-col xl:gap-3">
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <div className={`truncate text-lg font-semibold ${darkTheme ? 'text-gray-100' : 'text-gray-900'}`}>{selectedContainer?.name || '请选择容器'}</div>
+                  <div className={`truncate text-xs ${darkTheme ? 'text-gray-400' : 'text-gray-500'}`}>{selectedContainer?.usingImage || selectedContainer?.createImage || ''}</div>
+                </div>
+                <div className={`flex flex-wrap items-center justify-end gap-2 text-xs ${darkTheme ? 'text-gray-300' : 'text-gray-700'}`}>
+                  <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] ${loadingLogs ? 'border-amber-500/40 bg-amber-500/12 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
+                    <Activity className={`h-3.5 w-3.5 ${loadingLogs ? 'animate-pulse' : ''}`} />
+                    <span>{loadingLogs ? '读取中' : '已就绪'}</span>
+                  </span>
+                  <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志行数">
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      pattern="[0-9]*"
+                      value={tail}
+                      onChange={(e) => {
+                        const raw = e.target.value.replace(/\D+/g, '')
+                        setTail(raw)
+                      }}
+                      onBlur={() => setTail(v => {
+                        const num = Number(v)
+                        if (!num) return '300'
+                        return String(Math.min(5000, Math.max(100, num)))
+                      })}
+                      className={`w-12 bg-transparent text-center text-sm font-semibold outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${darkTheme ? 'text-gray-100' : 'text-gray-800'}`}
+                    />
+                    <span className="text-xs opacity-75">行</span>
+                    <div className="inline-flex items-center gap-1 ml-1">
+                      <button onClick={() => setTail(v => String(Math.max(100, Number(v || 300) - 100)))} className={`inline-flex h-7 w-7 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="减少 100 行">
+                        <ChevronDown className="h-3.5 w-3.5" />
+                      </button>
+                      <button onClick={() => setTail(v => String(Math.min(5000, Math.max(100, Number(v || 300)) + 100)))} className={`inline-flex h-7 w-7 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="增加 100 行">
+                        <ChevronUp className="h-3.5 w-3.5" />
+                      </button>
+                    </div>
+                  </div>
+                  <button onClick={() => setAutoScroll(v => !v)} className={iconBtn(autoScroll, 'sky')} title="自动滚动">
+                    <ArrowDownToLine className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setAutoRefresh(v => !v)} className={iconBtn(autoRefresh, 'emerald')} title="自动刷新">
+                    <RefreshCw className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setWordWrap(v => !v)} className={iconBtn(wordWrap, 'amber')} title="自动换行">
+                    <WrapText className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setShowTimestamps(v => !v)} className={iconBtn(showTimestamps, 'sky')} title="显示时间戳">
+                    <Clock3 className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setShowContainerPrefix(v => !v)} className={iconBtn(showContainerPrefix, 'emerald')} title="显示容器名前缀">
+                    <Tags className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setFilterMode(v => v === 'only-match' ? 'highlight' : 'only-match')} className={iconBtn(filterMode === 'only-match', 'emerald')} title={filterMode === 'only-match' ? '仅看命中行' : '高亮模式'}>
+                    <Filter className="h-4 w-4" />
+                  </button>
+                  <button onClick={() => setLogTheme(v => v === 'dark' ? 'light' : 'dark')} className={iconBtn(!darkTheme, 'amber')} title={darkTheme ? '切换到白天' : '切换到黑夜'}>
+                    {darkTheme ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                  </button>
+                  <div className={`inline-flex h-9 items-center gap-1 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="字体大小">
+                    <Type className="h-3.5 w-3.5" />
+                    <button onClick={() => setFontSize(v => Math.max(10, v - 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>-</button>
+                    <span className="min-w-10 text-center text-sm">{fontSize}px</span>
+                    <button onClick={() => setFontSize(v => Math.min(18, v + 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>+</button>
+                  </div>
+                  <button onClick={copyLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="复制日志">
+                    <Copy className="h-4 w-4" />
+                  </button>
+                  <button onClick={downloadLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="下载日志">
+                    <Download className="h-4 w-4" />
+                  </button>
+                  <button onClick={clearView} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="清空当前视图">
+                    <Eraser className="h-4 w-4" />
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex flex-col gap-3 xl:hidden">
               <div className="min-w-0">
                 <div className={`truncate text-lg font-semibold ${darkTheme ? 'text-gray-100' : 'text-gray-900'}`}>{selectedContainer?.name || '请选择容器'}</div>
                 <div className={`truncate text-xs ${darkTheme ? 'text-gray-400' : 'text-gray-500'}`}>{selectedContainer?.usingImage || selectedContainer?.createImage || ''}</div>
               </div>
-              <div className={`flex flex-wrap items-center gap-2 text-xs ${darkTheme ? 'text-gray-300' : 'text-gray-700'}`}>
-                <span className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 text-[11px] ${loadingLogs ? 'border-amber-500/40 bg-amber-500/12 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}>
-                  <Activity className={`h-3.5 w-3.5 ${loadingLogs ? 'animate-pulse' : ''}`} /> <span className="hidden sm:inline">{loadingLogs ? '读取中' : '已就绪'}</span>
+              <div className="flex items-center gap-2 overflow-x-auto pb-1">
+                <span
+                  className={`inline-flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-lg border ${loadingLogs ? 'border-amber-500/40 bg-amber-500/12 text-amber-300' : 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'}`}
+                  title={loadingLogs ? '读取中' : '已就绪'}
+                >
+                  <Activity className={`h-3.5 w-3.5 ${loadingLogs ? 'animate-pulse' : ''}`} />
                 </span>
-                <div className={`inline-flex items-center gap-2 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志行数">
-                  
+                <div className={`inline-flex flex-shrink-0 items-center gap-1 rounded-lg border px-2 py-1 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志行数">
                   <input
                     type="text"
                     inputMode="numeric"
@@ -523,61 +644,72 @@ export function LogsPage() {
                       if (!num) return '300'
                       return String(Math.min(5000, Math.max(100, num)))
                     })}
-                    className={`w-12 bg-transparent text-center text-sm font-semibold outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${darkTheme ? 'text-gray-100' : 'text-gray-800'}`}
+                    className={`w-11 bg-transparent text-center text-sm font-semibold outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none ${darkTheme ? 'text-gray-100' : 'text-gray-800'}`}
                   />
-                  <span className="hidden sm:inline text-xs opacity-75">行</span>
-                  <div className="ml-1 inline-flex items-center gap-1">
-                    <button onClick={() => setTail(v => String(Math.max(100, Number(v || 300) - 100)))} className={`inline-flex h-7 w-7 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="减少 100 行">
+                  <div className="ml-0.5 inline-flex items-center gap-0.5">
+                    <button onClick={() => setTail(v => String(Math.max(100, Number(v || 300) - 100)))} className={`inline-flex h-6 w-6 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="减少 100 行">
                       <ChevronDown className="h-3.5 w-3.5" />
                     </button>
-                    <button onClick={() => setTail(v => String(Math.min(5000, Math.max(100, Number(v || 300)) + 100)))} className={`inline-flex h-7 w-7 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="增加 100 行">
+                    <button onClick={() => setTail(v => String(Math.min(5000, Math.max(100, Number(v || 300)) + 100)))} className={`inline-flex h-6 w-6 items-center justify-center rounded ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`} title="增加 100 行">
                       <ChevronUp className="h-3.5 w-3.5" />
                     </button>
                   </div>
                 </div>
-                <button onClick={() => setAutoScroll(v => !v)} className={iconBtn(autoScroll, 'sky')} title="自动滚动">
-                  <ArrowDownToLine className="h-4 w-4" />
+                <button onClick={() => loadLogs(selectedId, tail)} className={`${iconBtn(false)} flex-shrink-0`} title="刷新日志">
+                  <RefreshCw className={`h-4 w-4 ${loadingLogs ? 'animate-spin' : ''}`} />
                 </button>
-                <button onClick={() => setAutoRefresh(v => !v)} className={iconBtn(autoRefresh, 'emerald')} title="自动刷新">
-                  <RefreshCw className="h-4 w-4" />
-                </button>
-                <button onClick={() => setWordWrap(v => !v)} className={iconBtn(wordWrap, 'amber')} title="自动换行">
+                <button onClick={() => setWordWrap(v => !v)} className={`${iconBtn(wordWrap, 'amber')} flex-shrink-0`} title="自动换行">
                   <WrapText className="h-4 w-4" />
                 </button>
-                <button onClick={() => setShowTimestamps(v => !v)} className={iconBtn(showTimestamps, 'sky')} title="显示时间戳">
-                  <Clock3 className="h-4 w-4" />
+                <button onClick={() => setAutoRefresh(v => !v)} className={`${iconBtn(autoRefresh, 'emerald')} flex-shrink-0`} title="自动刷新">
+                  <RefreshCw className="h-4 w-4" />
                 </button>
-                <button onClick={() => setShowContainerPrefix(v => !v)} className={iconBtn(showContainerPrefix, 'emerald')} title="显示容器名前缀">
-                  <Tags className="h-4 w-4" />
-                </button>
-                <button onClick={() => setFilterMode(v => v === 'only-match' ? 'highlight' : 'only-match')} className={iconBtn(filterMode === 'only-match', 'emerald')} title={filterMode === 'only-match' ? '仅看命中行' : '高亮模式'}>
-                  <Filter className="h-4 w-4" />
-                </button>
-                <button onClick={() => setLogTheme(v => v === 'dark' ? 'light' : 'dark')} className={iconBtn(!darkTheme, 'amber')} title={darkTheme ? '切换到白天' : '切换到黑夜'}>
-                  {darkTheme ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-                </button>
-                <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="字体大小">
-                  <Type className="h-3.5 w-3.5" />
-                  <button onClick={() => setFontSize(v => Math.max(10, v - 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>-</button>
-                  <span className="min-w-10 text-center">{fontSize}px</span>
-                  <button onClick={() => setFontSize(v => Math.min(18, v + 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>+</button>
-                </div>
-                <button onClick={copyLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="复制日志">
-                  <Copy className="h-4 w-4" />
-                </button>
-                <button onClick={downloadLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="下载日志">
-                  <Download className="h-4 w-4" />
-                </button>
-                <button onClick={clearView} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="清空当前视图">
-                  <Eraser className="h-4 w-4" />
+                <button onClick={() => setMobileMoreOpen(v => !v)} className={`${iconBtn(mobileMoreOpen, 'sky')} flex-shrink-0`} title="更多功能">
+                  <ChevronDown className={`h-4 w-4 transition-transform ${mobileMoreOpen ? 'rotate-180' : ''}`} />
                 </button>
               </div>
+              {mobileMoreOpen && (
+                <div className={`rounded-xl border p-3 ${darkTheme ? 'border-gray-700 bg-[#0b0f14]' : 'border-gray-200 bg-white'}`}>
+                  <div className="grid grid-cols-4 gap-2">
+                    <button onClick={() => setAutoScroll(v => !v)} className={iconBtn(autoScroll, 'sky')} title="自动滚动">
+                      <ArrowDownToLine className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => setShowTimestamps(v => !v)} className={iconBtn(showTimestamps, 'sky')} title="显示时间戳">
+                      <Clock3 className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => setShowContainerPrefix(v => !v)} className={iconBtn(showContainerPrefix, 'emerald')} title="显示容器名前缀">
+                      <Tags className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => setFilterMode(v => v === 'only-match' ? 'highlight' : 'only-match')} className={iconBtn(filterMode === 'only-match', 'emerald')} title={filterMode === 'only-match' ? '仅看命中行' : '高亮模式'}>
+                      <Filter className="h-4 w-4" />
+                    </button>
+                    <button onClick={() => setLogTheme(v => v === 'dark' ? 'light' : 'dark')} className={iconBtn(!darkTheme, 'amber')} title={darkTheme ? '切换到白天' : '切换到黑夜'}>
+                      {darkTheme ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+                    </button>
+                    <button onClick={copyLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="复制日志">
+                      <Copy className="h-4 w-4" />
+                    </button>
+                    <button onClick={downloadLogs} disabled={!logs} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-50 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="下载日志">
+                      <Download className="h-4 w-4" />
+                    </button>
+                    <button onClick={clearView} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="清空当前视图">
+                      <Eraser className="h-4 w-4" />
+                    </button>
+                  </div>
+                  <div className={`mt-3 inline-flex h-9 items-center gap-1 rounded-lg border px-2 py-1.5 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="字体大小">
+                    <Type className="h-3.5 w-3.5" />
+                    <button onClick={() => setFontSize(v => Math.max(10, v - 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>-</button>
+                    <span className="min-w-10 text-center text-sm">{fontSize}px</span>
+                    <button onClick={() => setFontSize(v => Math.min(18, v + 1))} className={`rounded px-1 ${darkTheme ? 'hover:bg-gray-800' : 'hover:bg-gray-100'}`}>+</button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
 
           <div className={`border-b px-4 py-3 ${darkTheme ? 'border-gray-800 bg-[#0f141b]' : 'border-gray-200 bg-slate-50'}`}>
-            <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:justify-between">
-              <div className="relative flex-1">
+            <div className="hidden xl:flex xl:items-center xl:gap-3">
+              <div className="relative min-w-0 flex-1">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
                 <input
                   ref={searchInputRef}
@@ -590,22 +722,84 @@ export function LogsPage() {
                     }
                   }}
                   placeholder={filterMode === 'only-match' ? '仅显示命中该关键词的日志行' : '高亮关键词；Enter 下一条，Shift+Enter 上一条'}
-                  className={`w-full rounded-xl border py-2 pl-10 pr-24 text-sm focus:outline-none ${darkTheme ? 'border-gray-700 bg-[#0b0f14] text-gray-100 placeholder:text-gray-500 focus:border-sky-500' : 'border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:border-sky-500'}`}
+                  className={`w-full rounded-xl border py-2 pl-10 pr-4 text-sm focus:outline-none ${darkTheme ? 'border-gray-700 bg-[#0b0f14] text-gray-100 placeholder:text-gray-500 focus:border-sky-500' : 'border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:border-sky-500'}`}
+                />
+              </div>
+              <div className={`inline-flex items-center gap-1 rounded-xl border p-1 ${darkTheme ? 'border-gray-700 bg-gray-900' : 'border-gray-300 bg-white'}`}>
+                {['all', 'error', 'warn', 'info', 'debug'].map(level => (
+                  <button
+                    key={level}
+                    type="button"
+                    onClick={() => setLevelFilter(level)}
+                    className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${levelFilter === level ? (darkTheme ? 'bg-sky-500/15 text-sky-300' : 'bg-sky-100 text-sky-700') : (darkTheme ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:bg-gray-100')}`}
+                    title={level === 'all' ? '全部日志' : `${level.toUpperCase()} 日志`}
+                  >
+                    {levelFilterLabelMap[level] || level}
+                  </button>
+                ))}
+              </div>
+              <span className={`inline-flex h-9 min-w-[68px] items-center justify-center rounded-lg border px-2 text-xs ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-400' : 'border-gray-300 bg-white text-gray-500'}`}>
+                {matchCount ? `${currentMatchIndex || 1}/${matchCount}` : '0'}
+              </span>
+              <button onClick={() => jumpMatch('prev')} disabled={!matchCount} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-40 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="上一条匹配">
+                <ChevronUp className="h-4 w-4" />
+              </button>
+              <button onClick={() => jumpMatch('next')} disabled={!matchCount} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-40 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="下一条匹配">
+                <ChevronDown className="h-4 w-4" />
+              </button>
+            </div>
+
+            <div className="flex flex-col gap-2 xl:hidden">
+              <div className="relative min-w-0">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-gray-500" />
+                <input
+                  ref={searchInputRef}
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault()
+                      jumpMatch(e.shiftKey ? 'prev' : 'next')
+                    }
+                  }}
+                  placeholder={filterMode === 'only-match' ? '仅显示命中该关键词的日志行' : '高亮关键词；Enter 下一条，Shift+Enter 上一条'}
+                  className={`w-full rounded-xl border py-2 pl-10 pr-16 text-sm focus:outline-none ${darkTheme ? 'border-gray-700 bg-[#0b0f14] text-gray-100 placeholder:text-gray-500 focus:border-sky-500' : 'border-gray-300 bg-white text-gray-900 placeholder:text-gray-400 focus:border-sky-500'}`}
                 />
                 <div className={`absolute right-3 top-1/2 -translate-y-1/2 text-[11px] ${darkTheme ? 'text-gray-500' : 'text-gray-400'}`}>{matchCount ? `${currentMatchIndex || 1}/${matchCount}` : '0'}</div>
               </div>
-              <div className="flex items-center gap-2 text-xs flex-wrap lg:justify-end">
-                <div className={`inline-flex items-center gap-1 rounded-lg border px-2 py-1 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300' : 'border-gray-300 bg-white text-gray-700'}`} title="日志级别筛选">
-                  {['all', 'error', 'warn', 'info', 'debug'].map(level => (
-                    <button
-                      key={level}
-                      onClick={() => setLevelFilter(level)}
-                      className={`rounded px-2 py-1 text-[11px] font-medium transition-colors ${levelFilter === level ? (darkTheme ? 'bg-sky-500/15 text-sky-300' : 'bg-sky-100 text-sky-700') : (darkTheme ? 'text-gray-400 hover:bg-gray-800 hover:text-gray-200' : 'text-gray-500 hover:bg-gray-100 hover:text-gray-700')}`}
-                      title={level === 'all' ? '全部日志' : `${level.toUpperCase()} 日志`}
-                    >
-                      {level === 'all' ? '全部' : level.toUpperCase()}
-                    </button>
-                  ))}
+              <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-2">
+                <div className="relative min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setLevelFilterMenuOpen(v => !v)}
+                    className={`inline-flex h-9 w-full items-center justify-between gap-1.5 rounded-lg border px-2.5 text-xs font-medium ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`}
+                    title="日志级别筛选"
+                  >
+                    <span className="inline-flex items-center gap-1.5">
+                      <Filter className="h-3.5 w-3.5" />
+                      <span>{levelFilterLabelMap[levelFilter] || '全部'}</span>
+                    </span>
+                    <ChevronDown className={`h-3.5 w-3.5 transition-transform ${levelFilterMenuOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                  {levelFilterMenuOpen && (
+                    <div className={`absolute left-0 right-0 z-20 mt-2 rounded-xl border p-1 shadow-xl ${darkTheme ? 'border-gray-700 bg-[#10161d]' : 'border-gray-200 bg-white'}`}>
+                      {['all', 'error', 'warn', 'info', 'debug'].map(level => (
+                        <button
+                          key={level}
+                          type="button"
+                          onClick={() => {
+                            setLevelFilter(level)
+                            setLevelFilterMenuOpen(false)
+                          }}
+                          className={`flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-xs transition-colors ${levelFilter === level ? (darkTheme ? 'bg-sky-500/15 text-sky-300' : 'bg-sky-100 text-sky-700') : (darkTheme ? 'text-gray-300 hover:bg-gray-800' : 'text-gray-700 hover:bg-gray-100')}`}
+                          title={level === 'all' ? '全部日志' : `${level.toUpperCase()} 日志`}
+                        >
+                          <span>{levelFilterLabelMap[level] || level}</span>
+                          {levelFilter === level ? <span className="text-[10px]">当前</span> : null}
+                        </button>
+                      ))}
+                    </div>
+                  )}
                 </div>
                 <button onClick={() => jumpMatch('prev')} disabled={!matchCount} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-40 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="上一条匹配">
                   <ChevronUp className="h-4 w-4" />
@@ -613,17 +807,13 @@ export function LogsPage() {
                 <button onClick={() => jumpMatch('next')} disabled={!matchCount} className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border disabled:opacity-40 ${darkTheme ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800' : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'}`} title="下一条匹配">
                   <ChevronDown className="h-4 w-4" />
                 </button>
-                <button onClick={() => searchInputRef.current?.focus()} className="inline-flex h-9 items-center gap-1 rounded-lg border border-sky-500/30 bg-sky-500/10 px-2.5 text-sky-300 hover:bg-sky-500/15" title="聚焦搜索框">
-                  <Search className="h-4 w-4" />
-                  <span>{matchCount}</span>
-                </button>
               </div>
             </div>
           </div>
 
           {message && <div className={`mx-4 mt-3 rounded-xl px-3 py-2 text-sm ${darkTheme ? 'bg-amber-500/10 text-amber-300' : 'bg-amber-50 text-amber-700 border border-amber-200'}`}>{message}</div>}
 
-          <div ref={logRef} style={{ fontSize: `${fontSize}px` }} className={`${darkTheme ? 'dc-log-grid bg-[#0b0f14] text-white' : 'dc-log-grid-light bg-[#f8fafc] text-slate-800'} ${containerPaneCollapsed ? 'h-[78vh]' : 'h-[70vh]'} overflow-auto p-4 font-mono leading-6 ${wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
+          <div ref={logRef} style={{ fontSize: `${fontSize}px` }} className={`${darkTheme ? 'dc-log-grid bg-[#0b0f14] text-white' : 'dc-log-grid-light bg-[#f8fafc] text-slate-800'} h-[72vh] ${containerPaneCollapsed ? 'xl:h-[78vh]' : 'xl:h-[70vh]'} overflow-auto p-4 font-mono leading-6 ${wordWrap ? 'whitespace-pre-wrap break-words' : 'whitespace-pre'}`}>
             {loadingLogs ? '正在读取日志...' : (processedLines.length > 0
               ? processedLines.map((line, idx) => (
                 <div key={idx} className={`flex gap-2 ${darkTheme ? 'text-white' : 'text-slate-900'}`}>

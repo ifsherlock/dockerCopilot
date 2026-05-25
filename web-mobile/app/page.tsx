@@ -37,6 +37,7 @@ import {
 } from "lucide-react"
 
 import { cn } from "@/lib/utils"
+import { getImageLogo } from "../../src/config/imageLogos.js"
 import {
   ApiError,
   clearStoredToken,
@@ -114,6 +115,22 @@ const initialConfigForm: ConfigFormState = {
 }
 
 const builtInImageAccelerators = ["docker.io", "docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"]
+
+function normalizeIconSource(value: unknown): string | null {
+  if (!value) return null
+  if (typeof value === "string") {
+    const normalized = value.trim()
+    if (!normalized) return null
+    if (/^(https?:)?\/\//i.test(normalized) || normalized.startsWith("data:") || normalized.startsWith("blob:") || normalized.startsWith("/")) {
+      return normalized
+    }
+    return `/${normalized.replace(/^\.?\/?/, "")}`
+  }
+  if (typeof value === "object" && value && "src" in value && typeof (value as { src?: unknown }).src === "string") {
+    return (value as { src: string }).src
+  }
+  return null
+}
 
 function normalizeAcceleratorValue(value: string) {
   return String(value || "")
@@ -1485,13 +1502,47 @@ export default function DockerCopilotMobilePage() {
   // 获取容器图标
   const getContainerIcon = useCallback(
     (container: ContainerInfo): string | null => {
-      const imageName = container.usingImage || container.createImage || ""
+      const imageName = String(container.usingImage || container.createImage || "").trim()
+      if (!imageName) return null
+
+      const direct = normalizeIconSource(getImageLogo(imageName, icons))
+      if (direct) return direct
+
       const canonical = canonicalImageName(imageName)
-      if (canonical && icons[canonical]) return icons[canonical]
-      if (icons[imageName]) return icons[imageName]
+      if (canonical) {
+        const canonicalIcon = normalizeIconSource(getImageLogo(canonical, icons))
+        if (canonicalIcon) return canonicalIcon
+      }
+
       return null
     },
     [icons, canonicalImageName]
+  )
+
+  const getImageIcon = useCallback(
+    (image: ImageInfo): string | null => {
+      const pullTarget = buildPullTarget(image)
+      const rawName = String(image.name || "").trim()
+
+      if (pullTarget) {
+        const targetIcon = normalizeIconSource(getImageLogo(pullTarget, icons))
+        if (targetIcon) return targetIcon
+      }
+
+      if (rawName) {
+        const rawIcon = normalizeIconSource(getImageLogo(rawName, icons))
+        if (rawIcon) return rawIcon
+      }
+
+      const canonicalName = canonicalImageName(image.name)
+      if (canonicalName) {
+        const canonicalIcon = normalizeIconSource(getImageLogo(canonicalName, icons))
+        if (canonicalIcon) return canonicalIcon
+      }
+
+      return null
+    },
+    [buildPullTarget, canonicalImageName, icons]
   )
 
   const getContainerEndpointLink = useCallback(
@@ -2012,8 +2063,12 @@ export default function DockerCopilotMobilePage() {
                       )}
                     >
                       <div className="flex items-start gap-3">
-                        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-slate-100 dark:bg-slate-800">
-                          <Package className="h-5 w-5 text-slate-400" />
+                        <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-xl bg-slate-100 dark:bg-slate-800">
+                          {getImageIcon(img) ? (
+                            <img src={getImageIcon(img)!} alt="" className="h-8 w-8 object-contain" />
+                          ) : (
+                            <Package className="h-5 w-5 text-slate-400" />
+                          )}
                         </div>
                         <div className="min-w-0 flex-1">
                           <div className="flex items-center gap-2 flex-wrap">

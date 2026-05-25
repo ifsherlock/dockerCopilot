@@ -4,6 +4,9 @@ const nextConfig = {
   basePath: '/m',
   assetPrefix: '/m',
   trailingSlash: true,
+  experimental: {
+    externalDir: true,
+  },
   typescript: {
     ignoreBuildErrors: true,
   },

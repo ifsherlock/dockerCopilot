@@ -499,7 +499,6 @@ export function Bot() {
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">配置与管理</h2>
-          <p className="text-gray-600 dark:text-gray-400 mt-1">Telegram Bot、多实例、代理与更新策略统一配置</p>
         </div>
         <button
           onClick={handleSave}
@@ -532,7 +531,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">Telegram通知配置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">Telegram通知配置</p>
               </div>
             </div>
             <SectionToggle checked={config.interactiveEnabled} onChange={() => handleChange('interactiveEnabled', !config.interactiveEnabled)} textOn="已开启" textOff="已关闭" />
@@ -562,7 +560,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">通知与更新检测</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">docker容器更新通知</p>
               </div>
             </div>
             <SectionToggle checked={config.notifyOnUpdate} onChange={() => handleChange('notifyOnUpdate', !config.notifyOnUpdate)} textOn="通知开启" textOff="通知关闭" />
@@ -582,7 +579,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">自动清理镜像</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">定时清理无用镜像</p>
               </div>
             </div>
             <SectionToggle checked={config.autoCleanImages} onChange={() => handleChange('autoCleanImages', !config.autoCleanImages)} textOn="清理开启" textOff="清理关闭" />
@@ -602,7 +598,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">自动更新容器</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">定时检查并更新容器</p>
               </div>
             </div>
             <SectionToggle checked={config.autoUpdateContainers} onChange={() => handleChange('autoUpdateContainers', !config.autoUpdateContainers)} textOn="更新开启" textOff="更新关闭" />
@@ -622,7 +617,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">网络代理配置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">配置TG机器人代理</p>
               </div>
             </div>
             <SectionToggle checked={config.proxyType !== 'none'} onChange={() => handleChange('proxyType', config.proxyType === 'none' ? 'socks5' : 'none')} textOn="代理开启" textOff="无代理" />
@@ -671,7 +665,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">配置文件</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">下载当前配置，或上传配置文件恢复</p>
               </div>
             </div>
             <div className="text-xs text-gray-500 dark:text-gray-400">备份 / 恢复</div>
@@ -716,7 +709,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">更新黑名单</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">按镜像维度勾选，避免被自动更新</p>
               </div>
             </div>
             
@@ -795,7 +787,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">宿主机 IP</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">host 或原生运行可不填，bridge 必填</p>
               </div>
             </div>
           </div>
@@ -833,7 +824,6 @@ export function Bot() {
               </div>
               <div>
                 <h3 className="text-base font-semibold text-gray-900 dark:text-white">多实例配置</h3>
-                <p className="mt-0.5 text-sm text-gray-500 dark:text-gray-400">默认实例在左，右侧用卡片维护实例</p>
               </div>
             </div>
             <div className="flex items-center gap-3">

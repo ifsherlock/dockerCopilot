@@ -17,7 +17,8 @@ import {
   ChevronLeft,
   RefreshCw,
   ArrowUpCircle,
-  ShieldCheck
+  ShieldCheck,
+  Smartphone
 } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle.jsx'
 import { UpdatePrompt } from './UpdatePrompt.jsx'
@@ -118,6 +119,8 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
   const canToggleSidebar = windowWidth >= 1024
   const isTabletSize = windowWidth >= 768 && windowWidth < 1024
   const isMobileSize = windowWidth < 768
+  const isUltraNarrowMobile = windowWidth < 360
+  const isCompactMobileHeader = windowWidth < 420
 
   const handleToggleCollapse = () => {
     // 只在桌面模式允许切换
@@ -163,30 +166,41 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     <>
       {/* 顶部导航栏 - 仅在手机模式（sm）显示 */}
       {windowWidth < 768 && (
-        <div className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between px-3 sm:px-4 z-40 shadow-sm" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: '0.875rem', height: 'calc(3.5rem + env(safe-area-inset-top))' }}>
+        <div className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2 px-2.5 sm:px-4 z-40 shadow-sm" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: '0.875rem', height: 'calc(3.5rem + env(safe-area-inset-top))' }}>
           {/* 左侧：Logo 和项目信息 */}
-          <div className="flex items-center gap-2">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
             <img
               src={logoImg}
               alt="菜单"
               className="h-6 w-6 sm:h-7 sm:w-7 rounded-lg object-cover border-0"
             />
-            <div className="flex items-center gap-1">
-              <span className="text-sm font-semibold text-gray-900 dark:text-white">Docker Copilot</span>
-              <span className="text-xs text-gray-500 dark:text-gray-400">{displayVersion(backendVersion)}</span>
+            <div className="min-w-0 flex items-center gap-1 overflow-hidden">
+              <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">Docker Copilot</span>
+              {!isCompactMobileHeader && !isUltraNarrowMobile && (
+                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{displayVersion(backendVersion)}</span>
+              )}
             </div>
           </div>
 
-          {/* 右侧：主题切换和退出登录 */}
-          <div className="flex items-center gap-1">
-            <ThemeToggle embedded />
+          {/* 右侧：手机端跳转、主题切换和退出登录 */}
+          <div className="ml-1 flex shrink-0 items-center gap-0.5">
             <button
-              onClick={onLogout}
-              className="p-2 text-red-600 dark:text-red-400 hover:bg-red-50 dark:hover:bg-red-900/20 rounded-lg transition-colors active:scale-95"
-              title="退出登录"
+              onClick={() => window.location.assign('./m')}
+              className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sky-600 transition-colors active:scale-95 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/20"
+              title="切换到手机端页面"
             >
-              <LogOut className="h-5 w-5" />
+              <Smartphone className="h-5 w-5" />
             </button>
+            {!isCompactMobileHeader && !isUltraNarrowMobile && <ThemeToggle embedded />}
+            {!isCompactMobileHeader && (
+              <button
+                onClick={onLogout}
+                className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-600 transition-colors active:scale-95 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
+                title="退出登录"
+              >
+                <LogOut className="h-5 w-5" />
+              </button>
+            )}
           </div>
         </div>
       )}
