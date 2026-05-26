@@ -7,15 +7,24 @@ on:
       - latest
     paths:
       - version
+      - fn_version
       - src/**
       - public/**
+      - assets/**
       - package.json
       - package-lock.json
+      - postcss.config.js
+      - tailwind.config.js
+      - vite.config.js
+      - scripts/**
+      - web-mobile/**
       - internal/**
       - dockercopilot.go
       - go.mod
       - go.sum
       - etc/**
+      - docker/**
+      - start.sh
       - .github/workflows/latest.yml
 
 concurrency:
@@ -39,18 +48,31 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package.json
+            web-mobile/package-lock.json
 
-      - name: Build Frontend
+      - name: Install root frontend dependencies
+        run: npm ci
+
+      - name: Install mobile frontend dependencies
+        run: npm --prefix ./web-mobile ci
+
+      - name: Build PC and mobile frontend
+        run: npm run build:front
+
+      - name: Verify frontend outputs
         run: |
-          npm ci
-          npm run build
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          echo "frontend outputs ready:"
+          find front -maxdepth 3 -type f | sort
 
-      - name: Upload Frontend Artifacts
+      - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: my-artifact-front-dist
-          path: dist
+          name: front-artifacts
+          path: |
+            front/pc
+            front/mobile
 
   build-backend:
     needs: [ build-frontend ]
@@ -62,27 +84,36 @@ jobs:
       - name: Checkout code back end
         uses: actions/checkout@v4
 
-      - name: Download Frontend Artifacts
+      - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: my-artifact-front-*
-          merge-multiple: true
-          path: front
+          name: front-artifacts
+          path: front-download
 
-      - run: ls -R front
+      - name: Normalize frontend artifact paths
+        run: |
+          rm -rf front
+          mkdir -p front
+          if [ -d front-download/front/pc ] && [ -d front-download/front/mobile ]; then
+            mv front-download/front/pc front/pc
+            mv front-download/front/mobile front/mobile
+          elif [ -d front-download/pc ] && [ -d front-download/mobile ]; then
+            mv front-download/pc front/pc
+            mv front-download/mobile front/mobile
+          else
+            echo "unexpected frontend artifact layout:"
+            find front-download -maxdepth 4 | sort
+            exit 1
+          fi
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          echo "normalized frontend layout:"
+          find front -maxdepth 3 -type f | sort
 
       - name: Get version from file
         id: get_version
         run: |
           echo "version=$(cat version)" >> $GITHUB_ENV
-
-      - name: Cache Go Modules
-        uses: actions/cache@v4
-        with:
-          path: ${{ github.workspace }}/msaber-back/pkg/mod
-          key: go-mod-${{ hashFiles('**/go.sum') }}
-          restore-keys: |
-            go-mod-
 
       - name: Set up Go
         uses: actions/setup-go@v5
@@ -92,11 +123,14 @@ jobs:
 
       - name: Build for ${{ matrix.arch }}
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X 'github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.version }}' -X 'github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=$(date)'" -o dist/linux/${{ matrix.arch }}/dockerCopilot-new .
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.version }} -X github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=${BUILD_DATE}" -o dist/linux/${{ matrix.arch }}/dockerCopilot .
 
       - name: Compress binary
         run: |
-          tar -czvf dockerCopilot-${{ matrix.arch }}.tar.gz dist/linux/${{ matrix.arch }}/dockerCopilot-new
+          tar -czvf dockerCopilot-${{ matrix.arch }}.tar.gz dist/linux/${{ matrix.arch }}/dockerCopilot
 
       - name: List current directory
         run: ls -la

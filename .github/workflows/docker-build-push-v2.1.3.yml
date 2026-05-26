@@ -7,10 +7,17 @@ on:
       - latest
     paths:
       - version
+      - fn_version
       - src/**
       - public/**
+      - assets/**
       - package.json
       - package-lock.json
+      - postcss.config.js
+      - tailwind.config.js
+      - vite.config.js
+      - scripts/**
+      - web-mobile/**
       - internal/**
       - dockercopilot.go
       - go.mod
@@ -43,18 +50,31 @@ jobs:
           cache: 'npm'
           cache-dependency-path: |
             package-lock.json
-            package.json
+            web-mobile/package-lock.json
 
-      - name: Build Frontend
+      - name: Install root frontend dependencies
+        run: npm ci
+
+      - name: Install mobile frontend dependencies
+        run: npm --prefix ./web-mobile ci
+
+      - name: Build PC and mobile frontend
+        run: npm run build:front
+
+      - name: Verify frontend outputs
         run: |
-          npm ci
-          npm run build
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          echo "frontend outputs ready:"
+          find front -maxdepth 3 -type f | sort
 
-      - name: Upload Frontend Artifacts
+      - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: my-artifact-front-dist
-          path: dist
+          name: front-artifacts
+          path: |
+            front/pc
+            front/mobile
 
   build-backend:
     needs: [build-frontend]
@@ -66,12 +86,31 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Download Frontend Artifacts
+      - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: my-artifact-front-*
-          merge-multiple: true
-          path: front
+          name: front-artifacts
+          path: front-download
+
+      - name: Normalize frontend artifact paths
+        run: |
+          rm -rf front
+          mkdir -p front
+          if [ -d front-download/front/pc ] && [ -d front-download/front/mobile ]; then
+            mv front-download/front/pc front/pc
+            mv front-download/front/mobile front/mobile
+          elif [ -d front-download/pc ] && [ -d front-download/mobile ]; then
+            mv front-download/pc front/pc
+            mv front-download/mobile front/mobile
+          else
+            echo "unexpected frontend artifact layout:"
+            find front-download -maxdepth 4 | sort
+            exit 1
+          fi
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          echo "normalized frontend layout:"
+          find front -maxdepth 3 -type f | sort
 
       - name: Get version from file
         run: |
@@ -83,25 +122,33 @@ jobs:
           go-version: '1.24.1'
           cache: true
 
-      - name: Build backend for ${{ matrix.arch }}
+      - name: Verify embedded frontend and build backend
         run: |
-          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X 'github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.VERSION }}' -X 'github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=$(date)'" -o dist/linux/${{ matrix.arch }}/dockerCopilot .
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.VERSION }} -X github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=${BUILD_DATE}" -o release/linux/${{ matrix.arch }}/dockerCopilot .
 
-      - name: Prepare Files
+      - name: Prepare docker context payload
         run: |
-          mkdir -p dc-back-${{ matrix.arch }}
-          cp -r dist dc-back-${{ matrix.arch }}/dist
-          cp -r etc dc-back-${{ matrix.arch }}/etc
+          mkdir -p docker-context/linux/${{ matrix.arch }}
+          mkdir -p docker-context/etc
+          cp release/linux/${{ matrix.arch }}/dockerCopilot docker-context/linux/${{ matrix.arch }}/dockerCopilot
+          cp -r etc/. docker-context/etc/
+          echo "docker-context prepared:"
+          find docker-context -maxdepth 4 -type f | sort
 
-      - name: Upload Backend Artifacts
+      - name: Upload backend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: my-artifact-backend-${{ matrix.arch }}
-          path: dc-back-${{ matrix.arch }}
+          name: docker-context-${{ matrix.arch }}
+          path: |
+            docker-context/linux/${{ matrix.arch }}/dockerCopilot
+            docker-context/etc
 
   docker-ghcr:
     runs-on: ubuntu-latest
-    needs: [build-frontend, build-backend]
+    needs: [build-backend]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -110,12 +157,37 @@ jobs:
         run: |
           echo "VERSION=$(cat version)" >> $GITHUB_ENV
 
-      - name: Download Backend Artifacts
+      - name: Download docker context artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: my-artifact-backend-*
+          pattern: docker-context-*
           merge-multiple: true
-          path: dc-back
+          path: release-download
+
+      - name: Normalize docker context
+        run: |
+          rm -rf release
+          mkdir -p release/linux release/etc
+          if [ -d release-download/docker-context/linux ] || [ -d release-download/docker-context/etc ]; then
+            if [ -d release-download/docker-context/linux ]; then
+              cp -R release-download/docker-context/linux/. release/linux/
+            fi
+            if [ -d release-download/docker-context/etc ]; then
+              cp -R release-download/docker-context/etc/. release/etc/
+            fi
+          else
+            if [ -d release-download/linux ]; then
+              cp -R release-download/linux/. release/linux/
+            fi
+            if [ -d release-download/etc ]; then
+              cp -R release-download/etc/. release/etc/
+            fi
+          fi
+          test -f release/linux/amd64/dockerCopilot
+          test -f release/linux/arm64/dockerCopilot
+          test -f release/etc/dockerCopilot.yaml
+          echo "release payload ready:"
+          find release -maxdepth 4 -type f | sort
 
       - name: Docker Setup Buildx
         uses: docker/setup-buildx-action@v3
@@ -140,7 +212,7 @@ jobs:
 
   docker-dockerhub:
     runs-on: ubuntu-latest
-    needs: [build-frontend, build-backend]
+    needs: [build-backend]
     env:
       DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
       DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -164,13 +236,39 @@ jobs:
         run: |
           echo "VERSION=$(cat version)" >> $GITHUB_ENV
 
-      - name: Download Backend Artifacts
+      - name: Download docker context artifacts
         if: steps.dockerhub.outputs.enabled == 'true'
         uses: actions/download-artifact@v4
         with:
-          pattern: my-artifact-backend-*
+          pattern: docker-context-*
           merge-multiple: true
-          path: dc-back
+          path: release-download
+
+      - name: Normalize docker context
+        if: steps.dockerhub.outputs.enabled == 'true'
+        run: |
+          rm -rf release
+          mkdir -p release/linux release/etc
+          if [ -d release-download/docker-context/linux ] || [ -d release-download/docker-context/etc ]; then
+            if [ -d release-download/docker-context/linux ]; then
+              cp -R release-download/docker-context/linux/. release/linux/
+            fi
+            if [ -d release-download/docker-context/etc ]; then
+              cp -R release-download/docker-context/etc/. release/etc/
+            fi
+          else
+            if [ -d release-download/linux ]; then
+              cp -R release-download/linux/. release/linux/
+            fi
+            if [ -d release-download/etc ]; then
+              cp -R release-download/etc/. release/etc/
+            fi
+          fi
+          test -f release/linux/amd64/dockerCopilot
+          test -f release/linux/arm64/dockerCopilot
+          test -f release/etc/dockerCopilot.yaml
+          echo "release payload ready:"
+          find release -maxdepth 4 -type f | sort
 
       - name: Docker Setup Buildx
         if: steps.dockerhub.outputs.enabled == 'true'
