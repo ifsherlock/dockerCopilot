@@ -583,9 +583,10 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
 		if state, ok := r.getChatState(chatID); ok {
-			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_cancel_only", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_reply", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
+			r.clearChatState(chatID)
 		} else {
-			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_cancel_only", chatID, data, "", "", 0, "")
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_without_state", chatID, data, "", "", 0, "")
 		}
 		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
 	case "confirm_program_update":

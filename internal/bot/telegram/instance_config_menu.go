@@ -106,7 +106,7 @@ func (r *Runtime) startAddInstanceConfig(ctx context.Context, chatID int64, mess
 	template := `{"name":"demo","api_url":"http://127.0.0.1:12712","secret_key":"your-secret","timeout":30}`
 	text := "➕ <b>新增实例</b>\n\n请发送单个实例 JSON：\n<code>" + escapeHTML(template) + "</code>\n\n发送 /cancel 可取消。"
 	r.setChatState(chatID, userState{Action: "instance_add", MessageID: messageID})
-	r.editOrReplyText(ctx, chatID, messageID, text, nil)
+	r.editOrReplyText(ctx, chatID, messageID, text, telegoInlineCancelMarkup())
 }
 
 func (r *Runtime) startEditInstanceConfig(ctx context.Context, chatID int64, messageID int, name string) {
@@ -123,7 +123,7 @@ func (r *Runtime) startEditInstanceConfig(ctx context.Context, chatID int64, mes
 		bs, _ := json.MarshalIndent(payload, "", "  ")
 		text := "✏️ <b>编辑实例</b>\n\n请直接发送修改后的单个实例 JSON：\n<code>" + escapeHTML(string(bs)) + "</code>\n\n发送 /cancel 可取消。"
 		r.setChatState(chatID, userState{Action: "instance_edit", Extra: name, MessageID: messageID})
-		r.editOrReplyText(ctx, chatID, messageID, text, nil)
+		r.editOrReplyText(ctx, chatID, messageID, text, telegoInlineCancelMarkup())
 		return
 	}
 	r.replyText(ctx, chatID, "❌ 实例不存在")

@@ -325,7 +325,7 @@ func (r *Runtime) startEditBlacklist(ctx context.Context, chatID int64, messageI
 	r.setChatState(chatID, userState{Action: "edit_blacklist", MessageID: messageID})
 	r.editOrReplyText(ctx, chatID, messageID, text, tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("settings_menu:"),
+			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	))
 }
@@ -416,7 +416,7 @@ func (r *Runtime) startEditCron(ctx context.Context, chatID int64, messageID int
 	r.setChatState(chatID, userState{Action: "edit_cron", Extra: configType, MessageID: messageID})
 	r.editOrReplyText(ctx, chatID, messageID, text, tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("settings_menu:"),
+			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	))
 }
@@ -652,6 +652,14 @@ func (r *Runtime) clearChatState(chatID int64) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	delete(r.chatState, chatID)
+}
+
+func telegoInlineCancelMarkup() *telego.InlineKeyboardMarkup {
+	return tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
+		),
+	)
 }
 
 func boolText(v bool) string {

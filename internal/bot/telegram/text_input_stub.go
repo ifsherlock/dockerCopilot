@@ -47,7 +47,7 @@ func (r *Runtime) startEditText(ctx context.Context, chatID int64, messageID int
 	}[field]
 	text := "✏️ <b>编辑" + escapeHTML(fieldName) + "</b>\n\n当前值: <code>" + escapeHTML(shorten(current, 1200)) + "</code>\n\n" + hint + "\n发送 /cancel 可取消。"
 	r.setChatState(chatID, userState{Action: "edit_text", Extra: field, MessageID: messageID})
-	r.editOrReplyText(ctx, chatID, messageID, text, nil)
+	r.editOrReplyText(ctx, chatID, messageID, text, telegoInlineCancelMarkup())
 }
 
 func (r *Runtime) processTextInput(ctx context.Context, msg *telego.Message, state userState) {
