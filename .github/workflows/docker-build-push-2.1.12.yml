@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - 2.1.12
+      - latest
     paths:
       - version
       - fn_version
@@ -206,7 +206,7 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ghcr.io/${{ github.repository_owner }}/dockercopilot:v${{ env.VERSION }}
-            ghcr.io/${{ github.repository_owner }}/dockercopilot:2.1.12
+            ghcr.io/${{ github.repository_owner }}/dockercopilot:latest
           push: true
 
   docker-dockerhub:
@@ -289,5 +289,5 @@ jobs:
           platforms: linux/amd64,linux/arm64
           tags: |
             ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:v${{ env.VERSION }}
-            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:2.1.12
+            ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:latest
           push: true
