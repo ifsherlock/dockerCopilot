@@ -406,11 +406,13 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	case "/help":
 		r.replyText(ctx, msg.Chat.ID, r.helpText())
 	case "/cancel":
-		if _, ok := r.getChatState(msg.Chat.ID); ok {
+		if state, ok := r.getChatState(msg.Chat.ID); ok {
+			logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_reply", msg.Chat.ID, state.Action, state.Extra, state.MessageID, state.Selected)
 			r.clearChatState(msg.Chat.ID)
 			r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 			return
 		}
+		logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_without_state", msg.Chat.ID, "", "", 0, "")
 		r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
 	case "/containers":
 		logx.Infof("telegram command /containers chat=%d", msg.Chat.ID)
@@ -478,6 +480,11 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "manage_inst_detail":
 		r.sendInstanceDetail(ctx, chatID, messageID, arg)
 	case "settings_menu":
+		if state, ok := r.getChatState(chatID); ok {
+			logx.Infof("telegram callback settings_menu: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=send_settings_menu", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
+		} else {
+			logx.Infof("telegram callback settings_menu: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=send_settings_menu", chatID, data, "", "", 0, "")
+		}
 		r.sendSettingsMenu(ctx, chatID, messageID)
 	case "settings_toggle":
 		r.toggleSetting(ctx, chatID, messageID, arg)
@@ -575,6 +582,11 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "do_clean_images_force":
 		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
+		if state, ok := r.getChatState(chatID); ok {
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_cancel_only", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
+		} else {
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_cancel_only", chatID, data, "", "", 0, "")
+		}
 		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
 	case "confirm_program_update":
 		r.doProgramUpdate(ctx, chatID)
@@ -649,22 +661,29 @@ func (r *Runtime) helpText() string {
 func (r *Runtime) handleStatefulInput(ctx context.Context, msg *telego.Message) bool {
 	state, ok := r.getChatState(msg.Chat.ID)
 	if !ok {
+		logx.Infof("telegram stateful input miss: chat=%d text=%q branch=no_state", msg.Chat.ID, strings.TrimSpace(msg.Text))
 		return false
 	}
+	logx.Infof("telegram stateful input hit: chat=%d text=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q", msg.Chat.ID, strings.TrimSpace(msg.Text), state.Action, state.Extra, state.MessageID, state.Selected)
 	switch state.Action {
 	case "edit_blacklist":
+		logx.Infof("telegram stateful input dispatch: chat=%d text=%q branch=edit_blacklist", msg.Chat.ID, strings.TrimSpace(msg.Text))
 		r.processBlacklistInput(ctx, msg)
 		return true
 	case "edit_cron":
+		logx.Infof("telegram stateful input dispatch: chat=%d text=%q branch=edit_cron", msg.Chat.ID, strings.TrimSpace(msg.Text))
 		r.processCronInput(ctx, msg, state)
 		return true
 	case "edit_text":
+		logx.Infof("telegram stateful input dispatch: chat=%d text=%q branch=edit_text", msg.Chat.ID, strings.TrimSpace(msg.Text))
 		r.processTextInput(ctx, msg, state)
 		return true
 	case "instance_add", "instance_edit":
+		logx.Infof("telegram stateful input dispatch: chat=%d text=%q branch=%s", msg.Chat.ID, strings.TrimSpace(msg.Text), state.Action)
 		r.processInstanceConfigInput(ctx, msg, state)
 		return true
 	default:
+		logx.Infof("telegram stateful input bypass: chat=%d text=%q old_state_action=%q branch=unknown_state", msg.Chat.ID, strings.TrimSpace(msg.Text), state.Action)
 		return false
 	}
 }
