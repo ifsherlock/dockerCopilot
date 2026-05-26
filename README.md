@@ -15,17 +15,18 @@ DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥�
 - 🔐 PC / Mobile 共用登录态
 - 🐳 容器管理、镜像管理、日志查看、备份恢复、定时任务一站式完成
 - 🤖 Telegram Bot 支持多实例管理、自动更新、自动清理与通知
+- 📱 `/manager` 已初步适配移动端访问，触屏场景也可直接使用
 
 ## 🚀 推荐镜像
 ```text
-jaysherlock/dockercopilot:v2.1.12
+jaysherlock/dockercopilot:latest
 ```
 
 ## 🧭 快速开始
 1. 拉取镜像：
 
 ```bash
-docker pull jaysherlock/dockercopilot:v2.1.12
+docker pull jaysherlock/dockercopilot:latest
 ```
 
 2. 复制示例配置：
@@ -44,9 +45,13 @@ docker compose up -d
 5. 访问：
 
 ```text
-PC 端：   http://宿主机IP:12712/manager
-移动端： http://宿主机IP:12712/m
+PC 管理端： http://宿主机IP:12712/manager
+移动端：   http://宿主机IP:12712/m
 ```
+
+- [`/manager`](dockerCopilot/README.md:47) 已初步适配移动端访问，手机浏览器中也可以直接打开管理界面
+- 如需更轻量、按钮更集中的触屏体验，优先访问 [`/m`](dockerCopilot/README.md:48)
+- 如果使用 bridge 网络，请先确认已正确映射 `12712:12712`
 
 ## 🧩 配置说明
 ### 推荐部署：host 网络
@@ -87,9 +92,11 @@ npm install
 npm run build:front
 ```
 
+- [`/manager`](dockerCopilot/README.md:47) 当前已做初步移动端适配，但移动端专用入口仍推荐 [`/m`](dockerCopilot/README.md:48)
 - `build:pc` 会输出到 [`front/pc`](front/pc)
 - `build:mobile` 会生成并同步到 [`front/mobile`](front/mobile)
 - Go 后端会把两套前端嵌入二进制
+- 具体构建方式可参考 [`scripts`](dockerCopilot/scripts) 目录内的自动构建脚本：[`build-debian.sh`](dockerCopilot/scripts/build-debian.sh)、[`build-windows.cmd`](dockerCopilot/scripts/build-windows.cmd)、[`sync-mobile.mjs`](dockerCopilot/scripts/sync-mobile.mjs)
 
 ## 🙏 致谢
 再次感谢原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 的优秀工作与持续维护。
