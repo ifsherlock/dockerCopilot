@@ -29,10 +29,43 @@ jaysherlock/dockercopilot:latest
 docker pull jaysherlock/dockercopilot:latest
 ```
 
-2. 复制示例配置：
+2. 新建 `docker-compose.yml`，推荐直接使用下面的配置示例：
 
-```bash
-cp docker-compose.example.yml docker-compose.yml
+```yaml
+services:
+  dockercopilot:
+    image: jaysherlock/dockercopilot:latest
+    container_name: dockercopilot
+    restart: unless-stopped
+    privileged: true
+    network_mode: host
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ./data:/data
+      - ./config:/app/config
+    environment:
+      TZ: Asia/Shanghai
+      DOCKER_HOST: unix:///var/run/docker.sock
+      secretKey: please-change-me
+      BACKUP_DIR: /data/backups
+      WORKDIR: /app
+
+      # 🤖 Telegram Bot（可选）
+      TELEGRAM_BOT_TOKEN: ""
+      TELEGRAM_CHAT_IDS: ""
+      TELEGRAM_UPDATE_CHECK_CRON: "0 18 * * *"
+      TELEGRAM_NOTIFY_ON_UPDATE: "true"
+      TELEGRAM_AUTO_CLEAN_IMAGES: "false"
+      TELEGRAM_CLEAN_IMAGES_CRON: "3 2 * * *"
+      TELEGRAM_AUTO_UPDATE_CONTAINERS: "false"
+      TELEGRAM_UPDATE_CONTAINERS_CRON: "0 */6 * * *"
+
+      # 🌐 代理（可选）
+      TELEGRAM_PROXY_TYPE: none
+      TELEGRAM_PROXY_HOST: ""
+      TELEGRAM_PROXY_PORT: ""
+      TELEGRAM_PROXY_USERNAME: ""
+      TELEGRAM_PROXY_PASSWORD: ""
 ```
 
 3. 修改 `secretKey`，按需填写 Telegram Bot 配置。
@@ -49,9 +82,15 @@ PC 管理端： http://宿主机IP:12712/manager
 移动端：   http://宿主机IP:12712/m
 ```
 
-- [`/manager`](dockerCopilot/README.md:47) 已初步适配移动端访问，手机浏览器中也可以直接打开管理界面
-- 如需更轻量、按钮更集中的触屏体验，优先访问 [`/m`](dockerCopilot/README.md:48)
 - 如果使用 bridge 网络，请先确认已正确映射 `12712:12712`
+
+## 📱 双手机端 UI 适配
+DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景选择：
+
+- `/manager`：PC 管理端已做响应式移动端适配，手机浏览器可直接打开，适合需要完整桌面管理能力、并希望手机与电脑界面一致的场景。
+- `/m`：独立移动端 UI，布局更轻量，按钮更集中，底部导航更适合触屏操作，适合日常手机巡检、容器启停、镜像更新、日志查看和程序更新。
+- 两个入口共用同一后端 API 与登录态，登录一次后可在 PC 适配页和独立移动页之间切换。
+- 在 PC 管理端的手机分辨率下，页面右上角提供“手机传送”入口，可快速跳转到 `/m`。
 
 ## 🧩 配置说明
 ### 推荐部署：host 网络
@@ -92,7 +131,7 @@ npm install
 npm run build:front
 ```
 
-- [`/manager`](dockerCopilot/README.md:47) 当前已做初步移动端适配，但移动端专用入口仍推荐 [`/m`](dockerCopilot/README.md:48)
+- `/manager` 当前已做响应式移动端适配，但移动端专用入口仍推荐 `/m`
 - `build:pc` 会输出到 [`front/pc`](front/pc)
 - `build:mobile` 会生成并同步到 [`front/mobile`](front/mobile)
 - Go 后端会把两套前端嵌入二进制

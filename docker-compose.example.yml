@@ -1,6 +1,6 @@
 services:
   dockercopilot:
-    image: jaysherlock/dockercopilot:v2.1.12
+    image: jaysherlock/dockercopilot:latest
     container_name: dockercopilot
     restart: unless-stopped
     privileged: true
