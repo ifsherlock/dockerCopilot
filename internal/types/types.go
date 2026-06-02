@@ -1,5 +1,7 @@
 package types
 
+import "encoding/json"
+
 type ContainerRenameReq struct {
 	IdReq
 	NewName string `form:"newName"`
@@ -123,32 +125,58 @@ type GetNewImageReq struct {
 }
 
 type BotConfigReq struct {
-	BotToken                string `json:"botToken,optional"`
-	ChatIds                 string `json:"chatIds,optional"`
-	UpdateCheckCron         string `json:"updateCheckCron,optional"`
-	NotifyOnUpdate          bool   `json:"notifyOnUpdate,optional"`
-	InteractiveEnabled      bool   `json:"interactiveEnabled,optional"`
-	UpdateBlacklist         string `json:"updateBlacklist,optional"`
-	AutoCleanImages         bool   `json:"autoCleanImages,optional"`
-	CleanImagesCron         string `json:"cleanImagesCron,optional"`
-	AutoUpdateContainers    bool   `json:"autoUpdateContainers,optional"`
-	UpdateContainersCron    string `json:"updateContainersCron,optional"`
-	ProxyType               string `json:"proxyType,optional"`
-	ProxyHost               string `json:"proxyHost,optional"`
-	ProxyPort               int    `json:"proxyPort,optional"`
-	ProxyUsername           string `json:"proxyUsername,optional"`
-	ProxyPassword           string `json:"proxyPassword,optional"`
-	HostLanIP               string `json:"hostLanIp,optional"`
-	DefaultInstance         string `json:"defaultInstance,optional"`
-	MultiInstanceEnabled    bool   `json:"multiInstanceEnabled,optional"`
-	Instances               string `json:"instances,optional"`
-	AutoBackupJson          bool   `json:"autoBackupJson,optional"`
-	BackupJsonCron          string `json:"backupJsonCron,optional"`
-	AutoBackupCompose       bool   `json:"autoBackupCompose,optional"`
-	BackupComposeCron       string `json:"backupComposeCron,optional"`
-	BackupMaxFiles          int    `json:"backupMaxFiles,optional"`
-	ImageAccelerators       string `json:"imageAccelerators,optional"`
-	DefaultImageAccelerator string `json:"defaultImageAccelerator,optional"`
-	ThemeMode               string `json:"themeMode,optional"`
-	ThemeAppearance         string `json:"themeAppearance,optional"`
+	BotToken                string          `json:"botToken,optional"`
+	ChatIds                 string          `json:"chatIds,optional"`
+	UpdateCheckCron         string          `json:"updateCheckCron,optional"`
+	NotifyOnUpdate          bool            `json:"notifyOnUpdate,optional"`
+	InteractiveEnabled      bool            `json:"interactiveEnabled,optional"`
+	UpdateBlacklist         string          `json:"updateBlacklist,optional"`
+	AutoCleanImages         bool            `json:"autoCleanImages,optional"`
+	CleanImagesCron         string          `json:"cleanImagesCron,optional"`
+	AutoUpdateContainers    bool            `json:"autoUpdateContainers,optional"`
+	UpdateContainersCron    string          `json:"updateContainersCron,optional"`
+	ProxyType               string          `json:"proxyType,optional"`
+	ProxyHost               string          `json:"proxyHost,optional"`
+	ProxyPort               int             `json:"proxyPort,optional"`
+	ProxyUsername           string          `json:"proxyUsername,optional"`
+	ProxyPassword           string          `json:"proxyPassword,optional"`
+	HostLanIP               string          `json:"hostLanIp,optional"`
+	DefaultInstance         string          `json:"defaultInstance,optional"`
+	MultiInstanceEnabled    bool            `json:"multiInstanceEnabled,optional"`
+	Instances               string          `json:"instances,optional"`
+	AutoBackupJson          bool            `json:"autoBackupJson,optional"`
+	BackupJsonCron          string          `json:"backupJsonCron,optional"`
+	AutoBackupCompose       bool            `json:"autoBackupCompose,optional"`
+	BackupComposeCron       string          `json:"backupComposeCron,optional"`
+	BackupMaxFiles          int             `json:"backupMaxFiles,optional"`
+	ImageAccelerators       string          `json:"imageAccelerators,optional"`
+	DefaultImageAccelerator string          `json:"defaultImageAccelerator,optional"`
+	ThemeMode               string          `json:"themeMode,optional"`
+	ThemeAppearance         string          `json:"themeAppearance,optional"`
+	PresentFields           map[string]bool `json:"-"`
+}
+
+func (req *BotConfigReq) UnmarshalJSON(data []byte) error {
+	type Alias BotConfigReq
+	var raw map[string]json.RawMessage
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	var decoded Alias
+	if err := json.Unmarshal(data, &decoded); err != nil {
+		return err
+	}
+	*req = BotConfigReq(decoded)
+	req.PresentFields = make(map[string]bool, len(raw))
+	for key := range raw {
+		req.PresentFields[key] = true
+	}
+	return nil
+}
+
+func (req *BotConfigReq) HasField(name string) bool {
+	if req == nil || req.PresentFields == nil {
+		return true
+	}
+	return req.PresentFields[name]
 }

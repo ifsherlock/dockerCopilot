@@ -323,8 +323,8 @@ func requestOrExisting(value string, m map[string]interface{}, key string, fallb
 	return existingString(m, key, fallback)
 }
 
-func requestBoolOrExisting(submitted bool, m map[string]interface{}, key string, fallback bool, preserveWhenAbsent bool) bool {
-	if !preserveWhenAbsent {
+func requestBoolOrExisting(req *types.BotConfigReq, field string, submitted bool, m map[string]interface{}, key string, fallback bool) bool {
+	if req.HasField(field) {
 		return submitted
 	}
 	if value, ok := m[key]; ok {
@@ -334,6 +334,9 @@ func requestBoolOrExisting(submitted bool, m map[string]interface{}, key string,
 }
 
 func hasAnyConfigPayload(req *types.BotConfigReq) bool {
+	if req != nil && req.PresentFields != nil && len(req.PresentFields) > 0 {
+		return true
+	}
 	return strings.TrimSpace(req.BotToken) != "" ||
 		strings.TrimSpace(req.ChatIds) != "" ||
 		strings.TrimSpace(req.UpdateCheckCron) != "" ||
@@ -443,25 +446,19 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["bot_token"] = requestOrExisting(req.BotToken, cfg.Telegram, "bot_token", "")
 	cfg.Telegram["chat_ids"] = chatIDs
 	cfg.Telegram["update_check_cron"] = updateCheckCron
-	cfg.Telegram["notify_on_update"] = requestBoolOrExisting(req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true, preserveExisting)
-	cfg.Telegram["interactive_enabled"] = requestBoolOrExisting(req.InteractiveEnabled, cfg.Telegram, "interactive_enabled", true, preserveExisting)
+	cfg.Telegram["notify_on_update"] = requestBoolOrExisting(req, "notifyOnUpdate", req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true)
+	cfg.Telegram["interactive_enabled"] = requestBoolOrExisting(req, "interactiveEnabled", req.InteractiveEnabled, cfg.Telegram, "interactive_enabled", true)
 	if strings.TrimSpace(req.UpdateBlacklist) != "" {
 		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
 	} else if _, ok := cfg.Telegram["update_blacklist"]; !ok {
 		cfg.Telegram["update_blacklist"] = []string{}
 	}
-	cfg.Telegram["auto_clean_images"] = requestBoolOrExisting(req.AutoCleanImages, cfg.Telegram, "auto_clean_images", false, preserveExisting)
+	cfg.Telegram["auto_clean_images"] = requestBoolOrExisting(req, "autoCleanImages", req.AutoCleanImages, cfg.Telegram, "auto_clean_images", false)
 	cfg.Telegram["clean_images_cron"] = cleanImagesCron
-	cfg.Telegram["auto_update_containers"] = requestBoolOrExisting(req.AutoUpdateContainers, cfg.Telegram, "auto_update_containers", false, preserveExisting)
+	cfg.Telegram["auto_update_containers"] = requestBoolOrExisting(req, "autoUpdateContainers", req.AutoUpdateContainers, cfg.Telegram, "auto_update_containers", false)
 	cfg.Telegram["update_containers_cron"] = updateContainersCron
-	backupFieldsPresent := strings.TrimSpace(req.BackupJsonCron) != "" || strings.TrimSpace(req.BackupComposeCron) != "" || req.BackupMaxFiles > 0
-	if backupFieldsPresent {
-		cfg.Telegram["auto_backup_json"] = req.AutoBackupJson
-		cfg.Telegram["auto_backup_compose"] = req.AutoBackupCompose
-	} else {
-		cfg.Telegram["auto_backup_json"] = requestBoolOrExisting(req.AutoBackupJson, cfg.Telegram, "auto_backup_json", false, true)
-		cfg.Telegram["auto_backup_compose"] = requestBoolOrExisting(req.AutoBackupCompose, cfg.Telegram, "auto_backup_compose", false, true)
-	}
+	cfg.Telegram["auto_backup_json"] = requestBoolOrExisting(req, "autoBackupJson", req.AutoBackupJson, cfg.Telegram, "auto_backup_json", false)
+	cfg.Telegram["auto_backup_compose"] = requestBoolOrExisting(req, "autoBackupCompose", req.AutoBackupCompose, cfg.Telegram, "auto_backup_compose", false)
 	cfg.Telegram["backup_json_cron"] = backupJSONCron
 	cfg.Telegram["backup_compose_cron"] = backupComposeCron
 	cfg.Telegram["backup_max_files"] = backupMaxFiles
@@ -511,7 +508,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	if strings.TrimSpace(req.DefaultInstance) != "" {
 		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
 	}
-	cfg.Dockercopilot["multi_instance_enabled"] = requestBoolOrExisting(req.MultiInstanceEnabled, cfg.Dockercopilot, "multi_instance_enabled", false, preserveExisting)
+	cfg.Dockercopilot["multi_instance_enabled"] = requestBoolOrExisting(req, "multiInstanceEnabled", req.MultiInstanceEnabled, cfg.Dockercopilot, "multi_instance_enabled", false)
 	if strings.TrimSpace(req.Instances) != "" {
 		var instances []map[string]interface{}
 		if err := json.Unmarshal([]byte(req.Instances), &instances); err != nil {
