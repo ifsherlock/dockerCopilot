@@ -1,0 +1,195 @@
+name: binary-release-draft-2.1.20
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - codex/2.1.20-test
+    paths:
+      - version
+      - fn_version
+      - src/**
+      - public/**
+      - assets/**
+      - package.json
+      - package-lock.json
+      - postcss.config.js
+      - tailwind.config.js
+      - vite.config.js
+      - scripts/**
+      - web-mobile/**
+      - internal/**
+      - dockercopilot.go
+      - go.mod
+      - go.sum
+      - .github/workflows/binary-release-draft-2.1.20.yml
+
+concurrency:
+  group: binary-release-draft-2.1.20-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-frontend:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: |
+            package-lock.json
+            web-mobile/package-lock.json
+
+      - name: Install root frontend dependencies
+        run: npm ci
+
+      - name: Install mobile frontend dependencies
+        run: npm --prefix ./web-mobile ci
+
+      - name: Build PC and mobile frontend
+        run: npm run build:front
+
+      - name: Verify frontend outputs
+        run: |
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          find front -maxdepth 3 -type f | sort
+
+      - name: Upload frontend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: front-artifacts-draft-2.1.20
+          path: |
+            front/pc
+            front/mobile
+
+  build-backend:
+    needs: [build-frontend]
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        arch: [amd64, arm64]
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download frontend artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: front-artifacts-draft-2.1.20
+          path: front-download
+
+      - name: Normalize frontend artifact paths
+        run: |
+          rm -rf front
+          mkdir -p front
+          if [ -d front-download/front/pc ] && [ -d front-download/front/mobile ]; then
+            mv front-download/front/pc front/pc
+            mv front-download/front/mobile front/mobile
+          elif [ -d front-download/pc ] && [ -d front-download/mobile ]; then
+            mv front-download/pc front/pc
+            mv front-download/mobile front/mobile
+          else
+            echo "unexpected frontend artifact layout:"
+            find front-download -maxdepth 4 | sort
+            exit 1
+          fi
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+
+      - name: Get version from file
+        run: echo "VERSION=$(cat version)" >> "$GITHUB_ENV"
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.24.1'
+          cache: true
+
+      - name: Verify embedded frontend and build backend
+        run: |
+          test -f front/pc/index.html
+          test -f front/mobile/index.html
+          BUILD_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          CGO_ENABLED=0 GOOS=linux GOARCH=${{ matrix.arch }} go build -a --trimpath -ldflags="-w -s -X github.com/onlyLTY/dockerCopilot/internal/config.Version=${{ env.VERSION }} -X github.com/onlyLTY/dockerCopilot/internal/config.BuildDate=${BUILD_DATE}" -o release/linux/${{ matrix.arch }}/dockerCopilot .
+
+      - name: Prepare release payload
+        run: |
+          mkdir -p release/etc
+          cp -r etc/. release/etc/
+          find release -maxdepth 4 -type f | sort
+
+      - name: Upload backend artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-artifacts-${{ matrix.arch }}-2.1.20
+          path: |
+            release/linux/${{ matrix.arch }}/dockerCopilot
+            release/etc
+
+  draft-release:
+    needs: [build-backend]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get version from file
+        run: echo "VERSION=$(cat version)" >> "$GITHUB_ENV"
+
+      - name: Download release artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: release-artifacts-*-2.1.20
+          merge-multiple: true
+          path: release-download
+
+      - name: Normalize release payload
+        run: |
+          rm -rf release-assets
+          mkdir -p release-assets
+          if [ -d release-download/release/linux ] || [ -d release-download/release/etc ]; then
+            [ -d release-download/release/linux ] && cp -R release-download/release/linux/. release-assets/
+            [ -d release-download/release/etc ] && cp -R release-download/release/etc/. release-assets/
+          else
+            [ -d release-download/linux ] && cp -R release-download/linux/. release-assets/
+            [ -d release-download/etc ] && cp -R release-download/etc/. release-assets/
+          fi
+          test -f release-assets/linux/amd64/dockerCopilot
+          test -f release-assets/linux/arm64/dockerCopilot
+          test -f release-assets/etc/dockerCopilot.yaml
+
+      - name: Package amd64
+        run: tar -czf dockerCopilot-linux-amd64.tar.gz -C release-assets/linux/amd64 dockerCopilot
+
+      - name: Package arm64
+        run: tar -czf dockerCopilot-linux-arm64.tar.gz -C release-assets/linux/arm64 dockerCopilot
+
+      - name: Create or update draft release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if gh release view "${{ env.VERSION }}" >/dev/null 2>&1; then
+            gh release edit "${{ env.VERSION }}" --draft=true --title "${{ env.VERSION }}" --notes "Draft release of version ${{ env.VERSION }}"
+          else
+            gh release create "${{ env.VERSION }}" \
+              --draft \
+              --title "${{ env.VERSION }}" \
+              --notes "Draft release of version ${{ env.VERSION }}"
+          fi
+
+      - name: Upload draft assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release upload "${{ env.VERSION }}" dockerCopilot-linux-amd64.tar.gz --clobber
+          gh release upload "${{ env.VERSION }}" dockerCopilot-linux-arm64.tar.gz --clobber
