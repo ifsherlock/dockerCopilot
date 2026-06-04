@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { containerAPI } from '../api/client.js'
+﻿import React, { useEffect, useMemo, useRef, useState } from 'react'
+import { containerAPI, progressAPI, systemLogAPI } from '../api/client.js'
 import { getImageLogo } from '../config/imageLogos.js'
 import { Search, RefreshCw, Copy, Download, WrapText, ArrowDownToLine, Filter, Eraser, ChevronUp, ChevronDown, ChevronLeft, ChevronRight, Type, Activity, CircleDot, Moon, Sun, Box, Star, AlertTriangle, Clock3, Tags } from 'lucide-react'
 
@@ -23,7 +23,7 @@ function escapeRegExp(value) {
   return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function LogsPage() {
+function ContainerLogsPanel() {
   const [containers, setContainers] = useState([])
   const [loadingContainers, setLoadingContainers] = useState(true)
   const [selectedId, setSelectedId] = useState(() => localStorage.getItem('docker_copilot_logs_selected_container') || '')
@@ -120,6 +120,15 @@ export function LogsPage() {
 
   useEffect(() => {
     if (selectedId) loadLogs(selectedId, tail)
+  }, [selectedId, tail])
+
+  useEffect(() => {
+    const onGlobalRefresh = () => {
+      loadContainers()
+      if (selectedId) loadLogs(selectedId, tail)
+    }
+    window.addEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+    return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
   }, [selectedId, tail])
 
   useEffect(() => {
@@ -406,15 +415,6 @@ export function LogsPage() {
         .dc-scrollbar-soft::-webkit-scrollbar-thumb { background: rgba(156, 163, 175, 0.45); border-radius: 9999px; border: 2px solid transparent; background-clip: padding-box; }
         .dc-scrollbar-soft::-webkit-scrollbar-thumb:hover { background: rgba(156, 163, 175, 0.72); border: 2px solid transparent; background-clip: padding-box; }
       `}</style>
-      <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm dark:border-gray-700 dark:bg-gray-800">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-          <div>
-            <h2 className="text-xl sm:text-2xl font-bold text-gray-900 dark:text-white">容器日志</h2>
-            
-          </div>
-        </div>
-      </div>
-
       <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 xl:hidden">
         <div className="flex items-center gap-2">
           <div className="min-w-0 flex-1">
@@ -519,7 +519,7 @@ export function LogsPage() {
                     <Star className={`h-3.5 w-3.5 ${favorite ? 'fill-current' : ''}`} />
                   </button>
                   {containerPaneCollapsed ? (
-                    <div className={`relative flex h-[52px] w-[52px] min-h-[52px] min-w-[52px] max-h-[52px] max-w-[52px] items-center justify-center rounded-2xl border flex-shrink-0 overflow-hidden ${active ? 'border-blue-400 bg-blue-100/80 dark:border-blue-400 dark:bg-blue-900/30' : 'border-gray-200 bg-gray-50 dark:border-gray-700 dark:bg-gray-900/60'}`}>
+                    <div className="relative flex h-[52px] w-[52px] min-h-[52px] min-w-[52px] max-h-[52px] max-w-[52px] flex-shrink-0 items-center justify-center overflow-hidden rounded-xl">
                       <LogoOrFallback src={logoSrc} alt={item.name || item.id} active={active} collapsed />
                     </div>
                   ) : (
@@ -655,9 +655,6 @@ export function LogsPage() {
                     </button>
                   </div>
                 </div>
-                <button onClick={() => loadLogs(selectedId, tail)} className={`${iconBtn(false)} flex-shrink-0`} title="刷新日志">
-                  <RefreshCw className={`h-4 w-4 ${loadingLogs ? 'animate-spin' : ''}`} />
-                </button>
                 <button onClick={() => setWordWrap(v => !v)} className={`${iconBtn(wordWrap, 'amber')} flex-shrink-0`} title="自动换行">
                   <WrapText className="h-4 w-4" />
                 </button>
@@ -829,3 +826,278 @@ export function LogsPage() {
     </div>
   )
 }
+
+const logTabs = [
+  { id: 'container', label: '容器日志' },
+  { id: 'service', label: '服务日志' },
+  { id: 'operation', label: '操作日志' },
+  { id: 'task', label: '任务日志' },
+]
+
+function PlainLogViewer({ title, logs, loading, message, controls }) {
+  return (
+    <div className="space-y-3">
+      {message ? (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+          {message}
+        </div>
+      ) : null}
+      <section className="overflow-hidden rounded-2xl border border-slate-900 bg-[#0b0f14] shadow-sm">
+        <div className="flex flex-col gap-3 border-b border-slate-800 bg-[#10161d] px-4 py-3 md:flex-row md:items-center md:justify-between">
+          <div className="min-w-0">
+            <div className="truncate text-base font-semibold text-slate-100">{title}</div>
+          </div>
+          {controls && <div className="flex flex-wrap items-center gap-2">{controls}</div>}
+        </div>
+        <pre className="min-h-[62vh] overflow-auto p-4 font-mono text-xs leading-6 text-slate-100 whitespace-pre-wrap break-words">
+          {loading ? '正在读取日志...' : (logs || '暂无日志')}
+        </pre>
+      </section>
+    </div>
+  )
+}
+
+function ServiceLogsPanel() {
+  const [logs, setLogs] = useState('')
+  const [tail, setTail] = useState(300)
+  const [query, setQuery] = useState('')
+  const [level, setLevel] = useState('all')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const load = async () => {
+    try {
+      setLoading(true)
+      const res = await systemLogAPI.getLogs({ kind: 'service', tail, query, level })
+      if (res.data?.code !== 200) throw new Error(res.data?.msg || '读取服务日志失败')
+      setLogs(res.data?.data?.logs || '')
+      setMessage('')
+    } catch (error) {
+      setMessage(error.response?.data?.msg || error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const onGlobalRefresh = () => load()
+    window.addEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+    return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+  }, [tail, query, level])
+
+  const controls = (
+    <>
+      <input
+        value={query}
+        onChange={(e) => setQuery(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && load()}
+        placeholder="搜索日志"
+        className="h-10 w-40 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+      />
+      <select
+        value={level}
+        onChange={(e) => setLevel(e.target.value)}
+        className="h-10 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+      >
+        <option value="all">全部级别</option>
+        <option value="error">Error</option>
+        <option value="warn">Warn</option>
+        <option value="info">Info</option>
+        <option value="debug">Debug</option>
+      </select>
+      <input
+        value={tail}
+        onChange={(e) => setTail(e.target.value.replace(/\D+/g, '') || '300')}
+        className="h-10 w-24 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+        title="读取尾部行数"
+      />
+    </>
+  )
+
+  return <PlainLogViewer title="服务日志" logs={logs} loading={loading} message={message} controls={controls} />
+}
+
+function OperationLogsPanel() {
+  const [logs, setLogs] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const load = async () => {
+    try {
+      setLoading(true)
+      const res = await systemLogAPI.getLogs({ kind: 'operation' })
+      if (res.data?.code !== 200) throw new Error(res.data?.msg || '读取操作日志失败')
+      const rows = Array.isArray(res.data?.data) ? res.data.data : []
+      setLogs(rows.map(item => `[${item.time || ''}] ${item.type || '-'} ${item.title || ''} ${item.message || ''}`.trim()).join('\n'))
+      setMessage('')
+    } catch (error) {
+      setMessage(error.response?.data?.msg || error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { load() }, [])
+
+  useEffect(() => {
+    const onGlobalRefresh = () => load()
+    window.addEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+    return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+  }, [])
+
+  return <PlainLogViewer title="操作日志" logs={logs} loading={loading} message={message} />
+}
+
+function TaskLogsPanel() {
+  const [taskID, setTaskID] = useState('')
+  const [tasks, setTasks] = useState([])
+  const [logs, setLogs] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [message, setMessage] = useState('')
+
+  const loadTasks = async () => {
+    try {
+      const res = await systemLogAPI.getLogs({ kind: 'task', tail: 50 })
+      if (res.data?.code !== 200) throw new Error(res.data?.msg || '读取任务列表失败')
+      setTasks(Array.isArray(res.data?.data) ? res.data.data : [])
+    } catch (error) {
+      setMessage(error.response?.data?.msg || error.message)
+    }
+  }
+
+  const load = async () => {
+    if (!taskID.trim()) {
+      setMessage('请输入任务 ID')
+      return
+    }
+    try {
+      setLoading(true)
+      const res = await progressAPI.getProgress(taskID.trim())
+      if (res.data?.code !== 200) throw new Error(res.data?.msg || '读取任务日志失败')
+      const data = res.data?.data || {}
+      const lines = Array.isArray(data.logs) ? data.logs : []
+      setLogs([
+        `任务：${data.taskID || taskID}`,
+        `名称：${data.name || '-'}`,
+        `状态：${data.message || '-'} (${data.percentage || 0}%)`,
+        `完成：${data.isDone ? '是' : '否'}`,
+        `更新时间：${data.updatedAt || '-'}`,
+        '',
+        ...lines,
+      ].join('\n'))
+      setMessage('')
+      loadTasks()
+    } catch (error) {
+      setMessage(error.response?.data?.msg || error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  useEffect(() => { loadTasks() }, [])
+
+  useEffect(() => {
+    const onGlobalRefresh = () => {
+      loadTasks()
+      if (taskID.trim()) load()
+    }
+    window.addEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+    return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+  }, [taskID])
+
+  const openTask = async (id) => {
+    setTaskID(id)
+    try {
+      setLoading(true)
+      const res = await progressAPI.getProgress(id)
+      if (res.data?.code !== 200) throw new Error(res.data?.msg || '读取任务日志失败')
+      const data = res.data?.data || {}
+      const lines = Array.isArray(data.logs) ? data.logs : []
+      setLogs([
+        `任务：${data.taskID || id}`,
+        `名称：${data.name || '-'}`,
+        `状态：${data.message || '-'} (${data.percentage || 0}%)`,
+        `完成：${data.isDone ? '是' : '否'}`,
+        `更新时间：${data.updatedAt || '-'}`,
+        '',
+        ...lines,
+      ].join('\n'))
+      setMessage('')
+    } catch (error) {
+      setMessage(error.response?.data?.msg || error.message)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  const controls = (
+    <>
+      <input
+        value={taskID}
+        onChange={(e) => setTaskID(e.target.value)}
+        onKeyDown={(e) => e.key === 'Enter' && load()}
+        placeholder="任务 ID"
+        className="h-10 w-72 max-w-[70vw] rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+      />
+    </>
+  )
+
+  return (
+    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="rounded-2xl border border-slate-800 bg-[#0b0f14] p-4 text-slate-100 shadow-sm">
+        <div className="mb-3 flex items-center justify-between gap-2">
+          <div>
+            <h3 className="font-semibold text-slate-100">近期任务</h3>
+          </div>
+        </div>
+        <div className="max-h-[72vh] space-y-2 overflow-auto">
+          {tasks.map(task => (
+            <button key={task.taskID} onClick={() => openTask(task.taskID)} className="w-full rounded-xl border border-slate-800 bg-[#10161d] p-3 text-left transition hover:border-slate-700 hover:bg-slate-900">
+              <div className="flex items-center justify-between gap-2">
+                <span className="truncate text-sm font-medium text-slate-100">{task.name || task.taskID}</span>
+                <span className={task.isDone ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-300'}>
+                  {task.isDone ? '完成' : `${task.percentage || 0}%`}
+                </span>
+              </div>
+              <div className="mt-1 truncate text-xs text-slate-400">{task.message || '-'}</div>
+              <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{task.taskID}</div>
+              {(task.updatedAt || task.createdAt) && (
+                <div className="mt-1 truncate text-[11px] text-slate-400">更新时间：{task.updatedAt || task.createdAt}</div>
+              )}
+            </button>
+          ))}
+          {tasks.length === 0 && <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-sm text-slate-400">暂无任务记录</div>}
+        </div>
+      </div>
+      <PlainLogViewer title="任务日志" logs={logs} loading={loading} message={message} controls={controls} />
+    </div>
+  )
+}
+
+export function LogsPage() {
+  const [active, setActive] = useState('container')
+  return (
+    <div className="space-y-4">
+      <div className="rounded-2xl border border-slate-200 bg-white/95 p-2 shadow-sm backdrop-blur dark:border-slate-800 dark:bg-slate-900/95">
+        <div className="flex gap-2 overflow-x-auto">
+          {logTabs.map((item) => (
+            <button
+              key={item.id}
+              onClick={() => setActive(item.id)}
+              className={`shrink-0 rounded-xl px-4 py-2 text-left transition ${active === item.id ? 'bg-sky-100 text-sky-700 dark:bg-sky-950/50 dark:text-sky-300' : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800'}`}
+            >
+              <span className="block text-sm font-semibold">{item.label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+      {active === 'container' && <ContainerLogsPanel />}
+      {active === 'service' && <ServiceLogsPanel />}
+      {active === 'operation' && <OperationLogsPanel />}
+      {active === 'task' && <TaskLogsPanel />}
+    </div>
+  )
+}
+

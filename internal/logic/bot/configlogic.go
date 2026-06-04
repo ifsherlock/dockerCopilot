@@ -54,6 +54,7 @@ func defaultConfig(secretKey string) runtimeConfig {
 		Dockercopilot: map[string]interface{}{
 			"multi_instance_enabled": false,
 			"default_instance":       "local",
+			"service_log_dir":        "",
 			"instances": []map[string]interface{}{
 				{
 					"name":       "local",
@@ -75,6 +76,7 @@ func defaultConfig(secretKey string) runtimeConfig {
 			"clean_images_cron":         "3 2 * * *",
 			"auto_update_containers":    false,
 			"update_containers_cron":    "0 */6 * * *",
+			"scheduled_container_tasks": []map[string]interface{}{},
 			"auto_backup_json":          false,
 			"backup_json_cron":          "0 1 * * *",
 			"auto_backup_compose":       false,
@@ -130,6 +132,9 @@ func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 	}
 	if _, ok := cfg.Dockercopilot["host_lan_ip"]; !ok {
 		cfg.Dockercopilot["host_lan_ip"] = ""
+	}
+	if _, ok := cfg.Dockercopilot["service_log_dir"]; !ok {
+		cfg.Dockercopilot["service_log_dir"] = ""
 	}
 	resp.Code = 200
 	resp.Msg = "success"
@@ -343,6 +348,7 @@ func hasAnyConfigPayload(req *types.BotConfigReq) bool {
 		strings.TrimSpace(req.UpdateBlacklist) != "" ||
 		strings.TrimSpace(req.CleanImagesCron) != "" ||
 		strings.TrimSpace(req.UpdateContainersCron) != "" ||
+		strings.TrimSpace(req.ScheduledTasks) != "" ||
 		strings.TrimSpace(req.BackupJsonCron) != "" ||
 		strings.TrimSpace(req.BackupComposeCron) != "" ||
 		req.BackupMaxFiles > 0 ||
@@ -356,6 +362,7 @@ func hasAnyConfigPayload(req *types.BotConfigReq) bool {
 		strings.TrimSpace(req.HostLanIP) != "" ||
 		strings.TrimSpace(req.DefaultInstance) != "" ||
 		strings.TrimSpace(req.Instances) != "" ||
+		strings.TrimSpace(req.ServiceLogDir) != "" ||
 		strings.TrimSpace(req.ThemeMode) != "" ||
 		strings.TrimSpace(req.ThemeAppearance) != "" ||
 		req.NotifyOnUpdate || req.InteractiveEnabled || req.AutoCleanImages || req.AutoUpdateContainers || req.AutoBackupJson || req.AutoBackupCompose || req.MultiInstanceEnabled
@@ -457,6 +464,56 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["clean_images_cron"] = cleanImagesCron
 	cfg.Telegram["auto_update_containers"] = requestBoolOrExisting(req, "autoUpdateContainers", req.AutoUpdateContainers, cfg.Telegram, "auto_update_containers", false)
 	cfg.Telegram["update_containers_cron"] = updateContainersCron
+	if req.HasField("scheduledTasks") {
+		var tasks []map[string]interface{}
+		raw := strings.TrimSpace(req.ScheduledTasks)
+		if raw == "" {
+			raw = "[]"
+		}
+		if err := json.Unmarshal([]byte(raw), &tasks); err != nil {
+			resp.Code = 400
+			resp.Msg = "scheduledTasks 配置格式错误: " + err.Error()
+			resp.Data = map[string]interface{}{}
+			return resp, nil
+		}
+		cleaned := make([]map[string]interface{}, 0, len(tasks))
+		for _, task := range tasks {
+			containerID := strings.TrimSpace(toString(task["containerID"]))
+			action := strings.TrimSpace(toString(task["action"]))
+			cronExpr := strings.TrimSpace(toString(task["cron"]))
+			if containerID == "" || action == "" || cronExpr == "" {
+				continue
+			}
+			if action != "restart" && action != "stop" && action != "start" {
+				resp.Code = 400
+				resp.Msg = "任务动作只支持 start / stop / restart"
+				resp.Data = map[string]interface{}{}
+				return resp, nil
+			}
+			normalizedCron, cronErr := validateCronExpr("容器任务 Cron", cronExpr)
+			if cronErr != nil {
+				resp.Code = 400
+				resp.Msg = cronErr.Error()
+				resp.Data = map[string]interface{}{}
+				return resp, nil
+			}
+			id := strings.TrimSpace(toString(task["id"]))
+			if id == "" {
+				id = fmt.Sprintf("%s-%s-%d", containerID, action, len(cleaned)+1)
+			}
+			cleaned = append(cleaned, map[string]interface{}{
+				"id":            id,
+				"containerID":   containerID,
+				"containerName": strings.TrimSpace(toString(task["containerName"])),
+				"action":        action,
+				"cron":          normalizedCron,
+				"enabled":       toBool(task["enabled"], true),
+			})
+		}
+		cfg.Telegram["scheduled_container_tasks"] = cleaned
+	} else if _, ok := cfg.Telegram["scheduled_container_tasks"]; !ok {
+		cfg.Telegram["scheduled_container_tasks"] = []map[string]interface{}{}
+	}
 	cfg.Telegram["auto_backup_json"] = requestBoolOrExisting(req, "autoBackupJson", req.AutoBackupJson, cfg.Telegram, "auto_backup_json", false)
 	cfg.Telegram["auto_backup_compose"] = requestBoolOrExisting(req, "autoBackupCompose", req.AutoBackupCompose, cfg.Telegram, "auto_backup_compose", false)
 	cfg.Telegram["backup_json_cron"] = backupJSONCron
@@ -486,6 +543,11 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		cfg.Dockercopilot["host_lan_ip"] = strings.TrimSpace(req.HostLanIP)
 	} else if _, ok := cfg.Dockercopilot["host_lan_ip"]; !ok {
 		cfg.Dockercopilot["host_lan_ip"] = ""
+	}
+	if req.HasField("serviceLogDir") {
+		cfg.Dockercopilot["service_log_dir"] = strings.TrimSpace(req.ServiceLogDir)
+	} else if _, ok := cfg.Dockercopilot["service_log_dir"]; !ok {
+		cfg.Dockercopilot["service_log_dir"] = ""
 	}
 	themeMode := strings.TrimSpace(req.ThemeMode)
 	if themeMode == "" {
@@ -610,7 +672,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	}
 	if err := l.svcCtx.ReloadBackupSchedulers(); err != nil {
 		resp.Code = 500
-		resp.Msg = "配置已保存，但重载定时备份失败: " + err.Error()
+		resp.Msg = "配置已保存，但重载定时任务失败: " + err.Error()
 		resp.Data = cfg
 		return resp, nil
 	}

@@ -13,9 +13,12 @@ func RestartContainer(ctx *svc.ServiceContext, id string) error {
 		Signal:  signal,
 		Timeout: &timeout,
 	}
+	ctx.AddOperationLog("container", "重启容器", id)
 	err := ctx.DockerClient.ContainerRestart(context.Background(), id, stopOptions)
 	if err != nil {
+		ctx.AddOperationLog("container", "重启容器失败", id+": "+err.Error())
 		return err
 	}
+	ctx.AddOperationLog("container", "重启容器完成", id)
 	return nil
 }

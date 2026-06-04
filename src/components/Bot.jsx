@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react'
+﻿import React, { useCallback, useEffect, useRef, useState } from 'react'
 import {
   Bot as BotIcon,
   Save,
@@ -61,6 +61,7 @@ export function Bot() {
     cleanImagesCron: '3 2 * * *',
     autoUpdateContainers: false,
     updateContainersCron: '0 */6 * * *',
+    scheduledTasks: '[]',
     proxyType: 'none',
     proxyHost: '',
     proxyPort: '',
@@ -85,6 +86,7 @@ export function Bot() {
   const [blacklistSearch, setBlacklistSearch] = useState('')
   const [showInstanceSettings, setShowInstanceSettings] = useState(false)
   const [blacklistInstance, setBlacklistInstance] = useState('local')
+  const [taskDraft, setTaskDraft] = useState({ containerID: '', action: 'restart', cron: '0 3 * * *' })
   const [dirty, setDirty] = useState(false)
   const fileInputRef = useRef(null)
 
@@ -115,6 +117,7 @@ export function Bot() {
         cleanImagesCron: telegram.clean_images_cron || prev.cleanImagesCron,
         autoUpdateContainers: telegram.auto_update_containers ?? false,
         updateContainersCron: telegram.update_containers_cron || prev.updateContainersCron,
+        scheduledTasks: JSON.stringify(Array.isArray(telegram.scheduled_container_tasks) ? telegram.scheduled_container_tasks : [], null, 2),
         proxyType: proxy.type || 'none',
         proxyHost: proxy.host || '',
         proxyPort: proxy.port ? String(proxy.port) : '',
@@ -166,6 +169,60 @@ export function Bot() {
       return []
     }
   })()
+
+  const parsedScheduledTasks = (() => {
+    try {
+      const value = JSON.parse(config.scheduledTasks || '[]')
+      return Array.isArray(value) ? value : []
+    } catch {
+      return []
+    }
+  })()
+
+  const actionLabels = {
+    restart: '重启',
+    stop: '停止',
+    start: '启动',
+  }
+
+  const updateScheduledTasks = (items) => {
+    handleChange('scheduledTasks', JSON.stringify(items, null, 2))
+  }
+
+  const addScheduledTask = () => {
+    const containerID = taskDraft.containerID || containers[0]?.id || ''
+    if (!containerID) {
+      setMessage('请选择容器')
+      return
+    }
+    const cronResult = validateCronExpression(taskDraft.cron)
+    if (!cronResult.ok) {
+      setMessage(`任务 Cron 无效：${cronResult.message}`)
+      return
+    }
+    const container = containers.find(item => item.id === containerID)
+    const next = [
+      ...parsedScheduledTasks,
+      {
+        id: `${containerID.slice(0, 12)}-${taskDraft.action}-${Date.now()}`,
+        containerID,
+        containerName: container?.name || containerID,
+        action: taskDraft.action,
+        cron: cronResult.normalized,
+        enabled: true,
+      },
+    ]
+    updateScheduledTasks(next)
+    setTaskDraft(prev => ({ ...prev, cron: cronResult.normalized }))
+  }
+
+  const removeScheduledTask = (id) => {
+    updateScheduledTasks(parsedScheduledTasks.filter(item => item.id !== id))
+  }
+
+  const toggleScheduledTask = (id) => {
+    updateScheduledTasks(parsedScheduledTasks.map(item => item.id === id ? { ...item, enabled: item.enabled === false } : item))
+  }
 
   const updateInstance = (index, field, value) => {
     const isLocal = String(parsedInstances[index]?.name || '').toLowerCase() === 'local'
@@ -303,6 +360,7 @@ export function Bot() {
     cleanImagesCron: config.cleanImagesCron || '3 2 * * *',
     autoUpdateContainers: !!config.autoUpdateContainers,
     updateContainersCron: config.updateContainersCron || '0 */6 * * *',
+    scheduledTasks: config.scheduledTasks || '[]',
     proxyType: config.proxyType || 'none',
     proxyHost: config.proxyHost || '',
     proxyPort: config.proxyPort || '',
@@ -345,6 +403,7 @@ export function Bot() {
       cleanImagesCron: raw?.cleanImagesCron ?? '3 2 * * *',
       autoUpdateContainers: raw?.autoUpdateContainers ?? false,
       updateContainersCron: raw?.updateContainersCron ?? '0 */6 * * *',
+      scheduledTasks: raw?.scheduledTasks ?? '[]',
       proxyType: raw?.proxyType ?? 'none',
       proxyHost: raw?.proxyHost ?? '',
       proxyPort: raw?.proxyPort ? String(raw.proxyPort) : '',
@@ -468,6 +527,13 @@ export function Bot() {
           return
         }
       }
+      for (let i = 0; i < parsedScheduledTasks.length; i++) {
+        const result = validateCronExpression(parsedScheduledTasks[i]?.cron || '')
+        if (!result.ok) {
+          setMessage(`任务 ${i + 1} Cron 无效：${result.message}`)
+          return
+        }
+      }
       setSaving(true)
       setMessage('')
       const cleanConfig = {
@@ -495,7 +561,7 @@ export function Bot() {
   }
 
   return (
-    <div className="max-w-7xl mx-auto w-full space-y-6 px-2 sm:px-6 py-4 pt-4 sm:pt-4">
+    <div className="w-full space-y-6 py-4 pt-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
         <div>
           <h2 className="text-2xl font-bold text-gray-900 dark:text-white">配置与管理</h2>
@@ -568,6 +634,99 @@ export function Bot() {
             <Field label="检测 Cron">
               {renderCronInput('updateCheckCron', '0 18 * * *', '例如：0 18 * * *')}
             </Field>
+          </div>
+        </div>
+
+        <div className={cn(cardClass, 'xl:col-span-2')}>
+          <div className={cardHeaderClass}>
+            <div className="flex items-center gap-3">
+              <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-teal-100 text-teal-700 dark:bg-teal-900/30 dark:text-teal-300">
+                <Clock className="h-5 w-5" />
+              </div>
+              <div>
+                <h3 className="text-base font-semibold text-gray-900 dark:text-white">定时容器任务</h3>
+              </div>
+            </div>
+          </div>
+          <div className={cardBodyClass}>
+            <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_140px_180px_auto]">
+              <select
+                value={taskDraft.containerID}
+                onChange={(e) => setTaskDraft(prev => ({ ...prev, containerID: e.target.value }))}
+                className={inputClass}
+              >
+                <option value="">选择容器</option>
+                {containers.map(container => (
+                  <option key={container.id} value={container.id}>
+                    {container.name || container.id}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={taskDraft.action}
+                onChange={(e) => setTaskDraft(prev => ({ ...prev, action: e.target.value }))}
+                className={inputClass}
+              >
+                <option value="restart">重启</option>
+                <option value="stop">停止</option>
+                <option value="start">启动</option>
+              </select>
+              <input
+                value={taskDraft.cron}
+                onChange={(e) => setTaskDraft(prev => ({ ...prev, cron: e.target.value }))}
+                onBlur={() => setTaskDraft(prev => ({ ...prev, cron: normalizeCronExpression(prev.cron) }))}
+                placeholder="0 3 * * *"
+                className={cn(inputClass, 'font-mono')}
+              />
+              <button
+                type="button"
+                onClick={addScheduledTask}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-teal-600 px-4 py-2 text-sm font-medium text-white hover:bg-teal-700"
+              >
+                <Plus className="h-4 w-4" />
+                新增
+              </button>
+            </div>
+
+            <div className="mt-4 space-y-2">
+              {parsedScheduledTasks.map(task => (
+                <div key={task.id} className="flex flex-col gap-3 rounded-xl border border-gray-200 bg-gray-50 px-3 py-3 dark:border-gray-700 dark:bg-gray-900/30 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <div className="truncate text-sm font-semibold text-gray-900 dark:text-white">
+                      {task.containerName || task.containerID} · {actionLabels[task.action] || task.action}
+                    </div>
+                    <div className="mt-1 font-mono text-xs text-gray-500 dark:text-gray-400">{task.cron}</div>
+                  </div>
+                  <div className="flex shrink-0 items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => toggleScheduledTask(task.id)}
+                      className={cn(
+                        'rounded-lg px-3 py-1.5 text-xs font-medium',
+                        task.enabled === false
+                          ? 'bg-gray-200 text-gray-600 dark:bg-gray-700 dark:text-gray-300'
+                          : 'bg-emerald-100 text-emerald-700 dark:bg-emerald-900/35 dark:text-emerald-300'
+                      )}
+                    >
+                      {task.enabled === false ? '停用' : '启用'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => removeScheduledTask(task.id)}
+                      className="inline-flex h-9 w-9 items-center justify-center rounded-lg border border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-300 dark:hover:bg-red-900/20"
+                      title="删除"
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </button>
+                  </div>
+                </div>
+              ))}
+              {parsedScheduledTasks.length === 0 && (
+                <div className="rounded-xl border border-dashed border-gray-300 p-4 text-center text-sm text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                  暂无任务
+                </div>
+              )}
+            </div>
           </div>
         </div>
 
@@ -891,3 +1050,4 @@ export function Bot() {
     </div>
   )
 }
+

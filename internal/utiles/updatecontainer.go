@@ -16,6 +16,7 @@ import (
 
 func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string, imageNameAndTag string, delOldContainer bool, taskID string) error {
 	ctx := context.Background()
+	serviceContext.AddOperationLog("container", "开始更新容器", fmt.Sprintf("%s -> %s", name, imageNameAndTag))
 	oldImageID := ""
 	if inspected, err := serviceContext.DockerClient.ContainerInspect(ctx, id); err == nil {
 		oldImageID = inspected.Image
@@ -54,6 +55,7 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器拉取镜像失败", err.Error())
 		logx.Errorf("Failed to pull image: %s", err)
 		return err
 	}
@@ -63,9 +65,11 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器拉取镜像失败", err.Error())
 		logx.Errorf("Failed to pull image: %s", err)
 		return err
 	}
+	serviceContext.AddOperationLog("container", "更新容器拉取镜像完成", imageNameAndTag)
 	oldTaskProgress, result = serviceContext.GetProgress(taskID)
 	if !result {
 		oldTaskProgress = svc.TaskProgress{
@@ -93,8 +97,10 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器停止旧容器失败", err.Error())
 		return err
 	}
+	serviceContext.AddOperationLog("container", "更新容器停止旧容器完成", id)
 	oldTaskProgress.Message = "容器停止成功"
 	oldTaskProgress.DetailMsg = "容器停止成功"
 
@@ -110,8 +116,10 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器重命名旧容器失败", err.Error())
 		return err
 	}
+	serviceContext.AddOperationLog("container", "更新容器重命名旧容器完成", name+"-"+currentDate)
 	oldTaskProgress.Message = "重命名旧容器成功"
 	oldTaskProgress.DetailMsg = "重命名旧容器成功"
 	oldTaskProgress.Percentage = 60
@@ -143,8 +151,10 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器创建新容器失败", err.Error())
 		return err
 	}
+	serviceContext.AddOperationLog("container", "更新容器创建新容器完成", containerName)
 	oldTaskProgress.Message = "创建新容器成功"
 	oldTaskProgress.DetailMsg = "创建新容器成功"
 	oldTaskProgress.Percentage = 80
@@ -161,8 +171,10 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 		oldTaskProgress.DetailMsg = err.Error()
 		oldTaskProgress.IsDone = true
 		serviceContext.UpdateProgress(taskID, oldTaskProgress)
+		serviceContext.AddOperationLog("container", "更新容器启动新容器失败", err.Error())
 		return err
 	}
+	serviceContext.AddOperationLog("container", "更新容器启动新容器完成", containerName)
 	if delOldContainer {
 		err = serviceContext.DockerClient.ContainerRemove(context.Background(), id, container.RemoveOptions{})
 		if err != nil {
@@ -170,8 +182,10 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 			oldTaskProgress.DetailMsg = err.Error()
 			oldTaskProgress.IsDone = true
 			serviceContext.UpdateProgress(taskID, oldTaskProgress)
+			serviceContext.AddOperationLog("container", "更新容器删除旧容器失败", err.Error())
 			return err
 		}
+		serviceContext.AddOperationLog("container", "更新容器删除旧容器完成", id)
 	}
 	newImageID := ""
 	if inspectedNew, inspectErr := serviceContext.DockerClient.ContainerInspect(context.Background(), containerName); inspectErr == nil {
@@ -186,6 +200,7 @@ func UpdateContainer(serviceContext *svc.ServiceContext, id string, name string,
 	oldTaskProgress.Percentage = 100
 	oldTaskProgress.IsDone = true
 	serviceContext.UpdateProgress(taskID, oldTaskProgress)
+	serviceContext.AddOperationLog("container", "更新容器完成", name)
 	return nil
 }
 
@@ -207,6 +222,7 @@ func decodePullResp(reader io.Reader, ctx *svc.ServiceContext, taskID string) (e
 			if err == io.EOF {
 				return nil
 			}
+			ctx.AppendProgressLog(taskID, "拉取镜像失败: "+err.Error())
 			oldTaskProgress.Message = "拉取镜像失败"
 			oldTaskProgress.DetailMsg = err.Error()
 			oldTaskProgress.Percentage = 25
@@ -217,6 +233,7 @@ func decodePullResp(reader io.Reader, ctx *svc.ServiceContext, taskID string) (e
 		}
 		// Print the progress or error information from the response
 		if msg.Error != nil {
+			ctx.AppendProgressLog(taskID, "拉取镜像失败: "+msg.Error.Error())
 			oldTaskProgress.Message = "拉取镜像失败"
 			oldTaskProgress.DetailMsg = msg.Error.Error()
 			oldTaskProgress.Percentage = 25
@@ -231,6 +248,7 @@ func decodePullResp(reader io.Reader, ctx *svc.ServiceContext, taskID string) (e
 			} else {
 				formattedMsg = fmt.Sprintf("进度%s", msg.Status)
 			}
+			ctx.AppendProgressLog(taskID, formattedMsg)
 			oldTaskProgress.DetailMsg = formattedMsg
 			oldTaskProgress.Percentage = 25
 			ctx.UpdateProgress(taskID, oldTaskProgress)

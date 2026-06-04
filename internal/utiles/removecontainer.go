@@ -8,5 +8,11 @@ import (
 )
 
 func RemoveContainer(ctx *svc.ServiceContext, id string) error {
-	return ctx.DockerClient.ContainerRemove(context.Background(), id, container.RemoveOptions{})
+	ctx.AddOperationLog("container", "删除容器", id)
+	if err := ctx.DockerClient.ContainerRemove(context.Background(), id, container.RemoveOptions{}); err != nil {
+		ctx.AddOperationLog("container", "删除容器失败", id+": "+err.Error())
+		return err
+	}
+	ctx.AddOperationLog("container", "删除容器完成", id)
+	return nil
 }

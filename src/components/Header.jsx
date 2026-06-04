@@ -1,24 +1,23 @@
 import React from 'react'
 import {
   Box,
-  HardDrive,
   LogOut,
   Menu,
   X,
   Server,
   Image,
-  DatabaseBackup,
-  Palette,
+  Store,
+  Network,
   Info,
   Bot,
   FileText,
-  ChevronDown,
   ChevronRight,
   ChevronLeft,
-  RefreshCw,
+  Smartphone,
   ArrowUpCircle,
-  ShieldCheck,
-  Smartphone
+  RotateCcw,
+  Minimize2,
+  Power
 } from 'lucide-react'
 import { ThemeToggle } from './ThemeToggle.jsx'
 import { UpdatePrompt } from './UpdatePrompt.jsx'
@@ -28,92 +27,40 @@ import { useVersionCheck } from '../hooks/useVersionCheck.js'
 import { useTheme } from '../hooks/useTheme.jsx'
 
 export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false, onToggleCollapse, windowWidth = 1024 }) {
-  const { appearance } = useTheme()
+  const { appearance, theme, setTheme, setAppearance } = useTheme()
   const [isMobileMenuOpen, setIsMobileMenuOpen] = React.useState(false)
-  const [isDevInfoExpanded, setIsDevInfoExpanded] = React.useState(false)
-
-  // 时间格式转换函数 - 将UTC时间转换为北京时间
-  const formatVersionBuildDate = (dateString) => {
-    try {
-      const date = new Date(dateString)
-      if (isNaN(date.getTime())) {
-        return dateString
-      }
-
-      // 转换为北京时间 (UTC+8)
-      const beijingDate = new Date(date.getTime() + 8 * 60 * 60 * 1000)
-
-      return beijingDate.toLocaleString('zh-CN', {
-        year: 'numeric',
-        month: '2-digit',
-        day: '2-digit',
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-        hour12: false
-      }).replace(/\//g, '-')
-    } catch (error) {
-      return dateString
-    }
-  }
-
-  // 使用版本检查 Hook
-  const {
-    showUpdatePrompt,
-    setShowUpdatePrompt,
-    backendVersion,
-    remoteVersion,
-    buildDate,
-    hasBackendUpdate,
-    isUpdating,
-    updateMessage,
-    showForceUpdate,
-    updateProgress,
-    isReconnectChecking,
-    postUpdateNeedsRefresh,
-    uploadProgramUpdate,
-    updateBackend,
-    forceUpdateBackend,
-    checkForUpdates
-  } = useVersionCheck()
-
-  const displayVersion = (value) => {
-    const raw = String(value || '').trim()
-    if (!raw) return '--'
-    return raw.startsWith('v') ? raw : `v${raw}`
-  }
+  const version = useVersionCheck()
 
   const sidebarSurface = cn(
     appearance === 'aurora' && 'bg-[linear-gradient(180deg,rgba(255,255,255,0.82)_0%,rgba(248,250,255,0.88)_100%)] dark:bg-[linear-gradient(180deg,rgba(15,23,42,0.92)_0%,rgba(17,24,39,0.96)_100%)] border-primary-100/70 dark:border-primary-900/40',
+    appearance === 'manager_green' && 'bg-[linear-gradient(180deg,rgba(255,255,255,0.9)_0%,rgba(244,248,247,0.96)_100%)] dark:bg-[linear-gradient(180deg,rgba(7,19,18,0.96)_0%,rgba(15,31,29,0.98)_100%)] border-teal-100/80 dark:border-teal-900/40',
     appearance === 'night_sail' && 'bg-[linear-gradient(180deg,rgba(241,245,249,0.92)_0%,rgba(226,232,240,0.96)_100%)] dark:bg-[linear-gradient(180deg,rgba(2,6,23,0.95)_0%,rgba(15,23,42,0.98)_100%)] border-slate-200/80 dark:border-slate-800/70',
     appearance === 'mist' && 'bg-[linear-gradient(180deg,rgba(255,255,255,0.86)_0%,rgba(244,244,245,0.94)_100%)] dark:bg-[linear-gradient(180deg,rgba(17,24,39,0.92)_0%,rgba(15,23,42,0.96)_100%)] border-stone-200/80 dark:border-slate-700/60'
   )
 
   const navItemBase = appearance === 'aurora'
     ? 'text-slate-700 dark:text-slate-300 hover:bg-white/70 dark:hover:bg-white/5'
+    : appearance === 'manager_green'
+      ? 'text-slate-700 dark:text-slate-200 hover:bg-teal-50/80 dark:hover:bg-teal-900/20'
     : appearance === 'night_sail'
       ? 'text-slate-700 dark:text-slate-200 hover:bg-white/55 dark:hover:bg-sky-900/25'
       : 'text-slate-700 dark:text-slate-300 hover:bg-white/75 dark:hover:bg-white/5'
 
   const navItemActive = appearance === 'aurora'
     ? 'bg-white/82 dark:bg-primary-900/22 text-primary-700 dark:text-primary-300 font-semibold shadow-sm border border-primary-100/70 dark:border-primary-800/50'
+    : appearance === 'manager_green'
+      ? 'bg-teal-50 dark:bg-teal-950/35 text-teal-700 dark:text-teal-300 font-semibold shadow-sm border border-teal-100/80 dark:border-teal-800/50'
     : appearance === 'night_sail'
       ? 'bg-white/72 dark:bg-sky-900/24 text-sky-700 dark:text-sky-300 font-semibold shadow-sm border border-sky-100/70 dark:border-sky-800/40'
       : 'bg-white/88 dark:bg-slate-800/55 text-slate-700 dark:text-slate-100 font-semibold shadow-sm border border-stone-200/80 dark:border-slate-700/70'
 
   const softPanel = appearance === 'aurora'
     ? 'rounded-2xl border border-white/70 bg-white/42 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5'
+    : appearance === 'manager_green'
+      ? 'rounded-2xl border border-teal-100/80 bg-white/58 shadow-sm backdrop-blur dark:border-teal-900/35 dark:bg-teal-950/16'
     : appearance === 'night_sail'
       ? 'rounded-2xl border border-white/45 bg-white/35 shadow-sm backdrop-blur dark:border-sky-900/30 dark:bg-slate-900/45'
       : 'rounded-2xl border border-white/75 bg-white/48 shadow-sm backdrop-blur dark:border-white/10 dark:bg-white/5'
-
-  const updateCardClass = hasBackendUpdate
-    ? (appearance === 'night_sail'
-        ? 'bg-sky-500/10 border-sky-300/60 text-sky-900 dark:bg-sky-900/30 dark:border-sky-700/40 dark:text-sky-100 hover:bg-sky-500/15 dark:hover:bg-sky-900/40'
-        : 'bg-amber-400/12 border-amber-300/70 text-amber-900 dark:bg-amber-900/28 dark:border-amber-700/45 dark:text-amber-100 hover:bg-amber-400/18 dark:hover:bg-amber-900/38')
-    : (appearance === 'night_sail'
-        ? 'bg-white/48 border-white/60 text-slate-700 dark:bg-slate-900/46 dark:border-slate-700/55 dark:text-slate-200 hover:bg-white/65 dark:hover:bg-slate-800/60'
-        : 'bg-white/48 border-white/70 text-slate-600 dark:bg-white/5 dark:border-white/10 dark:text-slate-300 hover:bg-white/65 dark:hover:bg-white/10')
 
   // 智能判断是否可以手动切换侧边栏
   const canToggleSidebar = windowWidth >= 1024
@@ -129,39 +76,30 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
     }
   }
 
-  const navItems = [
-    {
-      id: '#containers',
-      label: '容器',
-      icon: Server,
-    },
-    {
-      id: '#images',
-      label: '镜像',
-      icon: Box,
-    },
-    {
-      id: '#bot',
-      label: '配置',
-      icon: Bot,
-    },
-    {
-      id: '#backups',
-      label: '备份',
-      icon: DatabaseBackup,
-    },
-    {
-      id: '#logs',
-      label: '日志',
-      icon: FileText,
-    },
-    {
-      id: '#about',
-      label: '关于',
-      icon: Info,
-    },
-  ]
+  const cycleAppearance = () => {
+    const presets = ['aurora', 'manager_green', 'night_sail', 'mist']
+    const index = presets.indexOf(appearance)
+    setAppearance(presets[(index + 1) % presets.length])
+  }
 
+  const cycleMode = () => {
+    const presets = ['light', 'dark', 'system']
+    const index = presets.indexOf(theme)
+    setTheme(presets[(index + 1) % presets.length])
+  }
+
+  const toolButtonClass = 'inline-flex h-9 w-9 items-center justify-center rounded-[10px] border border-transparent bg-transparent text-slate-500 shadow-none transition-all hover:border-slate-200 hover:bg-white/90 hover:text-slate-800 hover:shadow-sm disabled:opacity-50 dark:text-slate-400 dark:hover:border-slate-700 dark:hover:bg-slate-900/80 dark:hover:text-slate-100'
+
+  const navItems = [
+    { id: '#overview', label: '概览', icon: Box },
+    { id: '#containers', label: '容器', icon: Server },
+    { id: '#images', label: '镜像', icon: Image },
+    { id: '#store', label: '商店', icon: Store },
+    { id: '#networks', label: '网络', icon: Network },
+    { id: '#settings', label: '设置', icon: Bot },
+    { id: '#logs', label: '日志', icon: FileText },
+    { id: '#about', label: '关于', icon: Info },
+  ]
   return (
     <>
       {/* 顶部导航栏 - 仅在手机模式（sm）显示 */}
@@ -169,6 +107,14 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
         <div className="fixed top-0 left-0 right-0 bg-white dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700 flex items-center justify-between gap-2 px-2.5 sm:px-4 z-40 shadow-sm" style={{ paddingTop: 'env(safe-area-inset-top)', paddingBottom: '0.875rem', height: 'calc(3.5rem + env(safe-area-inset-top))' }}>
           {/* 左侧：Logo 和项目信息 */}
           <div className="flex min-w-0 flex-1 items-center gap-2">
+            <button
+              onClick={() => setIsMobileMenuOpen(prev => !prev)}
+              className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-lg text-slate-700 transition-colors active:scale-95 hover:bg-slate-100 dark:text-slate-200 dark:hover:bg-slate-700/70"
+              title={isMobileMenuOpen ? '关闭导航' : '打开导航'}
+              aria-label={isMobileMenuOpen ? '关闭导航' : '打开导航'}
+            >
+              {isMobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </button>
             <img
               src={logoImg}
               alt="菜单"
@@ -176,9 +122,6 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
             />
             <div className="min-w-0 flex items-center gap-1 overflow-hidden">
               <span className="truncate text-sm font-semibold text-gray-900 dark:text-white">Docker Copilot</span>
-              {!isCompactMobileHeader && !isUltraNarrowMobile && (
-                <span className="shrink-0 text-xs text-gray-500 dark:text-gray-400">{displayVersion(backendVersion)}</span>
-              )}
             </div>
           </div>
 
@@ -189,7 +132,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
               className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-sky-600 transition-colors active:scale-95 hover:bg-sky-50 dark:text-sky-400 dark:hover:bg-sky-900/20"
               title="切换到手机端页面"
             >
-              <Smartphone className="h-5 w-5" />
+              <Smartphone className="h-4 w-4" />
             </button>
             {!isCompactMobileHeader && !isUltraNarrowMobile && <ThemeToggle embedded />}
             {!isCompactMobileHeader && (
@@ -198,7 +141,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                 className="inline-flex h-9 w-9 items-center justify-center rounded-lg text-red-600 transition-colors active:scale-95 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-900/20"
                 title="退出登录"
               >
-                <LogOut className="h-5 w-5" />
+                <LogOut className="h-4 w-4" />
               </button>
             )}
           </div>
@@ -289,7 +232,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
             <ul className={cn(isCollapsed ? 'space-y-3' : 'space-y-1')}>
               {navItems.map((item, index) => {
                 const Icon = item.icon
-                const isActive = activeTab === item.id
+                const isActive = activeTab === item.id || String(activeTab || '').startsWith(`${item.id}/`)
                 return (
                   <li key={item.id}>
                     <button
@@ -326,136 +269,70 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
             </ul>
           </nav>
 
-          {/* 底部信息与操作区 */}
+          {/* 底部工具 */}
           {!isCollapsed && (
-            <div className="space-y-3 px-4 sm:px-5 pb-6">
-              {/* 一、顶部系统操作栏（独立卡片） */}
-              <div className={cn('rounded-2xl border shadow-sm', softPanel)}>
-                <div className="flex items-center justify-evenly py-2.5">
-                  <ThemeToggle embedded />
-
-                  <button
-                    onClick={onLogout}
-                    className="inline-flex h-9 w-9 items-center justify-center rounded-xl text-red-500 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-900/20 dark:hover:text-red-300 transition-colors"
-                    title="退出登录"
-                  >
-                    <LogOut className="h-4.5 w-4.5" />
-                  </button>
-                </div>
-              </div>
-
-              {/* 二、主信息卡片 */}
-              <div className={cn('rounded-2xl flex flex-col shadow-sm border transition-all duration-300 overflow-hidden', softPanel)}>
+            <div className="px-4 sm:px-5 pb-3">
+              <div className="grid grid-cols-5 gap-2">
                 <button
                   onClick={handleToggleCollapse}
                   disabled={!canToggleSidebar}
-                  className={cn(
-                    'flex items-center gap-2.5 px-4 py-3 text-sm font-medium text-slate-700 transition-colors dark:text-slate-300',
-                    canToggleSidebar
-                      ? 'hover:bg-slate-50/90 dark:hover:bg-white/5 cursor-pointer'
-                      : 'cursor-default opacity-60'
-                  )}
-                  title={isCollapsed ? '展开侧边栏' : '收起侧边栏'}
+                  className={toolButtonClass}
+                  title="收起侧边栏"
                 >
-                  {isCollapsed ? (
-                    <ChevronRight className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                  ) : (
-                    <ChevronLeft className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                  )}
-                  <span>{isCollapsed ? '展开侧边栏' : '收起侧边栏'}</span>
+                  <Minimize2 className="h-4 w-4" />
                 </button>
-
-                {/* 分割线 */}
-                <div className="h-px bg-slate-200/60 dark:bg-slate-700/60 mx-4" />
-
-                {/* 2. 后端版本 */}
-                <div className="flex items-center justify-between px-4 py-3">
-                  <div className="flex items-center gap-2.5 text-sm font-medium text-slate-700 dark:text-slate-300">
-                    <ShieldCheck className="h-4 w-4 text-slate-500 dark:text-slate-400" />
-                    <span>后端版本</span>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className="text-sm font-bold text-slate-900 dark:text-slate-100 font-mono">
-                      {displayVersion(backendVersion)}
-                    </span>
-                    <span className="h-2 w-2 rounded-full bg-emerald-500 shadow-[0_0_6px_rgba(16,185,129,0.4)]" />
-                  </div>
-                </div>
-
-                {/* 3. 开发团队 */}
-                <div className="flex flex-col">
-                  <button
-                    onClick={() => setIsDevInfoExpanded(!isDevInfoExpanded)}
-                    className="flex items-center justify-between px-4 py-3 hover:bg-slate-50 dark:hover:bg-white/5 transition-colors"
-                  >
-                    <div className="flex items-center gap-2.5 text-sm font-medium text-slate-700 dark:text-slate-300">
-                      <span className="flex h-4 w-4 items-center justify-center text-slate-500 dark:text-slate-400">
-                        <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
-                      </span>
-                      <span>开发团队</span>
-                    </div>
-                    {isDevInfoExpanded ? (
-                      <ChevronDown className="h-4 w-4 text-slate-400" />
-                    ) : (
-                      <ChevronRight className="h-4 w-4 text-slate-400" />
-                    )}
-                  </button>
-
-                  {isDevInfoExpanded && (
-                    <div className="px-4 pb-3 grid grid-cols-2 gap-2 animate-in fade-in slide-in-from-top-1 duration-200">
-                      <div className="rounded-xl p-2.5 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">前端</p>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">DongShu</p>
-                      </div>
-                      <div className="rounded-xl p-2.5 bg-slate-50/80 dark:bg-slate-800/50 border border-slate-100 dark:border-slate-700/50">
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mb-1">后端</p>
-                        <p className="font-semibold text-slate-900 dark:text-slate-100 text-sm">onlyLTY</p>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* 分割线 */}
-                <div className="h-px bg-slate-200/60 dark:bg-slate-700/60 mx-4" />
-
-                {/* 4. 更新状态栏 */}
-                <div className="flex items-center justify-between gap-3 px-4 py-3">
-                  <div className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400 min-w-0">
-                    <ArrowUpCircle className={cn('h-4 w-4 flex-shrink-0', hasBackendUpdate && 'animate-pulse text-amber-500')} />
-                    <span>{hasBackendUpdate ? '发现新版本' : '已是最新'}</span>
-                  </div>
-                  <button
-                    onClick={() => setShowUpdatePrompt(true)}
-                    className="inline-flex min-w-[88px] items-center justify-center rounded-lg border border-slate-200 dark:border-slate-700 bg-transparent px-4 py-1.5 text-xs font-medium text-slate-700 dark:text-slate-300 hover:bg-slate-50 dark:hover:bg-slate-800 hover:text-slate-900 dark:hover:text-white transition-all active:scale-95 shadow-sm"
-                  >
-                    检查更新
-                  </button>
-                </div>
+                <button
+                  onClick={() => version.setShowUpdatePrompt(true)}
+                  className={cn(toolButtonClass, version.hasBackendUpdate && 'text-amber-600 hover:border-amber-200 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-950/30')}
+                  title={version.hasBackendUpdate ? '发现新版本' : '程序更新'}
+                >
+                  <ArrowUpCircle className={cn('h-4 w-4', version.hasBackendUpdate && 'animate-pulse')} />
+                </button>
+                <button
+                  onClick={cycleAppearance}
+                  className={toolButtonClass}
+                  title="切换主题"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                </button>
+                <button
+                  onClick={cycleMode}
+                  className={toolButtonClass}
+                  title="切换明暗配色"
+                >
+                  <span className="h-4 w-4 rounded-full border border-current bg-[linear-gradient(90deg,currentColor_0_50%,transparent_50%)]" />
+                </button>
+                <button
+                  onClick={onLogout}
+                  className={cn(toolButtonClass, 'hover:border-red-200 hover:bg-red-50 hover:text-red-600 dark:hover:border-red-900/60 dark:hover:bg-red-950/30 dark:hover:text-red-300')}
+                  title="退出登录"
+                >
+                  <Power className="h-4 w-4" />
+                </button>
               </div>
             </div>
           )}
         </div>
       </aside>
 
-
-      {/* 版本更新提示弹窗 */}
       <UpdatePrompt
-        isVisible={showUpdatePrompt}
-        onClose={() => setShowUpdatePrompt(false)}
-        backendVersion={backendVersion}
-        remoteVersion={remoteVersion}
-        hasBackendUpdate={hasBackendUpdate}
-        onUpdateBackend={updateBackend}
-        onForceUpdateBackend={forceUpdateBackend}
-        showForceUpdate={showForceUpdate}
-        isUpdating={isUpdating}
-        updateMessage={updateMessage}
-        updateProgress={updateProgress}
-        isReconnectChecking={isReconnectChecking}
-        postUpdateNeedsRefresh={postUpdateNeedsRefresh}
-        onRefreshNow={checkForUpdates}
-        onUploadProgram={uploadProgramUpdate}
+        isVisible={version.showUpdatePrompt}
+        onClose={() => version.setShowUpdatePrompt(false)}
+        backendVersion={version.backendVersion}
+        remoteVersion={version.remoteVersion}
+        hasBackendUpdate={version.hasBackendUpdate}
+        onUpdateBackend={version.updateBackend}
+        onForceUpdateBackend={version.forceUpdateBackend}
+        showForceUpdate={version.showForceUpdate}
+        isUpdating={version.isUpdating}
+        updateMessage={version.updateMessage}
+        updateProgress={version.updateProgress}
+        isReconnectChecking={version.isReconnectChecking}
+        postUpdateNeedsRefresh={version.postUpdateNeedsRefresh}
+        onRefreshNow={version.checkForUpdates}
+        onUploadProgram={version.uploadProgramUpdate}
       />
+
     </>
   )
 }
@@ -463,12 +340,12 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
 // 手机底部导航栏组件
 export function MobileBottomNav({ activeTab, onTabChange, windowWidth = 1024 }) {
   const navItems = [
+    { id: '#overview', label: '概览', icon: Box },
     { id: '#containers', label: '容器', icon: Server },
-    { id: '#images', label: '镜像', icon: Box },
-    { id: '#bot', label: '配置', icon: Bot },
-    { id: '#backups', label: '备份', icon: DatabaseBackup },
-    { id: '#logs', label: '日志', icon: FileText },
-    { id: '#about', label: '关于', icon: Info },
+    { id: '#images', label: '镜像', icon: Image },
+    { id: '#store', label: '商店', icon: Store },
+    { id: '#networks', label: '网络', icon: Network },
+    { id: '#settings', label: '设置', icon: Bot },
   ]
 
   return (
@@ -481,7 +358,7 @@ export function MobileBottomNav({ activeTab, onTabChange, windowWidth = 1024 }) 
           <div className="grid grid-cols-6 items-center gap-1 px-2 py-2">
             {navItems.map((item) => {
               const Icon = item.icon
-              const isActive = activeTab === item.id
+              const isActive = activeTab === item.id || String(activeTab || '').startsWith(`${item.id}/`)
               return (
                 <button
                   key={item.id}
@@ -495,7 +372,7 @@ export function MobileBottomNav({ activeTab, onTabChange, windowWidth = 1024 }) 
                   title={item.label}
                   aria-label={item.label}
                 >
-                  <Icon className={cn('flex-shrink-0 transition-all', isActive ? 'h-5 w-5' : 'h-[18px] w-[18px]')} />
+                  <Icon className="h-5 w-5 flex-shrink-0" />
                 </button>
               )
             })}

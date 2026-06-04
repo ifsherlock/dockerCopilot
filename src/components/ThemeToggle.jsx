@@ -3,7 +3,7 @@ import { Moon, Sun, Palette, Monitor } from 'lucide-react'
 import { useTheme } from '../hooks/useTheme'
 import { cn } from '../utils/cn'
 
-export function ThemeToggle({ collapsed = false, embedded = false }) {
+export function ThemeToggle({ collapsed = false, embedded = false, single = false }) {
   const { theme, setTheme, appearance, setAppearance } = useTheme()
 
   const actualTheme = theme === 'system'
@@ -18,6 +18,7 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
 
   const appearances = [
     { value: 'aurora', label: '极光', swatch: 'from-cyan-400 via-blue-500 to-violet-500' },
+    { value: 'manager_green', label: '青绿', swatch: 'from-teal-600 via-emerald-500 to-blue-600' },
     { value: 'night_sail', label: '夜航', swatch: 'from-slate-700 via-sky-700 to-indigo-800' },
     { value: 'mist', label: '雾白', swatch: 'from-stone-200 via-slate-200 to-zinc-300' },
   ]
@@ -59,6 +60,30 @@ export function ThemeToggle({ collapsed = false, embedded = false }) {
           <Palette className="relative h-4 w-4 text-white drop-shadow" />
         </button>
       </div>
+    )
+  }
+
+  if (embedded && single) {
+    if (single === 'mode') {
+      return (
+        <button
+          onClick={nextTheme}
+          className="relative inline-flex h-full w-full items-center justify-center rounded-2xl bg-transparent text-slate-600 transition-colors hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-white/5"
+          title={`当前配色：${currentMode.label}，点击切换`}
+        >
+          <CurrentModeIcon className="h-5 w-5" />
+        </button>
+      )
+    }
+
+    return (
+      <button
+        onClick={nextAppearance}
+        className="relative inline-flex h-full w-full items-center justify-center rounded-2xl bg-transparent text-gray-600 transition-colors hover:bg-slate-100 dark:text-gray-300 dark:hover:bg-white/5"
+        title={`当前外观：${currentAppearance.label}，点击切换`}
+      >
+        <Palette className="relative h-5 w-5" />
+      </button>
     )
   }
 

@@ -17,8 +17,8 @@ export function About() {
   } = useVersionCheck()
 
   return (
-    <div className="max-w-[1800px] mx-auto">
-      <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4 space-y-6">
+    <div className="w-full">
+      <div className="space-y-6">
         <div className="card p-8 flex flex-col items-center text-center relative overflow-hidden">
           <div className="relative mb-4">
             <div className="absolute inset-0 bg-primary-400/20 blur-xl rounded-full"></div>

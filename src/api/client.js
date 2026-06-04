@@ -138,6 +138,53 @@ export const containerAPI = {
   saveEndpointConfig: (id, payload) => apiClient.post(`/api/container/${id}/endpoint`, payload),
 }
 
+export const overviewAPI = {
+  getOverview: () => apiClient.get('/api/overview'),
+}
+
+export const composeAPI = {
+  getProjects: () => apiClient.get('/api/compose/projects'),
+  getProject: (name) => apiClient.get(`/api/compose/project/${encodeURIComponent(name)}`),
+  saveProject: (payload) => apiClient.post('/api/compose/project', payload),
+  updateProject: (name, payload) => apiClient.put(`/api/compose/project/${encodeURIComponent(name)}`, payload),
+  deleteProject: (name) => apiClient.delete(`/api/compose/project/${encodeURIComponent(name)}`),
+  clearProject: (name) => apiClient.post(`/api/compose/project/${encodeURIComponent(name)}/clear`),
+  runAction: (name, action) => apiClient.post(`/api/compose/project/${encodeURIComponent(name)}/${action}`),
+  fromDockerRun: (command) => apiClient.post('/api/compose/from-docker-run', { command }),
+  fromContainers: (containerIDs = []) => apiClient.post('/api/compose/from-containers', { containerIDs }),
+}
+
+export const networkAPI = {
+  getNetworks: () => apiClient.get('/api/networks'),
+  getNetwork: (id) => apiClient.get(`/api/network/${encodeURIComponent(id)}`),
+  createNetwork: (payload) => apiClient.post('/api/network', payload),
+  deleteNetwork: (id) => apiClient.delete(`/api/network/${encodeURIComponent(id)}`),
+  connectContainer: (id, payload) => apiClient.post(`/api/network/${encodeURIComponent(id)}/connect`, payload),
+  disconnectContainer: (id, payload) => apiClient.post(`/api/network/${encodeURIComponent(id)}/disconnect`, payload),
+  setContainerIP: (id, payload) => apiClient.post(`/api/network/${encodeURIComponent(id)}/container-ip`, payload),
+  createMacvlan: (payload) => apiClient.post('/api/network/macvlan', payload),
+  replaceMacvlan: (id, payload) => apiClient.post(`/api/network/macvlan/${encodeURIComponent(id)}/replace`, payload),
+  getMacvlanBridgeStatus: () => apiClient.get('/api/network/macvlan/bridge-status'),
+}
+
+export const volumeAPI = {
+  getVolumes: () => apiClient.get('/api/volumes'),
+  getVolume: (name) => apiClient.get(`/api/volume/${encodeURIComponent(name)}`),
+  deleteVolume: (name) => apiClient.delete(`/api/volume/${encodeURIComponent(name)}`),
+}
+
+export const storeAPI = {
+  getApps: (force = false) => apiClient.get(`/api/store/apps${force ? '?force=1' : ''}`),
+  getSources: () => apiClient.get('/api/store/sources'),
+  saveSource: (payload) => apiClient.post('/api/store/sources', payload),
+  updateSource: (id, payload) => apiClient.put(`/api/store/sources/${encodeURIComponent(id)}`, payload),
+  deleteSource: (id) => apiClient.delete(`/api/store/sources/${encodeURIComponent(id)}`),
+}
+
+export const systemLogAPI = {
+  getLogs: (params = {}) => apiClient.get('/api/system/logs', { params }),
+}
+
 // 镜像相关API
 export const imageAPI = {
   getImages: () => apiClient.get('/api/images'),

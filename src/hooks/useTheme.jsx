@@ -2,7 +2,7 @@ import { createContext, useContext, useEffect, useRef, useState } from 'react'
 import { botAPI } from '../api/client'
 
 const ThemeContext = createContext()
-const APPEARANCE_PRESETS = ['aurora', 'night_sail', 'mist']
+const APPEARANCE_PRESETS = ['aurora', 'manager_green', 'night_sail', 'mist']
 const MODE_PRESETS = ['light', 'dark', 'system']
 
 export function ThemeProvider({ children }) {

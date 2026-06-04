@@ -8,11 +8,17 @@ import (
 
 	auth "github.com/onlyLTY/dockerCopilot/internal/handler/auth"
 	bot "github.com/onlyLTY/dockerCopilot/internal/handler/bot"
+	compose "github.com/onlyLTY/dockerCopilot/internal/handler/compose"
 	container "github.com/onlyLTY/dockerCopilot/internal/handler/container"
 	icons "github.com/onlyLTY/dockerCopilot/internal/handler/icons"
 	image "github.com/onlyLTY/dockerCopilot/internal/handler/image"
+	network "github.com/onlyLTY/dockerCopilot/internal/handler/network"
+	overview "github.com/onlyLTY/dockerCopilot/internal/handler/overview"
 	progress "github.com/onlyLTY/dockerCopilot/internal/handler/progress"
+	store "github.com/onlyLTY/dockerCopilot/internal/handler/store"
+	systemlog "github.com/onlyLTY/dockerCopilot/internal/handler/systemlog"
 	version "github.com/onlyLTY/dockerCopilot/internal/handler/version"
+	volume "github.com/onlyLTY/dockerCopilot/internal/handler/volume"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 
 	"github.com/zeromicro/go-zero/rest"
@@ -42,6 +48,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 
 	server.AddRoutes(
 		[]rest.Route{
+			{
+				Method:  http.MethodGet,
+				Path:    "/overview",
+				Handler: overview.OverviewHandler(serverCtx),
+			},
 			{
 				Method:  http.MethodPost,
 				Path:    "/container/:id/rename",
@@ -116,6 +127,171 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodPost,
 				Path:    "/containers/check-update",
 				Handler: container.CheckUpdateHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/compose/projects",
+				Handler: compose.ProjectsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project",
+				Handler: compose.SaveHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/compose/project/:name",
+				Handler: compose.ProjectHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/compose/project/:name",
+				Handler: compose.SaveHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/compose/project/:name",
+				Handler: compose.DeleteHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/up",
+				Handler: compose.ActionHandler(serverCtx, "up"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/down",
+				Handler: compose.ActionHandler(serverCtx, "down"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/stop",
+				Handler: compose.ActionHandler(serverCtx, "stop"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/restart",
+				Handler: compose.ActionHandler(serverCtx, "restart"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/pull",
+				Handler: compose.ActionHandler(serverCtx, "pull"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/rebuild",
+				Handler: compose.ActionHandler(serverCtx, "rebuild"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/clear",
+				Handler: compose.ClearHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/from-containers",
+				Handler: compose.FromContainersHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/from-docker-run",
+				Handler: compose.FromDockerRunHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/networks",
+				Handler: network.ListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network",
+				Handler: network.CreateHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network/macvlan",
+				Handler: network.CreateMacvlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network/macvlan/:id/replace",
+				Handler: network.ReplaceMacvlanHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/network/macvlan/bridge-status",
+				Handler: network.MacvlanBridgeStatusHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/network/:id",
+				Handler: network.DetailHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/network/:id",
+				Handler: network.RemoveHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network/:id/connect",
+				Handler: network.ConnectHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network/:id/disconnect",
+				Handler: network.DisconnectHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/network/:id/container-ip",
+				Handler: network.ContainerIPHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/volumes",
+				Handler: volume.ListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/volume/:name",
+				Handler: volume.DetailHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/volume/:name",
+				Handler: volume.RemoveHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/store/apps",
+				Handler: store.AppsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/store/sources",
+				Handler: store.SourcesHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/store/sources",
+				Handler: store.SaveSourceHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodPut,
+				Path:    "/store/sources/:id",
+				Handler: store.SaveSourceHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/store/sources/:id",
+				Handler: store.DeleteSourceHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/system/logs",
+				Handler: systemlog.LogsHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),

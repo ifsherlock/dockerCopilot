@@ -1,8 +1,10 @@
 package svc
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -57,12 +59,15 @@ type TaskProgress struct {
 	DetailMsg  string   `json:"detailMsg"`
 	IsDone     bool     `json:"isDone"`
 	Logs       []string `json:"logs"`
+	CreatedAt  string   `json:"createdAt,omitempty"`
+	UpdatedAt  string   `json:"updatedAt,omitempty"`
 }
 
 type ProgressStoreType map[string]TaskProgress
 
 type backupRuntimeConfig struct {
-	Telegram map[string]interface{} `json:"telegram"`
+	Dockercopilot map[string]interface{} `json:"dockercopilot"`
+	Telegram      map[string]interface{} `json:"telegram"`
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -70,7 +75,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	if err != nil {
 		logx.Errorf("Unable to create docker client: %s", err)
 	}
-	return &ServiceContext{
+	ctx := &ServiceContext{
 		Config:        c,
 		HubImageInfo:  module.NewImageCheck(),
 		ProgressStore: make(ProgressStoreType),
@@ -79,6 +84,10 @@ func NewServiceContext(c config.Config) *ServiceContext {
 			cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
 		))),
 	}
+	if err := ctx.loadPersistentRuntimeLogs(); err != nil {
+		logx.Errorf("加载运行日志失败: %v", err)
+	}
+	return ctx
 }
 
 func (ctx *ServiceContext) GetHubImageUpdate(imageID string) (bool, bool) {
@@ -146,7 +155,19 @@ func (ctx *ServiceContext) UpdateCheckStatus() (running bool, last time.Time) {
 func (ctx *ServiceContext) UpdateProgress(taskID string, progress TaskProgress) {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
+	now := time.Now().Format("2006-01-02 15:04:05")
+	if progress.TaskID == "" {
+		progress.TaskID = taskID
+	}
+	if existing, ok := ctx.ProgressStore[taskID]; ok && existing.CreatedAt != "" {
+		progress.CreatedAt = existing.CreatedAt
+	}
+	if progress.CreatedAt == "" {
+		progress.CreatedAt = now
+	}
+	progress.UpdatedAt = now
 	ctx.ProgressStore[taskID] = progress
+	ctx.persistProgressLocked()
 }
 
 func (ctx *ServiceContext) AppendProgressLog(taskID string, line string) {
@@ -165,21 +186,25 @@ func (ctx *ServiceContext) AppendProgressLog(taskID string, line string) {
 		progress.Logs = progress.Logs[len(progress.Logs)-200:]
 	}
 	progress.DetailMsg = strings.Join(progress.Logs, "\n")
+	progress.UpdatedAt = time.Now().Format("2006-01-02 15:04:05")
 	ctx.ProgressStore[taskID] = progress
+	ctx.persistProgressLocked()
 }
 
 func (ctx *ServiceContext) AddOperationLog(kind string, title string, message string) {
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
-	ctx.OperationLogs = append(ctx.OperationLogs, OperationLog{
+	entry := OperationLog{
 		Time:    time.Now().Format("2006-01-02 15:04:05"),
 		Type:    kind,
 		Title:   title,
 		Message: message,
-	})
+	}
+	ctx.OperationLogs = append(ctx.OperationLogs, entry)
 	if len(ctx.OperationLogs) > 500 {
 		ctx.OperationLogs = ctx.OperationLogs[len(ctx.OperationLogs)-500:]
 	}
+	ctx.persistOperationLogLocked(entry)
 }
 
 func (ctx *ServiceContext) GetOperationLogs() []OperationLog {
@@ -195,6 +220,165 @@ func (ctx *ServiceContext) GetProgress(taskID string) (TaskProgress, bool) {
 	defer ctx.mu.Unlock()
 	progress, ok := ctx.ProgressStore[taskID]
 	return progress, ok
+}
+
+func (ctx *ServiceContext) ListProgress(limit int) []TaskProgress {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if limit <= 0 || limit > 200 {
+		limit = 50
+	}
+	items := make([]TaskProgress, 0, len(ctx.ProgressStore))
+	for _, progress := range ctx.ProgressStore {
+		items = append(items, progress)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt > items[j].UpdatedAt
+	})
+	if len(items) > limit {
+		items = items[:limit]
+	}
+	return items
+}
+
+func (ctx *ServiceContext) loadPersistentRuntimeLogs() error {
+	ctx.mu.Lock()
+	defer ctx.mu.Unlock()
+	if err := ctx.loadOperationLogsLocked(); err != nil {
+		return err
+	}
+	if err := ctx.loadProgressStoreLocked(); err != nil {
+		return err
+	}
+	return nil
+}
+
+func (ctx *ServiceContext) loadOperationLogsLocked() error {
+	path := runtimeLogFile("operation.jsonl")
+	file, err := os.Open(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	defer file.Close()
+
+	logs := []OperationLog{}
+	scanner := bufio.NewScanner(file)
+	scanner.Buffer(make([]byte, 1024), 1024*1024)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" {
+			continue
+		}
+		var item OperationLog
+		if err := json.Unmarshal([]byte(line), &item); err != nil {
+			continue
+		}
+		logs = append(logs, item)
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+	if len(logs) > 500 {
+		logs = logs[len(logs)-500:]
+	}
+	ctx.OperationLogs = logs
+	return nil
+}
+
+func (ctx *ServiceContext) loadProgressStoreLocked() error {
+	path := runtimeLogFile("tasks.json")
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	var items []TaskProgress
+	if err := json.Unmarshal(b, &items); err != nil {
+		return err
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt > items[j].UpdatedAt
+	})
+	if len(items) > 200 {
+		items = items[:200]
+	}
+	ctx.ProgressStore = make(ProgressStoreType)
+	for _, item := range items {
+		if strings.TrimSpace(item.TaskID) == "" {
+			continue
+		}
+		ctx.ProgressStore[item.TaskID] = item
+	}
+	return nil
+}
+
+func (ctx *ServiceContext) persistOperationLogLocked(entry OperationLog) {
+	path := runtimeLogFile("operation.jsonl")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		logx.Errorf("创建操作日志目录失败: %v", err)
+		return
+	}
+	file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
+	if err != nil {
+		logx.Errorf("写入操作日志失败: %v", err)
+		return
+	}
+	defer file.Close()
+	b, err := json.Marshal(entry)
+	if err != nil {
+		logx.Errorf("序列化操作日志失败: %v", err)
+		return
+	}
+	if _, err := file.Write(append(b, '\n')); err != nil {
+		logx.Errorf("写入操作日志失败: %v", err)
+	}
+}
+
+func (ctx *ServiceContext) persistProgressLocked() {
+	path := runtimeLogFile("tasks.json")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		logx.Errorf("创建任务日志目录失败: %v", err)
+		return
+	}
+	items := make([]TaskProgress, 0, len(ctx.ProgressStore))
+	for _, progress := range ctx.ProgressStore {
+		items = append(items, progress)
+	}
+	sort.Slice(items, func(i, j int) bool {
+		return items[i].UpdatedAt > items[j].UpdatedAt
+	})
+	if len(items) > 200 {
+		items = items[:200]
+	}
+	b, err := json.MarshalIndent(items, "", "  ")
+	if err != nil {
+		logx.Errorf("序列化任务日志失败: %v", err)
+		return
+	}
+	if err := os.WriteFile(path, b, 0644); err != nil {
+		logx.Errorf("写入任务日志失败: %v", err)
+	}
+}
+
+func runtimeLogFile(name string) string {
+	return filepath.Join(runtimeLogDir(), "runtime", name)
+}
+
+func runtimeLogDir() string {
+	if logDir := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_LOG_DIR")); logDir != "" {
+		return logDir
+	}
+	if cfg, err := LoadRuntimeConfigForRead(); err == nil && cfg.Dockercopilot != nil {
+		if logDir := strings.TrimSpace(fmt.Sprint(cfg.Dockercopilot["service_log_dir"])); logDir != "" {
+			return logDir
+		}
+	}
+	return "./logs"
 }
 
 func (ctx *ServiceContext) BackupMaxFiles() int {
@@ -263,7 +447,67 @@ func (ctx *ServiceContext) ReloadBackupSchedulers() error {
 		}
 	}
 
+	if tasks, ok := telegram["scheduled_container_tasks"].([]interface{}); ok {
+		for _, raw := range tasks {
+			task, ok := raw.(map[string]interface{})
+			if !ok {
+				continue
+			}
+			if !asBoolWithDefault(task["enabled"], true) {
+				continue
+			}
+			spec := strings.TrimSpace(asString(task["cron"], ""))
+			containerID := strings.TrimSpace(asString(task["containerID"], ""))
+			action := strings.TrimSpace(asString(task["action"], ""))
+			name := strings.TrimSpace(asString(task["containerName"], containerID))
+			if spec == "" || containerID == "" || action == "" {
+				continue
+			}
+			if _, err := ctx.BackupCron.AddFunc(spec, func() {
+				if err := ctx.runScheduledContainerTask(containerID, action, name); err != nil {
+					logx.Errorf("定时容器任务失败: container=%s action=%s err=%v", name, action, err)
+				}
+			}); err != nil {
+				return err
+			}
+		}
+	}
+
 	ctx.BackupCron.Start()
+	return nil
+}
+
+func asBoolWithDefault(v interface{}, fallback bool) bool {
+	if v == nil {
+		return fallback
+	}
+	return asBool(v)
+}
+
+func (ctx *ServiceContext) runScheduledContainerTask(containerID string, action string, name string) error {
+	ctx.AddOperationLog("automation", "执行定时容器任务", name+" "+action)
+	switch action {
+	case "start":
+		if err := ctx.DockerClient.ContainerStart(context.Background(), containerID, container.StartOptions{}); err != nil {
+			ctx.AddOperationLog("automation", "定时启动失败", name+": "+err.Error())
+			return err
+		}
+	case "stop":
+		timeout := 10
+		if err := ctx.DockerClient.ContainerStop(context.Background(), containerID, container.StopOptions{Signal: "SIGINT", Timeout: &timeout}); err != nil {
+			ctx.AddOperationLog("automation", "定时停止失败", name+": "+err.Error())
+			return err
+		}
+	case "restart":
+		timeout := 10
+		if err := ctx.DockerClient.ContainerRestart(context.Background(), containerID, container.StopOptions{Signal: "SIGINT", Timeout: &timeout}); err != nil {
+			ctx.AddOperationLog("automation", "定时重启失败", name+": "+err.Error())
+			return err
+		}
+	default:
+		return fmt.Errorf("unsupported scheduled container action: %s", action)
+	}
+	ctx.AddOperationLog("automation", "定时容器任务完成", name+" "+action)
 	return nil
 }
 
@@ -407,6 +651,9 @@ func LoadRuntimeConfigForRead() (backupRuntimeConfig, error) {
 	}
 	if cfg.Telegram == nil {
 		cfg.Telegram = map[string]interface{}{}
+	}
+	if cfg.Dockercopilot == nil {
+		cfg.Dockercopilot = map[string]interface{}{}
 	}
 	return cfg, nil
 }

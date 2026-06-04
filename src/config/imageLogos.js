@@ -97,9 +97,59 @@ export const builtInImageLogos = {
 
 // 获取镜像的logo
 // 优先级: 内置logo > 用户自定义 > 默认图标
-export const getImageLogo = (imageName, customLogos = {}) => {
+const getLogoCandidates = (imageName, aliases = []) => {
+  const values = [imageName, ...aliases].map(value => String(value || '').trim()).filter(Boolean);
+  const candidates = [];
+  const add = (value) => {
+    const clean = String(value || '').replace(/^\//, '').trim();
+    if (!clean || /^sha256[:/]/i.test(clean)) return;
+    const noDigest = clean.split('@')[0];
+    const noTag = noDigest.split(':')[0];
+    [clean, noDigest, noTag, noTag.split('/').pop()].forEach(item => {
+      const normalized = String(item || '').trim();
+      if (normalized && !candidates.includes(normalized)) candidates.push(normalized);
+    });
+  };
+  values.forEach(add);
+  return candidates;
+};
+
+const findLogoInMap = (candidates, logos = {}) => {
+  const compact = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9]/g, '');
+  const entries = Object.entries(logos || {}).filter(([key, url]) => key && url);
+  for (const name of candidates) {
+    const lower = name.toLowerCase();
+    const compactName = compact(lower);
+    const direct = entries.find(([key]) => {
+      const base = String(key).split('@')[0].split(':')[0].toLowerCase();
+      const simple = base.split('/').pop();
+      return base === lower || simple === lower || compact(base) === compactName || compact(simple) === compactName;
+    });
+    if (direct) return direct[1];
+  }
+  for (const name of candidates) {
+    const lower = name.toLowerCase();
+    const compactName = compact(lower);
+    for (const [key, url] of entries) {
+      const base = String(key).split('@')[0].split(':')[0].toLowerCase();
+      const simple = base.split('/').pop();
+      const compactBase = compact(base);
+      const compactSimple = compact(simple);
+      if (lower.includes(base) || lower.includes(simple) || base.includes(lower) || compactName.includes(compactBase) || compactName.includes(compactSimple) || compactBase.includes(compactName)) return url;
+    }
+  }
+  return null;
+};
+
+export const getImageLogo = (imageName, customLogos = {}, aliases = []) => {
+  const candidates = getLogoCandidates(imageName, aliases);
+  const builtIn = findLogoInMap(candidates, builtInImageLogos);
+  if (builtIn) return builtIn;
+  const custom = findLogoInMap(candidates, customLogos);
+  if (custom) return custom;
+  if (candidates.length === 0) return null;
   // 先检查内置logo（优先级最高）
-  const baseImageName = imageName.split(':')[0]; // 去掉tag部分
+  const baseImageName = candidates[0].split(':')[0]; // 去掉tag部分
 
   // 优先匹配完整镜像名（包含 registry/namespace）
   if (builtInImageLogos[baseImageName]) {
@@ -162,8 +212,10 @@ export const getSupportedImageNames = () => {
 };
 
 // 检查镜像是否有内置logo
-export const hasBuiltInLogo = (imageName) => {
-  const baseImageName = imageName.split(':')[0];
+export const hasBuiltInLogo = (imageName, aliases = []) => {
+  const candidates = getLogoCandidates(imageName, aliases);
+  if (candidates.length === 0) return false;
+  const baseImageName = candidates[0].split(':')[0];
   if (builtInImageLogos[baseImageName]) return true;
   const simpleName = baseImageName.split('/').pop();
   if (builtInImageLogos[simpleName]) return true;

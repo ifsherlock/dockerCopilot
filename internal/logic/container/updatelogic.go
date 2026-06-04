@@ -2,13 +2,15 @@ package container
 
 import (
 	"context"
+	"fmt"
+	"os"
+	"strings"
+
 	"github.com/google/uuid"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 	"github.com/zeromicro/go-zero/core/logx"
-	"os"
-	"strings"
 )
 
 type UpdateLogic struct {
@@ -31,14 +33,17 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 	selfID, _ := os.Hostname()
 	selfID = strings.TrimSpace(selfID)
 	isSelf := selfID != "" && (req.Id == selfID || strings.HasPrefix(req.Id, selfID) || strings.HasPrefix(selfID, req.Id))
+	l.svcCtx.AddOperationLog("container", "提交容器更新任务", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
 	go func() {
 		// Catch any panic and log the error
 		defer func() {
 			if r := recover(); r != nil {
 				l.Errorf("Recovered from panic in UpdateContainer: %v", r)
+				l.svcCtx.AddOperationLog("container", "容器更新任务异常", fmt.Sprintf("%s taskID=%s: %v", req.ContainerName, taskID, r))
 			}
 		}()
 		if isSelf {
+			l.svcCtx.AddOperationLog("container", "切换为服务自更新", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
 			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
 				TaskID:     taskID,
 				Percentage: 10,
@@ -58,6 +63,7 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 					IsDone:     true,
 				})
 				l.Errorf("Error in self UpdateProgram: %v", err)
+				l.svcCtx.AddOperationLog("container", "服务自更新失败", fmt.Sprintf("%s taskID=%s: %v", req.ContainerName, taskID, err))
 				return
 			}
 			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
@@ -68,6 +74,7 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 				DetailMsg:  "DockerCopilot 已完成程序自更新，容器即将重启",
 				IsDone:     true,
 			})
+			l.svcCtx.AddOperationLog("container", "服务自更新完成", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
 			return
 		}
 		imageNameAndTag := utiles.ResolveContainerUpdateImage(l.svcCtx, req.Id, req.ImageNameAndTag)
@@ -75,6 +82,7 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 		err := utiles.UpdateContainer(l.svcCtx, req.Id, req.ContainerName, imageNameAndTag, delOldContainer, taskID)
 		if err != nil {
 			l.Errorf("Error in UpdateContainer: %v", err)
+			l.svcCtx.AddOperationLog("container", "容器更新任务失败", fmt.Sprintf("%s taskID=%s: %v", req.ContainerName, taskID, err))
 		}
 	}()
 	resp.Code = 200

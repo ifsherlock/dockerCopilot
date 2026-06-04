@@ -37,9 +37,74 @@ type GetProgressReq struct {
 
 type GetLogsReq struct{}
 
+type GetSystemLogsReq struct {
+	Kind  string `form:"kind,optional"`
+	Tail  string `form:"tail,optional"`
+	Query string `form:"query,optional"`
+	Level string `form:"level,optional"`
+}
+
 type GetContainerLogsReq struct {
 	Id   string `path:"id"`
 	Tail string `form:"tail,optional"`
+}
+
+type ComposeProjectReq struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+type ComposeProjectPathReq struct {
+	Name string `path:"name"`
+}
+
+type ComposeFromContainersReq struct {
+	ContainerIDs []string `json:"containerIDs,optional"`
+}
+
+type ComposeFromDockerRunReq struct {
+	Command string `json:"command"`
+}
+
+type NetworkCreateReq struct {
+	Name         string            `json:"name"`
+	Driver       string            `json:"driver,optional"`
+	Parent       string            `json:"parent,optional"`
+	Subnet       string            `json:"subnet,optional"`
+	Gateway      string            `json:"gateway,optional"`
+	IPRange      string            `json:"ipRange,optional"`
+	Labels       map[string]string `json:"labels,optional"`
+	Options      map[string]string `json:"options,optional"`
+	AuxAddresses map[string]string `json:"auxAddresses,optional"`
+	Migrate      bool              `json:"migrate,optional"`
+	DeleteOld    bool              `json:"deleteOld,optional"`
+}
+
+type NetworkPathReq struct {
+	Id string `path:"id"`
+}
+
+type NetworkContainerReq struct {
+	Id          string `path:"id"`
+	ContainerID string `json:"containerID"`
+	IPv4Address string `json:"ipv4Address,optional"`
+	IPv6Address string `json:"ipv6Address,optional"`
+	Force       bool   `json:"force,optional"`
+}
+
+type VolumePathReq struct {
+	Name string `path:"name"`
+}
+
+type StoreSourceReq struct {
+	Id      string `path:"id,optional" json:"id,optional"`
+	Name    string `json:"name"`
+	URL     string `json:"url"`
+	Enabled bool   `json:"enabled,optional"`
+}
+
+type StoreSourcePathReq struct {
+	Id string `path:"id"`
 }
 
 type ContainerEndpointConfigReq struct {
@@ -135,6 +200,7 @@ type BotConfigReq struct {
 	CleanImagesCron         string          `json:"cleanImagesCron,optional"`
 	AutoUpdateContainers    bool            `json:"autoUpdateContainers,optional"`
 	UpdateContainersCron    string          `json:"updateContainersCron,optional"`
+	ScheduledTasks          string          `json:"scheduledTasks,optional"`
 	ProxyType               string          `json:"proxyType,optional"`
 	ProxyHost               string          `json:"proxyHost,optional"`
 	ProxyPort               int             `json:"proxyPort,optional"`
@@ -153,6 +219,7 @@ type BotConfigReq struct {
 	DefaultImageAccelerator string          `json:"defaultImageAccelerator,optional"`
 	ThemeMode               string          `json:"themeMode,optional"`
 	ThemeAppearance         string          `json:"themeAppearance,optional"`
+	ServiceLogDir           string          `json:"serviceLogDir,optional"`
 	PresentFields           map[string]bool `json:"-"`
 }
 

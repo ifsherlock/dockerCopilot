@@ -82,6 +82,20 @@ function compactText(value, max = 12) {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
+function knownContainerWebPort(item) {
+  const text = `${item?.name || ''} ${item?.usingImage || ''} ${item?.createImage || ''}`.toLowerCase()
+  if (text.includes('dockercopilot') || text.includes('docker-copilot')) return '12712'
+  if (text.includes('moviepilot')) return '13000'
+  return ''
+}
+
+function normalizeQuickNavUrl(value) {
+  const url = String(value || '').trim()
+  if (!url) return ''
+  if (/^https?:\/\//i.test(url)) return url
+  return `http://${url}`
+}
+
 function firstWord(value) {
   const text = String(value || '').trim()
   if (!text) return ''
@@ -367,9 +381,9 @@ export function Containers() {
   const getUpdateImageRef = (container) => container?.createImage || container?.usingImage || ''
   const isSelfContainer = (container) => !!container?.isSelf
   const topButtonClass = (enabledClass, disabled) => cn(
-    'flex items-center gap-2 px-4 py-2 rounded-lg transition-colors text-sm font-medium',
+    'inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg border px-2.5 text-xs font-medium transition-colors sm:min-w-0 sm:px-3',
     disabled
-      ? 'bg-gray-200 text-gray-500 border border-gray-300 dark:bg-gray-700 dark:text-gray-400 dark:border-gray-600 cursor-not-allowed'
+      ? 'cursor-not-allowed border-gray-200 bg-gray-100 text-gray-400 opacity-70 dark:border-gray-700 dark:bg-gray-800/60 dark:text-gray-500'
       : enabledClass
   )
   const unignoreSelected = async () => {
@@ -439,6 +453,20 @@ export function Containers() {
     }
 
     try {
+      if (action === 'delete') {
+        const target = containers.find(container => container.id === containerId)
+        if (String(target?.status || '').toLowerCase() === 'running') {
+          setConfirmModal({
+            isOpen: true,
+            title: '无法删除运行中容器',
+            message: '请先停止容器，再执行删除。',
+            type: 'info',
+            onConfirm: () => setConfirmModal({ isOpen: false })
+          })
+          return
+        }
+      }
+
       // 设置操作状态为加载中
       setContainerActions(prev => ({
         ...prev,
@@ -1078,6 +1106,12 @@ export function Containers() {
     }
   }
 
+  useEffect(() => {
+    const onGlobalRefresh = () => handleRefresh()
+    window.addEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+    return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
+  }, [])
+
   // 获取状态指示器颜色
   const getStatusIndicatorColor = (status) => {
     const statusConfig = {
@@ -1256,7 +1290,7 @@ export function Containers() {
     const imageRef = getContainerImageRef(container)
     let iconUrl = container.iconUrl
     if (!iconUrl && imageRef) {
-      const builtInLogo = getImageLogo(imageRef)
+      const builtInLogo = getImageLogo(imageRef, customIcons, [container.name])
       if (builtInLogo) {
         iconUrl = builtInLogo
       } else {
@@ -1485,7 +1519,7 @@ export function Containers() {
 
   if (isLoading) {
     return (
-      <div className="max-w-[1600px] mx-auto px-4 sm:px-6 py-4">
+      <div className="py-4">
         <div className="animate-pulse space-y-4">
           {[1, 2, 3].map(i => (
             <div key={i} className="card p-6">
@@ -1504,7 +1538,7 @@ export function Containers() {
   }
 
   return (
-    <div className="max-w-[1800px] mx-auto">
+    <div className="w-full">
       <style>{`
         @keyframes shimmer {
           0% { background-position: -200% 0; }
@@ -1518,8 +1552,8 @@ export function Containers() {
 
       {/* 自定义确认弹窗 */}
       {confirmModal.isOpen && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-          <div className="bg-white dark:bg-gray-800 rounded-lg shadow-xl max-w-md w-full">
+        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/55 p-4">
+          <div className="relative z-[10001] w-full max-w-md rounded-lg bg-white shadow-xl dark:bg-gray-800">
             <div className="px-6 py-4 border-b border-gray-200 dark:border-gray-700 flex justify-between items-center">
               <h3 className="text-lg font-medium text-gray-900 dark:text-white">
                 {confirmModal.title}
@@ -1565,15 +1599,6 @@ export function Containers() {
         </div>
       )}
 
-      {/* 页面标题和操作 */}
-      <div className="px-2 sm:px-6 py-4 pt-4 sm:pt-4">
-        <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-4">
-          <div>
-            <h2 className="text-2xl font-bold text-gray-900 dark:text-white">容器管理</h2>
-          </div>
-        </div>
-      </div>
-
       {isRefreshing && containers.length > 0 && (
         <div className="mx-2 sm:mx-6 my-3 rounded-3xl border border-primary-200/70 dark:border-primary-800/70 bg-primary-50/80 dark:bg-primary-950/30 p-8 shadow-inner overflow-hidden relative">
           <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/40 dark:via-white/5 to-transparent animate-pulse"></div>
@@ -1585,7 +1610,7 @@ export function Containers() {
       )}
 
       {/* 统计信息 */}
-      <div className="px-2 sm:px-6 py-4">
+      <div className="py-4">
         <div className="overflow-x-auto rounded-3xl shadow-lg">
           <div className="grid min-w-[410px] grid-flow-col auto-cols-fr gap-0 rounded-3xl overflow-hidden border border-gray-200 bg-white dark:border-gray-700 dark:bg-gray-800 min-h-[116px] sm:min-w-0 sm:grid-cols-5 sm:grid-flow-row">
           {/* 总容器数 */}
@@ -1675,9 +1700,9 @@ export function Containers() {
         </div>
         </div>
 
-        <div className="mt-4 rounded-3xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 p-3 sm:p-4 shadow-sm">
-          <div className="flex flex-col gap-3">
-            <div className="overflow-x-auto pb-1">
+        <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm dark:border-gray-700 dark:bg-gray-800 sm:p-4">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+            <div className="min-w-0 flex-1 overflow-x-auto pb-1 xl:pb-0">
               <div className="flex min-w-max items-center gap-1.5 sm:gap-2">
                 {viewMode === 'card' && (
                   <button
@@ -1685,7 +1710,7 @@ export function Containers() {
                       setIsBatchMode(!isBatchMode)
                       if (isBatchMode) setSelectedContainers([])
                     }}
-                    className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                    className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:min-w-0 sm:px-3"
                   >
                     <CheckSquare className="h-4 w-4" />
                     <span className="hidden sm:inline">{isBatchMode ? '退出批量' : '批量操作'}</span>
@@ -1694,10 +1719,21 @@ export function Containers() {
 
                 {(viewMode === 'table' || isBatchMode || selectedContainers.length > 0) && (
                   <div className="flex min-w-max items-center gap-1.5 sm:gap-2">
+                    <button
+                      onClick={toggleSelectAll}
+                      disabled={renderedContainers.length === 0}
+                      className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:min-w-0 sm:px-3"
+                      title={renderedContainers.length > 0 && renderedContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选当前筛选结果' : '全选当前筛选结果'}
+                    >
+                      <CheckSquare className="h-4 w-4" />
+                      <span className="hidden sm:inline">
+                        {renderedContainers.length > 0 && renderedContainers.every(c => selectedContainers.includes(c.id)) ? '取消全选' : '全选'}
+                      </span>
+                    </button>
                     {selectedContainers.length > 0 && (
                       <button
                         onClick={() => setSelectedContainers([])}
-                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 py-2 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:h-auto sm:min-w-0 sm:px-3"
+                        className="inline-flex h-9 min-w-9 items-center justify-center gap-1 rounded-lg bg-gray-100 px-2.5 text-xs font-medium text-gray-700 transition-colors hover:bg-gray-200 dark:bg-gray-700 dark:text-gray-200 dark:hover:bg-gray-600 sm:min-w-0 sm:px-3"
                       >
                         <X className="h-4 w-4" />
                         <span className="hidden sm:inline">取消选择</span>
@@ -1706,8 +1742,8 @@ export function Containers() {
                     <button
                       className={topButtonClass(
                         hasSelectedRunning
-                          ? 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-200 hover:bg-red-200 dark:hover:bg-red-900/60'
-                          : 'bg-primary-600 hover:bg-primary-700 text-white',
+                          ? 'border-red-200 bg-red-100 text-red-700 hover:bg-red-200 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60'
+                          : 'border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:border-emerald-800/60 dark:bg-emerald-900/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60',
                         selectedContainers.length === 0
                       )}
                       disabled={selectedContainers.length === 0}
@@ -1717,16 +1753,16 @@ export function Containers() {
                       {hasSelectedRunning ? <Square className="h-4 w-4" /> : <Play className="h-4 w-4" />}
                       <span className="hidden sm:inline">{hasSelectedRunning ? '停止' : '启动'}</span>
                     </button>
-                    <button className={topButtonClass('bg-blue-100 text-blue-700 dark:bg-blue-900/40 dark:text-blue-200 hover:bg-blue-200 dark:hover:bg-blue-900/60', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('restart')} title="重启">
+                    <button className={topButtonClass('border-blue-200 bg-blue-100 text-blue-700 hover:bg-blue-200 dark:border-blue-800/60 dark:bg-blue-900/40 dark:text-blue-200 dark:hover:bg-blue-900/60', selectedContainers.length === 0)} disabled={selectedContainers.length === 0} onClick={() => handleBatchAction('restart')} title="重启">
                       <RotateCcw className="h-4 w-4" />
                       <span className="hidden sm:inline">重启</span>
                     </button>
-                    <button className={topButtonClass('bg-emerald-100 text-emerald-700 dark:bg-emerald-900/40 dark:text-emerald-200 hover:bg-emerald-200 dark:hover:bg-emerald-900/60', selectedContainers.length === 0 || hasSelectedIgnored)} disabled={selectedContainers.length === 0 || hasSelectedIgnored} onClick={() => handleBatchAction('update')} title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}>
+                    <button className={topButtonClass('border-emerald-200 bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:border-emerald-800/60 dark:bg-emerald-900/40 dark:text-emerald-200 dark:hover:bg-emerald-900/60', selectedContainers.length === 0 || hasSelectedIgnored)} disabled={selectedContainers.length === 0 || hasSelectedIgnored} onClick={() => handleBatchAction('update')} title={hasSelectedIgnored ? '已选择忽略更新的容器，请先取消忽略' : '更新'}>
                       <Upload className="h-4 w-4" />
                       <span className="hidden sm:inline">更新</span>
                     </button>
                     <button
-                      className={topButtonClass(hasSelectedIgnored ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/40 dark:text-amber-200 hover:bg-amber-200 dark:hover:bg-amber-900/60' : 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/40 dark:text-yellow-200 hover:bg-yellow-200 dark:hover:bg-yellow-900/60', selectedContainers.length === 0)}
+                      className={topButtonClass(hasSelectedIgnored ? 'border-amber-200 bg-amber-100 text-amber-700 hover:bg-amber-200 dark:border-amber-800/60 dark:bg-amber-900/40 dark:text-amber-200 dark:hover:bg-amber-900/60' : 'border-yellow-200 bg-yellow-100 text-yellow-700 hover:bg-yellow-200 dark:border-yellow-800/60 dark:bg-yellow-900/40 dark:text-yellow-200 dark:hover:bg-yellow-900/60', selectedContainers.length === 0)}
                       disabled={selectedContainers.length === 0}
                       onClick={async () => {
                         if (hasSelectedIgnored) {
@@ -1743,7 +1779,7 @@ export function Containers() {
                       <span className="hidden sm:inline">{hasSelectedIgnored ? '取消忽略' : '忽略'}</span>
                     </button>
                     <button
-                      className={topButtonClass('bg-red-600 text-white hover:bg-red-700 dark:bg-red-500 dark:hover:bg-red-400', selectedContainers.length === 0)}
+                      className={topButtonClass('border-red-200 bg-red-100 text-red-700 hover:bg-red-200 dark:border-red-800/60 dark:bg-red-900/40 dark:text-red-200 dark:hover:bg-red-900/60', selectedContainers.length === 0)}
                       disabled={selectedContainers.length === 0}
                       onClick={() => handleBatchDelete()}
                       title="批量删除已停止容器"
@@ -1756,7 +1792,7 @@ export function Containers() {
               </div>
             </div>
 
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2 xl:w-[460px]">
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
@@ -1764,16 +1800,16 @@ export function Containers() {
                   value={searchKeyword}
                   onChange={(e) => setSearchKeyword(e.target.value)}
                   placeholder="搜索容器/镜像/状态"
-                  className="w-full rounded-xl border border-gray-200 bg-white py-2 pl-8 pr-2 text-xs sm:text-sm text-gray-900 placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-800 dark:text-white"
+                  className="h-10 w-full rounded-xl border border-gray-200 bg-white py-2 pl-8 pr-2 text-xs text-gray-900 placeholder-gray-400 focus:border-transparent focus:ring-2 focus:ring-primary-500 dark:border-gray-700 dark:bg-gray-900 dark:text-white sm:text-sm"
                 />
               </div>
-              <button className="inline-flex h-9 w-9 items-center justify-center rounded-lg bg-primary-600 px-0 py-0 text-white transition-colors hover:bg-primary-700 disabled:opacity-50 sm:h-auto sm:w-auto sm:px-4 sm:py-2" onClick={handleRefresh} disabled={isRefreshing} title="刷新页面并检测容器更新">
+              <button className="inline-flex h-10 w-10 items-center justify-center rounded-xl bg-primary-600 text-white transition-colors hover:bg-primary-700 disabled:opacity-50 sm:w-auto sm:px-4" onClick={handleRefresh} disabled={isRefreshing} title="刷新页面并检测容器更新">
                 <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
                 <span className="hidden sm:inline">刷新</span>
               </button>
               <button
                 onClick={() => setViewMode(viewMode === 'card' ? 'table' : 'card')}
-                className="inline-flex h-9 w-9 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-700 sm:h-auto sm:w-auto sm:px-3 sm:py-2"
+                className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-gray-50 text-gray-600 transition-colors hover:bg-gray-100 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300 dark:hover:bg-gray-700 sm:w-auto sm:px-3"
                 title={viewMode === 'card' ? '切换到表格视图' : '切换到卡片视图'}
               >
                 {viewMode === 'card' ? <LayoutList className="h-4 w-4" /> : <LayoutGrid className="h-4 w-4" />}
@@ -1784,7 +1820,7 @@ export function Containers() {
       </div>
 
       {/* 容器列表 */}
-      <div className="px-2 sm:px-6 py-4">
+      <div className="py-4">
         {(filterStatus || selectedContainers.length > 0) && (
           <div className="mb-4 rounded-lg border border-blue-200 bg-blue-50 p-3 dark:border-blue-800 dark:bg-blue-900/20">
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -1847,7 +1883,7 @@ export function Containers() {
 
         {containers.length > 0 ? (
           viewMode === 'table' ? renderTableView() : (
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-5 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
             {renderedContainers.map((container) => {
                 const isSelected = selectedContainers.includes(container.id)
                 return (
@@ -1873,7 +1909,7 @@ export function Containers() {
                       )}
                     >
                       {(isBatchMode || selectedContainers.length > 0) && (
-                        <div className="absolute top-3 right-3 z-30" onClick={(e) => e.stopPropagation()}>
+                        <div className="absolute top-3 right-3 z-[2]" onClick={(e) => e.stopPropagation()}>
                           <label className="inline-flex items-center justify-center w-7 h-7 rounded-full bg-white/95 dark:bg-gray-900/90 border border-primary-200 dark:border-primary-700 shadow cursor-pointer">
                             <input
                               type="checkbox"
@@ -1884,8 +1920,8 @@ export function Containers() {
                           </label>
                         </div>
                       )}
-                      {canShowLinkIcon(container) && (
-                        <div className="absolute top-3 right-3 z-20">
+                      {!isBatchMode && selectedContainers.length === 0 && canShowLinkIcon(container) && (
+                        <div className="absolute top-3 right-3 z-[2]">
                           {renderEndpointPopover(container, 'top-right')}
                         </div>
                       )}
@@ -1908,8 +1944,8 @@ export function Containers() {
                       )}
 
                       {/* NEW (有更新时显示) */}
-                      {displayedHaveUpdate(container) && (
-                        <div className="absolute -top-[2px] -right-[2px] w-[80px] h-[80px] pointer-events-none overflow-hidden z-20 rounded-tr-2xl">
+                      {!isBatchMode && selectedContainers.length === 0 && displayedHaveUpdate(container) && (
+                        <div className="absolute -top-[2px] -right-[2px] z-[1] h-[80px] w-[80px] pointer-events-none overflow-hidden rounded-tr-2xl">
                           <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
                             <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-gradient-to-r from-yellow-400 to-yellow-500 dark:from-yellow-500 dark:to-yellow-600 shadow-sm flex items-center justify-center">
                               <span className="relative text-[10px] font-bold text-white tracking-widest uppercase w-full text-center">
@@ -1922,8 +1958,8 @@ export function Containers() {
                         </div>
                       )}
 
-                      {isUpdateIgnored(container) && (
-                        <div className="absolute -top-[2px] -right-[2px] w-[86px] h-[86px] pointer-events-none overflow-hidden z-20 rounded-tr-2xl">
+                      {!isBatchMode && selectedContainers.length === 0 && isUpdateIgnored(container) && (
+                        <div className="absolute -top-[2px] -right-[2px] z-[1] h-[86px] w-[86px] pointer-events-none overflow-hidden rounded-tr-2xl">
                           <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
                             <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gradient-to-r from-gray-400 to-gray-500 dark:from-gray-600 dark:to-gray-700 shadow-sm flex items-center justify-center">
                               <span className="relative text-[10px] font-bold text-white tracking-widest w-full text-center">忽略</span>
@@ -1990,9 +2026,9 @@ export function Containers() {
 
                       {/* 操作按钮栏 - 底部水平排列 */}
                       {!isBatchMode && (
-                        <div className="grid grid-cols-2 gap-1 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50 sm:flex">
+                        <div className="grid grid-cols-2 gap-1.5 mt-3 pt-3 border-t border-gray-100 dark:border-gray-700/50 sm:grid-cols-4">
                           {getContainerActionState(container)?.loading || getContainerActionState(container)?.done ? (
-                            <div className={cn("flex-1 flex items-center justify-center space-x-2 px-1 py-1.5 rounded-lg border whitespace-nowrap", getContainerActionState(container)?.done ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800")}>
+                            <div className={cn("col-span-full inline-flex h-9 min-w-0 items-center justify-center gap-2 px-2 rounded-lg border whitespace-nowrap", getContainerActionState(container)?.done ? "bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800" : "bg-primary-50 dark:bg-primary-900/20 border-primary-200 dark:border-primary-800")}>
                               {getContainerActionState(container)?.done ? <span className="h-4 w-4 text-green-600 dark:text-green-400 text-center leading-4">✓</span> : <RefreshCw className="h-4 w-4 animate-spin text-primary-600 dark:text-primary-400" />}
                               <span className={cn("text-xs font-medium", getContainerActionState(container)?.done ? "text-green-600 dark:text-green-400" : "text-primary-600 dark:text-primary-400")}>
                                 {getContainerActionState(container).action === 'start' && '启动中'}
@@ -2008,7 +2044,7 @@ export function Containers() {
                                 <>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'stop') }}
-                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-red-600 dark:text-red-400 bg-white dark:bg-gray-800 hover:bg-red-50 dark:hover:bg-red-900/20 border border-gray-200 dark:border-gray-700 hover:border-red-200 dark:hover:border-red-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                                     title="停止"
                                   >
                                     <Square className="h-4 w-4" />
@@ -2016,7 +2052,7 @@ export function Containers() {
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'restart') }}
-                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-blue-600 dark:text-blue-400 bg-white dark:bg-gray-800 hover:bg-blue-50 dark:hover:bg-blue-900/20 border border-gray-200 dark:border-gray-700 hover:border-blue-200 dark:hover:border-blue-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                                     title="重启"
                                   >
                                     <RotateCcw className="h-4 w-4" />
@@ -2027,7 +2063,7 @@ export function Containers() {
                                 <>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleContainerAction(container.id, 'start') }}
-                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 hover:border-green-200 dark:hover:border-green-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-green-600 dark:text-green-400 bg-white dark:bg-gray-800 hover:bg-green-50 dark:hover:bg-green-900/20 border border-gray-200 dark:border-gray-700 hover:border-green-200 dark:hover:border-green-800 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                                     title="启动"
                                   >
                                     <Play className="h-4 w-4" />
@@ -2035,7 +2071,7 @@ export function Containers() {
                                   </button>
                                   <button
                                     onClick={(e) => { e.stopPropagation(); handleDeleteContainer(container) }}
-                                    className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-white bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                    className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-white bg-red-500 hover:bg-red-600 dark:bg-red-600 dark:hover:bg-red-500 border border-red-500 dark:border-red-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                                     title="删除已停止容器"
                                   >
                                     <X className="h-4 w-4" />
@@ -2048,7 +2084,7 @@ export function Containers() {
                                 onClick={(e) => { e.stopPropagation(); handleUpdateContainer(container.id) }}
                                 disabled={isUpdateIgnored(container)}
                                 className={cn(
-                                  "flex-1 flex items-center justify-center gap-1 px-1 py-1.5 border rounded-lg transition-all duration-200 shadow-sm text-xs font-medium whitespace-nowrap",
+                                  "inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 border rounded-lg transition-all duration-200 shadow-sm text-xs font-medium whitespace-nowrap",
                                   isUpdateIgnored(container)
                                     ? "text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 border-gray-200 dark:border-gray-700 cursor-not-allowed opacity-70"
                                     : displayedHaveUpdate(container)
@@ -2063,7 +2099,7 @@ export function Containers() {
                               {isUpdateIgnored(container) ? (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); unignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-700 dark:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
+                                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-gray-700 dark:text-gray-200 bg-gray-100 hover:bg-gray-200 dark:bg-gray-700 dark:hover:bg-gray-600 border border-gray-300 dark:border-gray-600 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-semibold whitespace-nowrap"
                                   title="取消忽略更新"
                                 >
                                   <Undo2 className="h-4 w-4" />
@@ -2072,7 +2108,7 @@ export function Containers() {
                               ) : (
                                 <button
                                   onClick={(e) => { e.stopPropagation(); ignoreUpdate(container) }}
-                                  className="flex-1 flex items-center justify-center gap-1 px-1 py-1.5 text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
+                                  className="inline-flex h-9 min-w-0 items-center justify-center gap-1 px-2 text-gray-600 dark:text-gray-400 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 border border-gray-200 dark:border-gray-700 rounded-lg transition-all duration-200 shadow-sm hover:shadow active:scale-95 text-xs font-medium whitespace-nowrap"
                                   title="忽略更新"
                                 >
                                   <Ban className="h-4 w-4" />
@@ -2148,8 +2184,11 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     if (endpoint?.editablePort) options.add(String(endpoint.editablePort))
     return Array.from(options)
   })()
+  const initialKnownPort = knownContainerWebPort(container)
   const [detailHostIp, setDetailHostIp] = useState(String(container?.endpointLink?.hostIP || '').trim())
-  const [detailPort, setDetailPort] = useState(String(container?.endpointLink?.editablePort || '').trim())
+  const [detailPort, setDetailPort] = useState(String(container?.endpointLink?.editablePort || initialKnownPort || '').trim())
+  const [quickLinkUrl, setQuickLinkUrl] = useState('')
+  const [quickLinkState, setQuickLinkState] = useState('')
 
   // 获取自定义图标配置
   const { data: customIcons = {} } = useQuery({
@@ -2183,8 +2222,12 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     setImageNameAndTag(container.usingImage)
     setCurrentContainer(container)
     setEndpointSaveState({ saving: false, ok: false, message: '' })
-    setDetailHostIp(String(container?.endpointLink?.hostIP || globalHostLanIp || '').trim())
-    setDetailPort(String(container?.endpointLink?.editablePort || '').trim())
+    const nextHost = String(container?.endpointLink?.hostIP || globalHostLanIp || '').trim()
+    const nextPort = String(container?.endpointLink?.editablePort || knownContainerWebPort(container) || '').trim()
+    const suggested = String(container?.endpointLink?.suggestedURL || '').trim()
+    setDetailHostIp(nextHost)
+    setDetailPort(nextPort)
+    setQuickLinkUrl(normalizeQuickNavUrl(suggested || (nextHost && nextPort ? `${nextHost}:${nextPort}` : '')))
   }, [container, globalHostLanIp])
 
   // 实时更新容器状态
@@ -2249,6 +2292,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
       const endpointLink = response.data?.data?.endpointLink || {}
       setDetailHostIp(String(endpointLink.hostIP || cleanedHostIp || '').trim())
       setDetailPort(String(endpointLink.editablePort || cleanedPort || '').trim())
+      setQuickLinkUrl(normalizeQuickNavUrl(endpointLink.suggestedURL || (endpointLink.hostIP && endpointLink.editablePort ? `${endpointLink.hostIP}:${endpointLink.editablePort}` : '')))
       setCurrentContainer(prev => ({
         ...prev,
         endpointLink: {
@@ -2264,6 +2308,45 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
         ok: false,
         message: error.response?.data?.msg || error.message || '保存失败',
       })
+    }
+  }
+
+  const addToQuickNavigation = () => {
+    const host = String(detailHostIp || endpoint.hostIP || '').trim()
+    const port = String(detailPort || endpoint.editablePort || knownContainerWebPort(currentContainer) || '').trim()
+    const url = normalizeQuickNavUrl(quickLinkUrl || (host && port ? `${host}:${port}` : endpoint.suggestedURL))
+    if (!url) {
+      setQuickLinkState('请填写快捷导航 URL')
+      return
+    }
+    try {
+      const key = 'docker_copilot_overview_quick_links'
+      const parsed = JSON.parse(localStorage.getItem(key) || '{}')
+      const prefs = {
+        order: Array.isArray(parsed.order) ? parsed.order : [],
+        hidden: parsed.hidden && typeof parsed.hidden === 'object' ? parsed.hidden : {},
+        deleted: parsed.deleted && typeof parsed.deleted === 'object' ? parsed.deleted : {},
+        manual: Array.isArray(parsed.manual) ? parsed.manual : [],
+      }
+      const link = {
+        id: currentContainer.id,
+        name: currentContainer.name,
+        url,
+        status: currentContainer.status,
+        image: currentContainer.usingImage || currentContainer.createImage || '',
+        iconUrl: currentContainer.iconUrl || '',
+        container: currentContainer.id,
+      }
+      prefs.manual = prefs.manual.filter(item => item.id !== link.id).concat(link)
+      delete prefs.hidden[link.id]
+      delete prefs.deleted[link.id]
+      if (!prefs.order.includes(link.id)) prefs.order.push(link.id)
+      localStorage.setItem(key, JSON.stringify(prefs))
+      window.dispatchEvent(new Event('storage'))
+      window.dispatchEvent(new CustomEvent('docker-copilot-quick-links-updated'))
+      setQuickLinkState('已添加到快捷导航')
+    } catch (error) {
+      setQuickLinkState(error.message || '添加失败')
     }
   }
 
@@ -2471,7 +2554,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     // 如果容器没有自定义图标，则查找镜像图标
     if (!iconUrl && currentContainer.usingImage) {
       // 优先使用内置logo配置（不依赖localStorage）
-      const builtInLogo = getImageLogo(currentContainer.usingImage);
+      const builtInLogo = getImageLogo(currentContainer.usingImage, customIcons, [currentContainer.name]);
       if (builtInLogo) {
         iconUrl = builtInLogo;
       } else {
@@ -2646,20 +2729,35 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
                   </datalist>
                 </>
               </div>
-              <button
-                onClick={persistDetailEndpoint}
-                disabled={endpointSaveState.saving}
-                className={cn(
-                  "w-full sm:w-auto px-3 py-2 text-sm rounded-lg transition-all duration-200 flex items-center justify-center min-w-[100px]",
-                  endpointSaveState.saving
-                    ? "bg-primary-500 text-white cursor-wait scale-[0.98]"
-                    : endpointSaveState.ok
-                      ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
-                      : "bg-primary-600 text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
-                )}
-              >
-                {endpointSaveState.saving ? <><RefreshCw className="mr-1 h-4 w-4 animate-spin" />保存中</> : endpointSaveState.ok ? '已保存' : '保存'}
-              </button>
+              <input
+                type="text"
+                value={quickLinkUrl}
+                onChange={(e) => setQuickLinkUrl(e.target.value)}
+                className="input font-mono"
+                placeholder="快捷导航 URL，例如 http://192.168.1.10:12712"
+              />
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <button
+                  onClick={persistDetailEndpoint}
+                  disabled={endpointSaveState.saving}
+                  className={cn(
+                    "w-full sm:w-auto px-3 py-2 text-sm rounded-lg transition-all duration-200 flex items-center justify-center min-w-[100px]",
+                    endpointSaveState.saving
+                      ? "bg-primary-500 text-white cursor-wait scale-[0.98]"
+                      : endpointSaveState.ok
+                        ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
+                        : "bg-primary-600 text-white hover:bg-primary-700 dark:bg-primary-500 dark:hover:bg-primary-600"
+                  )}
+                >
+                  {endpointSaveState.saving ? <><RefreshCw className="mr-1 h-4 w-4 animate-spin" />保存中</> : endpointSaveState.ok ? '已保存' : '保存'}
+                </button>
+                <button
+                  onClick={addToQuickNavigation}
+                  className="w-full rounded-lg border border-teal-200 px-3 py-2 text-sm font-medium text-teal-700 transition-colors hover:bg-teal-50 dark:border-teal-900/60 dark:text-teal-300 dark:hover:bg-teal-950/30 sm:w-auto"
+                >
+                  添加到快捷导航
+                </button>
+              </div>
             </div>
             <div className="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {detailHostIp && detailPort ? (
@@ -2680,6 +2778,9 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
               )}>
                 {endpointSaveState.message}
               </div>
+            ) : null}
+            {quickLinkState ? (
+              <div className="mt-1 text-xs text-teal-600 dark:text-teal-300">{quickLinkState}</div>
             ) : null}
             {String(detailHostIp || '').startsWith('172.') && (
               <div className="mt-1 text-xs text-amber-600 dark:text-amber-300 leading-5 whitespace-pre-line">当前 IP疑似容器内网地址，
@@ -2851,3 +2952,5 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     </div>
   )
 }
+
+
