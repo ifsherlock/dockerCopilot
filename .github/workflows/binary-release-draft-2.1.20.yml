@@ -158,11 +158,11 @@ jobs:
           rm -rf release-assets
           mkdir -p release-assets
           if [ -d release-download/release/linux ] || [ -d release-download/release/etc ]; then
-            [ -d release-download/release/linux ] && cp -R release-download/release/linux/. release-assets/
-            [ -d release-download/release/etc ] && cp -R release-download/release/etc/. release-assets/
+            [ -d release-download/release/linux ] && mkdir -p release-assets/linux && cp -R release-download/release/linux/. release-assets/linux/
+            [ -d release-download/release/etc ] && mkdir -p release-assets/etc && cp -R release-download/release/etc/. release-assets/etc/
           else
-            [ -d release-download/linux ] && cp -R release-download/linux/. release-assets/
-            [ -d release-download/etc ] && cp -R release-download/etc/. release-assets/
+            [ -d release-download/linux ] && mkdir -p release-assets/linux && cp -R release-download/linux/. release-assets/linux/
+            [ -d release-download/etc ] && mkdir -p release-assets/etc && cp -R release-download/etc/. release-assets/etc/
           fi
           test -f release-assets/linux/amd64/dockerCopilot
           test -f release-assets/linux/arm64/dockerCopilot
