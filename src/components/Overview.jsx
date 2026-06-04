@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, Box, Database, Globe2, GripVertical, HardDrive, Package, Plus, RefreshCw, RotateCcw, Server, Trash2 } from 'lucide-react'
 import { overviewAPI, containerAPI, imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
-import { getImageLogo } from '../config/imageLogos.js'
+import { getCachedFavicon, getContainerImageRef, getContainerWebUrl, resolveContainerIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 
 const quickLinkPrefsKey = 'docker_copilot_overview_quick_links'
 
@@ -63,6 +63,7 @@ function normalizeContainer(item) {
     runningTime: status,
     endpointLink: item?.endpointLink || item?.EndpointLink || {},
     iconUrl: item?.iconUrl || item?.IconUrl || '',
+    url: buildEndpointUrl({ endpointLink: item?.endpointLink || item?.EndpointLink || {} }),
   }
 }
 
@@ -91,13 +92,32 @@ function guessQuickUrl(item) {
 }
 
 function resolveIconUrl(item, customIcons = {}) {
-  const imageRef = item?.image || item?.usingImage || item?.createImage || item?.Image || ''
-  if (item?.iconUrl) return item.iconUrl
-  return getImageLogo(imageRef, customIcons, [item?.name, item?.containerName, item?.service].filter(Boolean))
+  return resolveContainerIconUrl(item, customIcons)
 }
 
 function AppIcon({ item, customIcons, size = 'h-9 w-9', rounded = 'rounded-xl' }) {
-  const iconUrl = resolveIconUrl(item, customIcons)
+  const webUrl = getContainerWebUrl(item)
+  const baseIconUrl = resolveIconUrl(item, customIcons)
+  const [faviconUrl, setFaviconUrl] = useState(() => baseIconUrl ? '' : getCachedFavicon(webUrl))
+  useEffect(() => {
+    let cancelled = false
+    if (baseIconUrl || !webUrl) {
+      setFaviconUrl('')
+      return undefined
+    }
+    const cached = getCachedFavicon(webUrl)
+    if (cached) {
+      setFaviconUrl(cached)
+      return undefined
+    }
+    resolveFaviconFallback(webUrl).then(url => {
+      if (!cancelled && url) setFaviconUrl(url)
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [baseIconUrl, webUrl])
+  const iconUrl = baseIconUrl || faviconUrl
   if (iconUrl) {
     return <img src={iconUrl} alt={item?.name || 'app'} className={cn(size, rounded, 'object-cover shadow-sm')} />
   }
@@ -309,19 +329,20 @@ export function Overview({ onNavigate }) {
     })
   }
 
-  const addContainerQuickLink = () => {
+  const addContainerQuickLink = async () => {
     const item = quickContainerOptions.find(container => container.id === selectedQuickContainer)
     if (!item) return
     const url = quickAddUrl.trim()
     if (!url) return
+    const iconUrl = item.iconUrl || resolveContainerIconUrl(item, customIcons) || await resolveFaviconFallback(url)
     updateQuickLinkPrefs(prev => {
       const link = {
         id: item.id,
         name: item.name,
         url,
         status: item.status,
-        image: item.image,
-        iconUrl: item.iconUrl || '',
+        image: getContainerImageRef(item),
+        iconUrl: iconUrl || '',
         container: item.id,
       }
       prev.manual = prev.manual.filter(existing => existing.id !== link.id).concat(link)

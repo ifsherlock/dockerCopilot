@@ -10,6 +10,7 @@ import (
 	bot "github.com/onlyLTY/dockerCopilot/internal/handler/bot"
 	compose "github.com/onlyLTY/dockerCopilot/internal/handler/compose"
 	container "github.com/onlyLTY/dockerCopilot/internal/handler/container"
+	favicon "github.com/onlyLTY/dockerCopilot/internal/handler/favicon"
 	icons "github.com/onlyLTY/dockerCopilot/internal/handler/icons"
 	image "github.com/onlyLTY/dockerCopilot/internal/handler/image"
 	network "github.com/onlyLTY/dockerCopilot/internal/handler/network"
@@ -292,6 +293,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodGet,
 				Path:    "/system/logs",
 				Handler: systemlog.LogsHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/favicon/resolve",
+				Handler: favicon.ResolveHandler(serverCtx),
 			},
 		},
 		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),

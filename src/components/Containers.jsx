@@ -25,6 +25,7 @@ import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getImageLogo } from '../config/imageLogos.js'
+import { getCachedFavicon, getContainerWebUrl, resolveContainerIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 import { useResizableTableColumns } from '../hooks/useResizableTableColumns.js'
 import icons8Img from '../assets/icons8.png'
 
@@ -130,6 +131,7 @@ export function Containers() {
   const [isRefreshing, setIsRefreshing] = useState(false)
   const [linkPopoverId, setLinkPopoverId] = useState('')
   const [hostLanIp, setHostLanIp] = useState('')
+  const [faviconIcons, setFaviconIcons] = useState({})
   const loadHostLanIp = async () => {
     try {
       const res = await botAPI.getConfig()
@@ -208,6 +210,29 @@ export function Containers() {
     // 即使有初始数据，也立即在后台刷新
     refetchOnMount: true,
   })
+
+  useEffect(() => {
+    let cancelled = false
+    const missing = (containers || [])
+      .filter(container => !resolveContainerIconUrl(container, customIcons))
+      .map(container => ({ id: container.id, url: getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container) }))
+      .filter(item => item.id && item.url && !faviconIcons[item.id])
+      .slice(0, 8)
+    if (missing.length === 0) return undefined
+    Promise.all(missing.map(async item => [item.id, await resolveFaviconFallback(item.url)])).then(entries => {
+      if (cancelled) return
+      const next = {}
+      entries.forEach(([id, url]) => {
+        if (url) next[id] = url
+      })
+      if (Object.keys(next).length > 0) {
+        setFaviconIcons(prev => ({ ...prev, ...next }))
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [containers, customIcons, faviconIcons])
 
   useEffect(() => {
     loadHostLanIp()
@@ -1288,7 +1313,7 @@ export function Containers() {
 
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
     const imageRef = getContainerImageRef(container)
-    let iconUrl = container.iconUrl
+    let iconUrl = resolveContainerIconUrl(container, customIcons)
     if (!iconUrl && imageRef) {
       const builtInLogo = getImageLogo(imageRef, customIcons, [container.name])
       if (builtInLogo) {
@@ -1301,6 +1326,9 @@ export function Containers() {
           }
         }
       }
+    }
+    if (!iconUrl) {
+      iconUrl = faviconIcons[container.id] || getCachedFavicon(getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container))
     }
 
     if (iconUrl) {
@@ -2311,7 +2339,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     }
   }
 
-  const addToQuickNavigation = () => {
+  const addToQuickNavigation = async () => {
     const host = String(detailHostIp || endpoint.hostIP || '').trim()
     const port = String(detailPort || endpoint.editablePort || knownContainerWebPort(currentContainer) || '').trim()
     const url = normalizeQuickNavUrl(quickLinkUrl || (host && port ? `${host}:${port}` : endpoint.suggestedURL))
@@ -2320,6 +2348,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
       return
     }
     try {
+      const quickIconUrl = currentContainer.iconUrl || resolveContainerIconUrl(currentContainer, customIcons) || await resolveFaviconFallback(url) || ''
       const key = 'docker_copilot_overview_quick_links'
       const parsed = JSON.parse(localStorage.getItem(key) || '{}')
       const prefs = {
@@ -2334,7 +2363,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
         url,
         status: currentContainer.status,
         image: currentContainer.usingImage || currentContainer.createImage || '',
-        iconUrl: currentContainer.iconUrl || '',
+        iconUrl: quickIconUrl,
         container: currentContainer.id,
       }
       prefs.manual = prefs.manual.filter(item => item.id !== link.id).concat(link)

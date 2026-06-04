@@ -189,6 +189,7 @@ export const systemLogAPI = {
 export const imageAPI = {
   getImages: () => apiClient.get('/api/images'),
   getIcons: () => apiClient.get('/api/icons'),
+  resolveFavicon: (url) => apiClient.get(`/api/favicon/resolve?url=${encodeURIComponent(url)}`),
   deleteImage: (id, force = false) => apiClient.delete(`/api/image/${id}?force=${force}`),
   retagImage: (id, payload) => apiClient.put(`/api/image/${id}/retag`, payload),
   pullImage: (imageName, source, displayName) => apiClient.post('/api/image/pull', {
