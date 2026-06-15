@@ -1,10 +1,11 @@
-name: docker-images-test
+name: docker-images
 
 on:
   workflow_dispatch:
   push:
     branches:
       - codex/2.1.20-test
+      - latest
     paths:
       - version
       - fn_version
@@ -28,12 +29,15 @@ on:
       - .github/workflows/docker-build-test.yml
 
 concurrency:
-  group: docker-images-test-${{ github.ref }}
+  group: docker-images-${{ github.ref }}
   cancel-in-progress: true
 
 permissions:
   contents: read
   packages: write
+
+env:
+  IMAGE_TAG: ${{ github.ref_name == 'latest' && 'latest' || 'test' }}
 
 jobs:
   build-frontend:
@@ -69,7 +73,7 @@ jobs:
       - name: Upload frontend artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: front-artifacts-test
+          name: front-artifacts-${{ github.run_id }}
           path: |
             front/pc
             front/mobile
@@ -87,7 +91,7 @@ jobs:
       - name: Download frontend artifacts
         uses: actions/download-artifact@v4
         with:
-          name: front-artifacts-test
+          name: front-artifacts-${{ github.run_id }}
           path: front-download
 
       - name: Normalize frontend artifact paths
@@ -133,12 +137,12 @@ jobs:
       - name: Upload docker context artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: docker-context-${{ matrix.arch }}-test
+          name: docker-context-${{ matrix.arch }}-${{ github.run_id }}
           path: |
             docker-context/linux/${{ matrix.arch }}/dockerCopilot
             docker-context/etc
 
-  docker-test:
+  docker:
     needs: [build-backend]
     runs-on: ubuntu-latest
     env:
@@ -151,7 +155,7 @@ jobs:
       - name: Download docker context artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: docker-context-*-test
+          pattern: docker-context-*-${{ github.run_id }}
           merge-multiple: true
           path: release-download
 
@@ -181,13 +185,13 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Build and push GHCR test image
+      - name: Build and push GHCR image
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          tags: ghcr.io/${{ github.repository_owner }}/dockercopilot:test
+          tags: ghcr.io/${{ github.repository_owner }}/dockercopilot:${{ env.IMAGE_TAG }}
           push: true
 
       - name: Check DockerHub secrets
@@ -207,12 +211,12 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Build and push DockerHub test image
+      - name: Build and push DockerHub image
         if: steps.dockerhub.outputs.enabled == 'true'
         uses: docker/build-push-action@v5
         with:
           context: .
           file: ./docker/Dockerfile
           platforms: linux/amd64,linux/arm64
-          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:test
+          tags: ${{ secrets.DOCKERHUB_USERNAME }}/dockercopilot:${{ env.IMAGE_TAG }}
           push: true
