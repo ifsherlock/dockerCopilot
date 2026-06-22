@@ -29,10 +29,10 @@ export function About() {
             一个简洁、优雅且强大的 Docker 容器管理工具，旨在为您提供流畅的容器运维体验。
           </p>
           <div className="flex flex-wrap items-center justify-center gap-3">
-            <a href="https://github.com/onlyLTY/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
+            <a href="https://github.com/ifsherlock/dockerCopilot" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-gray-900 text-white rounded-lg hover:bg-gray-800 transition-colors shadow-sm">
               <Github className="h-4 w-4" /><span>GitHub</span>
             </a>
-            <a href="https://github.com/onlyLTY/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 border-2 border-gray-900 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
+            <a href="https://github.com/ifsherlock/dockerCopilot/issues" target="_blank" rel="noopener noreferrer" className="flex items-center gap-2 px-4 py-2 bg-white text-gray-900 border-2 border-gray-900 rounded-lg hover:bg-gray-50 transition-colors shadow-sm">
               <HelpCircle className="h-4 w-4" /><span>反馈建议</span>
             </a>
           </div>

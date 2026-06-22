@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - codex/2.1.20-test
+      - latest
     paths:
       - version
       - fn_version
