@@ -170,10 +170,14 @@ jobs:
           test -f release-assets/etc/dockerCopilot.yaml
 
       - name: Package amd64
-        run: tar -czf dockerCopilot-linux-amd64.tar.gz -C release-assets/linux/amd64 dockerCopilot
+        run: |
+          tar -czf dockerCopilot-linux-amd64.tar.gz -C release-assets/linux/amd64 dockerCopilot
+          cp dockerCopilot-linux-amd64.tar.gz dockerCopilot-amd64.tar.gz
 
       - name: Package arm64
-        run: tar -czf dockerCopilot-linux-arm64.tar.gz -C release-assets/linux/arm64 dockerCopilot
+        run: |
+          tar -czf dockerCopilot-linux-arm64.tar.gz -C release-assets/linux/arm64 dockerCopilot
+          cp dockerCopilot-linux-arm64.tar.gz dockerCopilot-arm64.tar.gz
 
       - name: Create or update draft release
         env:
@@ -194,3 +198,5 @@ jobs:
         run: |
           gh release upload "${{ env.VERSION }}" dockerCopilot-linux-amd64.tar.gz --clobber
           gh release upload "${{ env.VERSION }}" dockerCopilot-linux-arm64.tar.gz --clobber
+          gh release upload "${{ env.VERSION }}" dockerCopilot-amd64.tar.gz --clobber
+          gh release upload "${{ env.VERSION }}" dockerCopilot-arm64.tar.gz --clobber

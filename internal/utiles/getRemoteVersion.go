@@ -52,7 +52,7 @@ func resolveProgramDownloadURL(releaseBaseURL, remoteVersion, arch string) strin
 		return base
 	}
 	if strings.Contains(base, "/releases/download") {
-		return fmt.Sprintf("%s/%s/dockerCopilot-%s.tar.gz", base, remoteVersion, arch)
+		return fmt.Sprintf("%s/%s/dockerCopilot-linux-%s.tar.gz", base, remoteVersion, arch)
 	}
 	return fmt.Sprintf("%s/dockerCopilot-%s.tar.gz", base, arch)
 }
