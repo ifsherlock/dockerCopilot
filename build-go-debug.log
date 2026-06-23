@@ -1,0 +1,9 @@
+GO VERSION 
+go version go1.26.3 windows/amd64
+ 
+GO ENV 
+windows
+amd64
+c:\Users\jaysh\Desktop\aicoding\dockerCopilot\go.mod
+ 
+go.mod exists

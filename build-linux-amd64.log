@@ -1,0 +1,9 @@
+==== GO VERSION ==== 
+go version go1.26.3 windows/amd64
+==== GO ENV ==== 
+windows
+amd64
+c:\Users\jaysh\Desktop\aicoding\dockerCopilot\go.mod
+==== BUILD ==== 
+WORK=C:\Users\jaysh\AppData\Local\Temp\go-build21638552
+go: unsupported GOOS/GOARCH pair linux /amd64 

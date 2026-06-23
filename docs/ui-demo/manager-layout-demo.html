@@ -1,0 +1,191 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DockerCopilot Manager Layout Demo</title>
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --panel: #ffffff;
+      --line: #dfe5eb;
+      --text: #17202a;
+      --muted: #667085;
+      --soft: #eef3f7;
+      --brand: #0f766e;
+      --brand-soft: #d9f3ef;
+      --blue: #2563eb;
+      --red: #dc2626;
+      --amber: #b45309;
+      --green: #059669;
+      font-family: ui-sans-serif, system-ui, -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); }
+    button, input, select, textarea { font: inherit; }
+    .shell { min-height: 100vh; display: grid; grid-template-columns: 236px minmax(0, 1fr); }
+    .side { border-right: 1px solid var(--line); background: rgba(255,255,255,.86); padding: 18px 14px; position: sticky; top: 0; height: 100vh; }
+    .brand { display: flex; align-items: center; gap: 10px; padding: 4px 8px 18px; border-bottom: 1px solid var(--line); }
+    .logo { width: 36px; height: 36px; border-radius: 10px; background: linear-gradient(135deg, #0f766e, #2563eb); }
+    .brand strong { display: block; font-size: 15px; }
+    .brand span { color: var(--muted); font-size: 12px; }
+    .nav { display: grid; gap: 4px; padding-top: 18px; }
+    .nav button { border: 0; background: transparent; display: flex; align-items: center; gap: 10px; color: #485465; padding: 10px 12px; border-radius: 10px; text-align: left; cursor: pointer; }
+    .nav button.active { background: #e8f4f2; color: var(--brand); font-weight: 700; }
+    .side-tools { position: absolute; left: 14px; right: 14px; bottom: 16px; display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+    .icon-btn { width: 36px; height: 36px; border: 1px solid var(--line); border-radius: 10px; background: white; color: #475467; cursor: pointer; }
+    main { min-width: 0; padding: 18px 24px 40px; }
+    .topbar { min-height: 52px; display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    .title-row { display: flex; min-width: 0; align-items: center; gap: 18px; }
+    h1 { margin: 0; font-size: 22px; line-height: 1.2; }
+    .tabs { display: flex; gap: 6px; overflow-x: auto; }
+    .tabs button { border: 1px solid transparent; background: transparent; color: var(--muted); border-radius: 10px; padding: 8px 12px; cursor: pointer; white-space: nowrap; }
+    .tabs button.active { border-color: #b8ded8; background: var(--brand-soft); color: var(--brand); font-weight: 700; }
+    .top-actions { display: flex; align-items: center; justify-content: flex-end; gap: 8px; margin-left: auto; }
+    .btn { border: 1px solid var(--line); background: white; border-radius: 10px; padding: 9px 12px; cursor: pointer; color: #344054; font-weight: 650; }
+    .btn.primary { background: var(--brand); border-color: var(--brand); color: white; }
+    .status { display: inline-flex; align-items: center; gap: 7px; height: 38px; padding: 0 12px; border-radius: 999px; background: #ecfdf3; color: var(--green); border: 1px solid #b7ebc9; font-weight: 700; font-size: 13px; }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: currentColor; }
+    .grid { display: grid; gap: 14px; }
+    .stats { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+    .panel { background: var(--panel); border: 1px solid var(--line); border-radius: 14px; padding: 16px; box-shadow: 0 10px 24px rgba(16,24,40,.04); }
+    .stat { display: flex; justify-content: space-between; gap: 12px; min-height: 106px; }
+    .stat .label { color: var(--muted); font-size: 13px; }
+    .stat .value { margin-top: 10px; font-size: 26px; font-weight: 800; }
+    .stat .sub { margin-top: 6px; color: var(--muted); font-size: 12px; }
+    .badge { display: inline-flex; height: 30px; min-width: 30px; align-items: center; justify-content: center; border-radius: 9px; background: var(--soft); color: #344054; font-weight: 800; }
+    .section-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 12px; }
+    h2 { margin: 0; font-size: 16px; }
+    .quick { grid-template-columns: repeat(8, minmax(74px, 1fr)); }
+    .quick a { min-height: 76px; display: grid; place-items: center; gap: 6px; border: 1px solid var(--line); border-radius: 12px; color: var(--text); text-decoration: none; background: #fbfcfd; }
+    .quick .app-icon { width: 34px; height: 34px; border-radius: 10px; display: grid; place-items: center; background: var(--brand-soft); color: var(--brand); font-weight: 800; }
+    .quick span { font-size: 12px; max-width: 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .containers { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+    .container-card { border: 1px solid var(--line); border-radius: 12px; padding: 13px; background: #fbfcfd; }
+    .row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+    .muted { color: var(--muted); font-size: 12px; }
+    .batch { display: flex; flex-wrap: wrap; gap: 7px; align-items: center; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: #fbfcfd; }
+    .mini { border: 0; border-radius: 9px; padding: 7px 10px; font-weight: 750; cursor: pointer; font-size: 12px; }
+    .mini.gray { background: #eef2f6; color: #344054; }
+    .mini.blue { background: #dbeafe; color: var(--blue); }
+    .mini.green { background: #d1fae5; color: var(--green); }
+    .mini.amber { background: #fef3c7; color: var(--amber); }
+    .mini.red { background: #fee2e2; color: var(--red); }
+    .table { width: 100%; border-collapse: collapse; }
+    .table th, .table td { padding: 12px 10px; border-bottom: 1px solid var(--line); text-align: left; }
+    .table th { color: var(--muted); font-size: 12px; }
+    .workbench { grid-template-columns: 300px minmax(0, 1fr); align-items: stretch; }
+    .project-list { display: grid; gap: 8px; }
+    .project-list button { border: 1px solid var(--line); background: #fbfcfd; border-radius: 11px; padding: 12px; text-align: left; cursor: pointer; }
+    .project-list button.active { border-color: #9ed2ca; background: #edf8f6; }
+    textarea.code { width: 100%; min-height: 430px; resize: vertical; border: 0; border-radius: 12px; background: #101828; color: #d1fae5; padding: 14px; line-height: 1.55; }
+    .deploy { grid-template-columns: 220px minmax(320px, 1fr) minmax(340px, 1fr); }
+    .source-list { display: grid; gap: 8px; }
+    .source-list button { border: 1px solid var(--line); background: #fbfcfd; border-radius: 11px; padding: 12px; text-align: left; cursor: pointer; }
+    .source-list button.active { border-color: #9ed2ca; background: #edf8f6; color: var(--brand); font-weight: 800; }
+    .form { display: grid; gap: 10px; }
+    .field { display: grid; gap: 5px; }
+    .field label { font-size: 12px; color: var(--muted); font-weight: 700; }
+    .field input, .field select, .field textarea { border: 1px solid var(--line); border-radius: 10px; background: white; padding: 10px; }
+    .network-tools { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+    .net-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+    .net-card { border: 1px solid var(--line); border-radius: 13px; padding: 14px; background: #fbfcfd; min-height: 150px; }
+    .drawer { position: fixed; right: 22px; top: 76px; width: min(420px, calc(100vw - 36px)); border: 1px solid var(--line); border-radius: 16px; background: white; padding: 16px; box-shadow: 0 28px 80px rgba(16,24,40,.18); }
+    .mobile-nav { display: none; }
+    @media (max-width: 1180px) {
+      .stats { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .quick { grid-template-columns: repeat(5, minmax(74px, 1fr)); }
+      .containers, .net-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+      .deploy { grid-template-columns: 1fr; }
+    }
+    @media (max-width: 760px) {
+      .shell { display: block; }
+      .side { display: none; }
+      main { padding: 14px 12px 86px; }
+      .topbar, .title-row { align-items: flex-start; flex-direction: column; }
+      .top-actions { width: 100%; justify-content: flex-end; }
+      .stats, .quick, .containers, .workbench, .net-grid { grid-template-columns: 1fr; }
+      .mobile-nav { display: grid; grid-template-columns: repeat(6, 1fr); position: fixed; left: 8px; right: 8px; bottom: 8px; background: white; border: 1px solid var(--line); border-radius: 20px; padding: 8px; box-shadow: 0 14px 36px rgba(16,24,40,.15); }
+      .mobile-nav button { height: 42px; border: 0; border-radius: 13px; background: transparent; }
+      .mobile-nav .active { background: var(--brand-soft); color: var(--brand); }
+    }
+  </style>
+</head>
+<body>
+  <div class="shell">
+    <aside class="side">
+      <div class="brand"><div class="logo"></div><div><strong>Docker Copilot</strong><span>容器管理台</span></div></div>
+      <nav class="nav">
+        <button class="active">概览</button><button>容器</button><button>商店</button><button>镜像</button><button>网络</button><button>设置管理</button><button>日志</button><button>关于</button>
+      </nav>
+      <div class="side-tools"><button class="icon-btn">↙</button><button class="icon-btn">↻</button><button class="icon-btn">◐</button><button class="icon-btn">⏻</button></div>
+    </aside>
+    <main>
+      <header class="topbar">
+        <div class="title-row">
+          <h1>概览</h1>
+          <div class="tabs"><button class="active">总览</button><button>快捷导航</button><button>运行中</button></div>
+        </div>
+        <div class="top-actions"><button class="btn">全局刷新</button><span class="status" title="unix:///var/run/docker.sock"><span class="dot"></span>已连接</span></div>
+      </header>
+
+      <section class="grid stats">
+        <div class="panel stat"><div><div class="label">容器</div><div class="value">18</div><div class="sub">运行 12 / 停止 6 / 更新 3</div></div><div class="badge">C</div></div>
+        <div class="panel stat"><div><div class="label">镜像</div><div class="value">42</div><div class="sub">使用中 21 / 悬空 4</div></div><div class="badge">I</div></div>
+        <div class="panel stat"><div><div class="label">网络</div><div class="value">7</div><div class="sub">bridge 4 / macvlan 2</div></div><div class="badge">N</div></div>
+        <div class="panel stat"><div><div class="label">卷</div><div class="value">26</div><div class="sub">只统计，不提供入口</div></div><div class="badge">V</div></div>
+        <div class="panel stat"><div><div class="label">Docker 存储</div><div class="value">38.6 GB</div><div class="sub">images / volumes / cache</div></div><div class="badge">D</div></div>
+      </section>
+
+      <section class="panel" style="margin-top:14px">
+        <div class="section-head"><h2>快捷导航</h2><button class="btn">管理</button></div>
+        <div class="grid quick">
+          <a href="#"><div class="app-icon">Q</div><span>qBittorrent</span></a><a href="#"><div class="app-icon">J</div><span>Jellyfin</span></a><a href="#"><div class="app-icon">P</div><span>Portainer</span></a><a href="#"><div class="app-icon">N</div><span>Nginx</span></a><a href="#"><div class="app-icon">A</div><span>Alist</span></a><a href="#"><div class="app-icon">H</div><span>Homepage</span></a><a href="#"><div class="app-icon">D</div><span>Dockge</span></a><a href="#"><div class="app-icon">+</div><span>添加</span></a>
+        </div>
+      </section>
+
+      <section class="panel" style="margin-top:14px">
+        <div class="section-head"><h2>运行中的容器</h2><button class="btn">查看全部</button></div>
+        <div class="grid containers">
+          <div class="container-card"><div class="row"><strong>nginx</strong><span class="dot" style="color:var(--green)"></span></div><p class="muted">nginx:latest</p><button class="mini blue">WebUI</button> <button class="mini gray">日志</button></div>
+          <div class="container-card"><div class="row"><strong>jellyfin</strong><span class="dot" style="color:var(--green)"></span></div><p class="muted">jellyfin/jellyfin</p><button class="mini blue">WebUI</button> <button class="mini amber">重启</button></div>
+          <div class="container-card"><div class="row"><strong>dockge</strong><span class="dot" style="color:var(--green)"></span></div><p class="muted">louislam/dockge</p><button class="mini blue">WebUI</button> <button class="mini red">停止</button></div>
+          <div class="container-card"><div class="row"><strong>homepage</strong><span class="dot" style="color:var(--green)"></span></div><p class="muted">ghcr.io/gethomepage</p><button class="mini blue">WebUI</button> <button class="mini gray">日志</button></div>
+        </div>
+      </section>
+
+      <header class="topbar" style="margin-top:28px">
+        <div class="title-row"><h1>容器</h1><div class="tabs"><button class="active">容器</button><button>项目</button><button>新建</button><button>记录</button></div></div>
+        <div class="top-actions"><button class="btn primary">新建</button><button class="btn">全局刷新</button><span class="status"><span class="dot"></span>已连接</span></div>
+      </header>
+      <section class="panel">
+        <div class="batch"><strong class="muted">已选 3</strong><button class="mini gray">全选</button><button class="mini gray">取消选择</button><button class="mini amber">停止</button><button class="mini blue">重启</button><button class="mini green">更新</button><button class="mini red">删除</button></div>
+        <table class="table"><thead><tr><th></th><th>名称</th><th>镜像</th><th>状态</th><th>操作</th></tr></thead><tbody><tr><td><input type="checkbox" checked /></td><td>nginx</td><td>nginx:latest</td><td>running</td><td><button class="mini blue">WebUI</button></td></tr><tr><td><input type="checkbox" /></td><td>redis</td><td>redis:7</td><td>exited</td><td><button class="mini amber">启动</button></td></tr></tbody></table>
+      </section>
+
+      <header class="topbar" style="margin-top:28px"><div class="title-row"><h1>项目</h1><div class="tabs"><button>容器</button><button class="active">项目</button><button>新建</button><button>记录</button></div></div><div class="top-actions"><button class="btn">全局刷新</button><span class="status"><span class="dot"></span>已连接</span></div></header>
+      <section class="grid workbench"><div class="panel project-list"><button class="active"><strong>media-stack</strong><p class="muted">5 services</p></button><button><strong>infra</strong><p class="muted">3 services</p></button><button><strong>download</strong><p class="muted">2 services</p></button></div><div class="panel"><div class="section-head"><h2>media-stack/docker-compose.yaml</h2><div><button class="mini gray">pull</button> <button class="mini green">up</button> <button class="mini red">down</button></div></div><textarea class="code">services:
+  jellyfin:
+    image: jellyfin/jellyfin
+    ports:
+      - 8096:8096</textarea></div></section>
+
+      <header class="topbar" style="margin-top:28px"><div class="title-row"><h1>新建</h1><div class="tabs"><button>容器</button><button>项目</button><button class="active">新建</button><button>记录</button></div></div><div class="top-actions"><button class="btn primary">保存并部署</button><button class="btn">全局刷新</button><span class="status"><span class="dot"></span>已连接</span></div></header>
+      <section class="grid deploy"><div class="panel source-list"><button class="active">可视化</button><button>docker run</button><button>Compose</button><button>容器生成</button></div><div class="panel form"><div class="field"><label>项目名</label><input value="nginx-stack" /></div><div class="field"><label>镜像</label><input value="nginx:latest" /></div><div class="field"><label>端口</label><textarea>8080:80</textarea></div><div class="field"><label>重启策略</label><select><option>unless-stopped</option></select></div></div><div class="panel"><textarea class="code">services:
+  nginx-stack:
+    image: nginx:latest
+    ports:
+      - 8080:80
+    restart: unless-stopped</textarea></div></section>
+
+      <header class="topbar" style="margin-top:28px"><div class="title-row"><h1>网络</h1><div class="tabs"><button class="active">全部</button><button>bridge</button><button>macvlan</button><button>未使用</button></div></div><div class="top-actions"><button class="btn primary">创建网络</button><button class="btn">全局刷新</button><span class="status"><span class="dot"></span>已连接</span></div></header>
+      <section class="panel">
+        <div class="network-tools"><button class="mini gray">桥接状态：未配置</button><button class="mini blue">创建 bridge</button><button class="mini green">创建 macvlan</button><button class="mini amber">替换 macvlan</button><button class="mini gray">调整容器 IP</button></div>
+        <div class="grid net-grid"><div class="net-card"><div class="row"><strong>bridge</strong><span class="badge">bridge</span></div><p class="muted">172.17.0.0/16 · 4 containers</p></div><div class="net-card"><div class="row"><strong>macvlan-lan</strong><span class="badge">macvlan</span></div><p class="muted">192.168.10.0/24 · parent eth0</p></div><div class="net-card"><div class="row"><strong>media-net</strong><span class="badge">bridge</span></div><p class="muted">custom · 6 containers</p></div></div>
+      </section>
+      <aside class="drawer"><div class="section-head"><h2>创建 macvlan</h2><button class="mini gray">关闭</button></div><div class="form"><div class="field"><label>名称</label><input value="macvlan-lan-2" /></div><div class="field"><label>父接口</label><input value="eth0" /></div><div class="field"><label>Subnet</label><input value="192.168.10.0/24" /></div><button class="btn primary">创建</button></div></aside>
+    </main>
+  </div>
+  <nav class="mobile-nav"><button class="active">⌂</button><button>▣</button><button>▤</button><button>◇</button><button>◎</button><button>⚙</button></nav>
+</body>
+</html>

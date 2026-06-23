@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>DockerCopilot 新建部署工作台 Demo</title>
+  <style>
+    :root {
+      --bg: #eef3f1;
+      --panel: #ffffff;
+      --line: #dbe5e1;
+      --muted: #66756f;
+      --text: #16201d;
+      --green: #0f766e;
+      --green-soft: #e0f2ed;
+      --terminal: #071312;
+      --terminal-soft: #10201d;
+      --amber: #b45309;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      background: radial-gradient(circle at top left, rgba(15,118,110,.13), transparent 32%), linear-gradient(180deg, #f6faf8, var(--bg));
+      color: var(--text);
+      font-family: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    }
+    .page { width: min(1500px, calc(100vw - 48px)); margin: 0 auto; padding: 28px 0; }
+    .head { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin-bottom: 16px; }
+    h1 { margin: 0; font-size: 24px; letter-spacing: 0; }
+    .hint { color: var(--muted); font-size: 13px; margin-top: 4px; }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 999px; background: #10b981; }
+    .workbench { display: grid; grid-template-columns: 180px minmax(410px, .95fr) minmax(430px, 1.05fr); gap: 16px; align-items: start; }
+    .panel { background: rgba(255,255,255,.92); border: 1px solid var(--line); border-radius: 16px; box-shadow: 0 10px 28px rgba(15,23,42,.06); }
+    .source { padding: 12px; display: grid; gap: 8px; }
+    .source button { height: 44px; border: 1px solid var(--line); border-radius: 12px; background: #f8fbfa; color: var(--muted); text-align: left; padding: 0 12px; font-weight: 700; }
+    .source button.active { border-color: #99d5cb; background: var(--green-soft); color: var(--green); }
+    .main { padding: 16px; }
+    .from-store { border: 1px solid #bae6fd; background: #eff6ff; color: #0369a1; border-radius: 12px; padding: 10px 12px; font-size: 13px; margin-bottom: 12px; }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    label span { display: flex; justify-content: space-between; color: #33423e; font-size: 13px; font-weight: 700; margin-bottom: 6px; }
+    label small { color: var(--muted); font-weight: 500; }
+    input, textarea, select { width: 100%; border: 1px solid var(--line); border-radius: 11px; background: #fbfefd; color: var(--text); min-height: 40px; padding: 9px 11px; font: inherit; }
+    textarea { min-height: 76px; resize: vertical; }
+    .actions { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-top: 14px; }
+    .actions button { height: 44px; border-radius: 12px; font-weight: 800; border: 1px solid var(--line); background: #fff; }
+    .actions .primary { background: var(--green); color: white; border-color: var(--green); }
+    .right { padding: 12px; }
+    .tabs { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; padding: 4px; background: #edf3f1; border-radius: 12px; margin-bottom: 12px; }
+    .tabs button { border: 0; border-radius: 9px; height: 34px; color: var(--muted); background: transparent; font-weight: 800; }
+    .tabs button.active { background: #fff; color: var(--text); box-shadow: 0 1px 5px rgba(15,23,42,.08); }
+    .terminal { min-height: 560px; display: flex; flex-direction: column; background: var(--terminal); border-radius: 14px; overflow: hidden; border: 1px solid #17332e; color: #d1fae5; }
+    .terminal-head { display: flex; justify-content: space-between; gap: 10px; padding: 11px 12px; background: var(--terminal-soft); color: #9fb8ae; font-size: 12px; border-bottom: 1px solid #17332e; }
+    pre { margin: 0; padding: 12px; white-space: pre-wrap; overflow: auto; flex: 1; font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 13px; line-height: 1.55; }
+    .params { display: grid; gap: 12px; }
+    .warning { border: 1px solid #fcd34d; background: #fffbeb; color: var(--amber); padding: 10px 12px; border-radius: 12px; font-size: 13px; }
+    @media (max-width: 1180px) {
+      .workbench { grid-template-columns: 160px minmax(0,1fr); }
+      .right { grid-column: 1 / -1; }
+    }
+    @media (max-width: 760px) {
+      .page { width: min(100vw - 24px, 1500px); padding: 14px 0; }
+      .head { align-items: start; flex-direction: column; }
+      .workbench, .grid { grid-template-columns: 1fr; }
+      .source { grid-template-columns: repeat(2, 1fr); }
+      .terminal { min-height: 420px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="page">
+    <div class="head">
+      <div>
+        <h1>新建部署</h1>
+        <div class="hint">来源、配置、预览和日志在同一工作台内完成。</div>
+      </div>
+      <div class="status"><span class="dot"></span>已连接 <button>刷新</button></div>
+    </div>
+
+    <section class="workbench">
+      <aside class="panel source">
+        <button class="active">可视化</button>
+        <button>命令行</button>
+        <button>Compose</button>
+        <button>容器生成</button>
+      </aside>
+
+      <section class="panel main">
+        <div class="from-store">来自商店：Bililive Go</div>
+        <div class="grid">
+          <label><span>项目名 <small>/data/compose</small></span><input value="bililive-go" /></label>
+          <label><span>容器名 <small>默认项目名</small></span><input value="bililive-go" /></label>
+        </div>
+        <label><span>镜像 <small>必填</small></span><input value="chigusa/bililive-go:v0.7.39" /></label>
+        <div class="grid">
+          <label><span>网络</span><input value="bridge" /></label>
+          <label><span>重启策略</span><select><option>unless-stopped</option></select></label>
+        </div>
+        <label><span>端口映射 <small>每行一个</small></span><textarea>8080:8080</textarea></label>
+        <label><span>卷挂载 <small>相对路径会解析</small></span><textarea>./data:/srv/bililive</textarea></label>
+        <div class="actions"><button>保存</button><button class="primary">保存并部署</button></div>
+      </section>
+
+      <section class="panel right">
+        <div class="tabs"><button class="active">Compose</button><button>参数(2)</button><button>日志</button></div>
+        <div class="terminal">
+          <div class="terminal-head"><span>Compose 预览</span><span>14 行</span></div>
+<pre>services:
+  bililive-go:
+    image: chigusa/bililive-go:v0.7.39
+    container_name: bililive-go
+    restart: always
+    ports:
+      - 8080:8080
+    volumes:
+      - /data/compose/bililive-go/data:/srv/bililive</pre>
+        </div>
+      </section>
+    </section>
+  </main>
+</body>
+</html>

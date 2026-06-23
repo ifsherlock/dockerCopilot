@@ -834,22 +834,73 @@ const logTabs = [
   { id: 'task', label: '任务日志' },
 ]
 
-function PlainLogViewer({ title, logs, loading, message, controls }) {
+function useSharedLogTheme() {
+  const [logTheme, setLogTheme] = useState(() => localStorage.getItem('docker_copilot_logs_theme') || 'dark')
+
+  useEffect(() => {
+    localStorage.setItem('docker_copilot_logs_theme', logTheme)
+  }, [logTheme])
+
+  return {
+    darkTheme: logTheme === 'dark',
+    toggleLogTheme: () => setLogTheme(v => v === 'dark' ? 'light' : 'dark')
+  }
+}
+
+function logThemeButtonClass(darkTheme, active, color = 'amber') {
+  if (!active) {
+    return darkTheme
+      ? 'border-gray-700 bg-gray-900 text-gray-300 hover:bg-gray-800'
+      : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-100'
+  }
+  const activeMap = {
+    amber: darkTheme
+      ? 'border-amber-500/40 bg-amber-500/12 text-amber-300 shadow-[0_0_0_1px_rgba(251,191,36,0.15)]'
+      : 'border-amber-300 bg-amber-50 text-amber-700 shadow-[0_0_0_1px_rgba(251,191,36,0.12)]',
+    sky: darkTheme
+      ? 'border-sky-500/40 bg-sky-500/12 text-sky-300 shadow-[0_0_0_1px_rgba(56,189,248,0.15)]'
+      : 'border-sky-300 bg-sky-50 text-sky-700 shadow-[0_0_0_1px_rgba(56,189,248,0.12)]',
+  }
+  return activeMap[color] || activeMap.amber
+}
+
+function plainControlClass(darkTheme, widthClass = '') {
+  return `h-10 ${widthClass} rounded-xl border px-3 text-sm outline-none transition-colors focus:border-sky-500 ${
+    darkTheme
+      ? 'border-slate-700 bg-[#0b0f14] text-slate-100 placeholder:text-slate-500'
+      : 'border-slate-300 bg-white text-slate-900 placeholder:text-slate-400'
+  }`
+}
+
+function PlainLogViewer({ title, logs, loading, message, controls, darkTheme = true, onToggleTheme }) {
+  const renderedControls = typeof controls === 'function' ? controls({ darkTheme }) : controls
   return (
-    <div className="space-y-3">
+    <div className="flex h-[72vh] flex-col gap-3 xl:h-[78vh]">
       {message ? (
-        <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        <div className={`shrink-0 rounded-xl border px-3 py-2 text-sm ${darkTheme ? 'border-amber-800 bg-amber-950/40 text-amber-300' : 'border-amber-200 bg-amber-50 text-amber-700'}`}>
           {message}
         </div>
       ) : null}
-      <section className="overflow-hidden rounded-2xl border border-slate-900 bg-[#0b0f14] shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-800 bg-[#10161d] px-4 py-3 md:flex-row md:items-center md:justify-between">
+      <section className={`flex min-h-0 flex-1 flex-col overflow-hidden rounded-2xl border shadow-sm ${darkTheme ? 'border-slate-900 bg-[#0b0f14]' : 'border-slate-200 bg-[#f8fafc]'}`}>
+        <div className={`flex shrink-0 flex-col gap-3 border-b px-4 py-3 md:flex-row md:items-center md:justify-between ${darkTheme ? 'border-slate-800 bg-[#10161d]' : 'border-slate-200 bg-white'}`}>
           <div className="min-w-0">
-            <div className="truncate text-base font-semibold text-slate-100">{title}</div>
+            <div className={`truncate text-base font-semibold ${darkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{title}</div>
           </div>
-          {controls && <div className="flex flex-wrap items-center gap-2">{controls}</div>}
+          <div className="flex flex-wrap items-center gap-2">
+            {renderedControls}
+            {onToggleTheme ? (
+              <button
+                type="button"
+                onClick={onToggleTheme}
+                className={`inline-flex h-9 w-9 items-center justify-center rounded-lg border transition-colors ${logThemeButtonClass(darkTheme, true, 'amber')}`}
+                title={darkTheme ? '切换到白天' : '切换到黑夜'}
+              >
+                {darkTheme ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </button>
+            ) : null}
+          </div>
         </div>
-        <pre className="min-h-[62vh] overflow-auto p-4 font-mono text-xs leading-6 text-slate-100 whitespace-pre-wrap break-words">
+        <pre className={`dc-scrollbar-soft min-h-0 flex-1 overflow-auto p-4 font-mono text-xs leading-6 whitespace-pre-wrap break-words ${darkTheme ? 'text-slate-100' : 'text-slate-800'}`}>
           {loading ? '正在读取日志...' : (logs || '暂无日志')}
         </pre>
       </section>
@@ -858,6 +909,7 @@ function PlainLogViewer({ title, logs, loading, message, controls }) {
 }
 
 function ServiceLogsPanel() {
+  const { darkTheme, toggleLogTheme } = useSharedLogTheme()
   const [logs, setLogs] = useState('')
   const [tail, setTail] = useState(300)
   const [query, setQuery] = useState('')
@@ -887,19 +939,19 @@ function ServiceLogsPanel() {
     return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
   }, [tail, query, level])
 
-  const controls = (
+  const controls = ({ darkTheme }) => (
     <>
       <input
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && load()}
         placeholder="搜索日志"
-        className="h-10 w-40 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+        className={plainControlClass(darkTheme, 'w-40')}
       />
       <select
         value={level}
         onChange={(e) => setLevel(e.target.value)}
-        className="h-10 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+        className={plainControlClass(darkTheme)}
       >
         <option value="all">全部级别</option>
         <option value="error">Error</option>
@@ -910,16 +962,17 @@ function ServiceLogsPanel() {
       <input
         value={tail}
         onChange={(e) => setTail(e.target.value.replace(/\D+/g, '') || '300')}
-        className="h-10 w-24 rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+        className={plainControlClass(darkTheme, 'w-24')}
         title="读取尾部行数"
       />
     </>
   )
 
-  return <PlainLogViewer title="服务日志" logs={logs} loading={loading} message={message} controls={controls} />
+  return <PlainLogViewer title="服务日志" logs={logs} loading={loading} message={message} controls={controls} darkTheme={darkTheme} onToggleTheme={toggleLogTheme} />
 }
 
 function OperationLogsPanel() {
+  const { darkTheme, toggleLogTheme } = useSharedLogTheme()
   const [logs, setLogs] = useState('')
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState('')
@@ -947,10 +1000,11 @@ function OperationLogsPanel() {
     return () => window.removeEventListener('docker-copilot-global-refresh', onGlobalRefresh)
   }, [])
 
-  return <PlainLogViewer title="操作日志" logs={logs} loading={loading} message={message} />
+  return <PlainLogViewer title="操作日志" logs={logs} loading={loading} message={message} darkTheme={darkTheme} onToggleTheme={toggleLogTheme} />
 }
 
 function TaskLogsPanel() {
+  const { darkTheme, toggleLogTheme } = useSharedLogTheme()
   const [taskID, setTaskID] = useState('')
   const [tasks, setTasks] = useState([])
   const [logs, setLogs] = useState('')
@@ -1032,46 +1086,50 @@ function TaskLogsPanel() {
     }
   }
 
-  const controls = (
+  const controls = ({ darkTheme }) => (
     <>
       <input
         value={taskID}
         onChange={(e) => setTaskID(e.target.value)}
         onKeyDown={(e) => e.key === 'Enter' && load()}
         placeholder="任务 ID"
-        className="h-10 w-72 max-w-[70vw] rounded-xl border border-slate-700 bg-[#0b0f14] px-3 text-sm text-slate-100 placeholder:text-slate-500 outline-none focus:border-sky-500"
+        className={plainControlClass(darkTheme, 'w-72 max-w-[70vw]')}
       />
     </>
   )
 
   return (
-    <div className="grid grid-cols-1 gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
-      <div className="rounded-2xl border border-slate-800 bg-[#0b0f14] p-4 text-slate-100 shadow-sm">
-        <div className="mb-3 flex items-center justify-between gap-2">
+    <div className="grid grid-cols-1 items-stretch gap-4 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className={`flex h-[72vh] flex-col overflow-hidden rounded-2xl border p-4 shadow-sm xl:h-[78vh] ${darkTheme ? 'border-slate-800 bg-[#0b0f14] text-slate-100' : 'border-slate-200 bg-white text-slate-900'}`}>
+        <div className="mb-3 flex shrink-0 items-center justify-between gap-2">
           <div>
-            <h3 className="font-semibold text-slate-100">近期任务</h3>
+            <h3 className={`font-semibold ${darkTheme ? 'text-slate-100' : 'text-slate-900'}`}>近期任务</h3>
           </div>
         </div>
-        <div className="max-h-[72vh] space-y-2 overflow-auto">
+        <div className="dc-scrollbar-soft min-h-0 flex-1 space-y-2 overflow-auto">
           {tasks.map(task => (
-            <button key={task.taskID} onClick={() => openTask(task.taskID)} className="w-full rounded-xl border border-slate-800 bg-[#10161d] p-3 text-left transition hover:border-slate-700 hover:bg-slate-900">
+            <button
+              key={task.taskID}
+              onClick={() => openTask(task.taskID)}
+              className={`w-full rounded-xl border p-3 text-left transition ${darkTheme ? 'border-slate-800 bg-[#10161d] hover:border-slate-700 hover:bg-slate-900' : 'border-slate-200 bg-slate-50 hover:border-slate-300 hover:bg-white'}`}
+            >
               <div className="flex items-center justify-between gap-2">
-                <span className="truncate text-sm font-medium text-slate-100">{task.name || task.taskID}</span>
+                <span className={`truncate text-sm font-medium ${darkTheme ? 'text-slate-100' : 'text-slate-900'}`}>{task.name || task.taskID}</span>
                 <span className={task.isDone ? 'rounded-full bg-emerald-50 px-2 py-0.5 text-xs text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300' : 'rounded-full bg-sky-50 px-2 py-0.5 text-xs text-sky-700 dark:bg-sky-950/40 dark:text-sky-300'}>
                   {task.isDone ? '完成' : `${task.percentage || 0}%`}
                 </span>
               </div>
-              <div className="mt-1 truncate text-xs text-slate-400">{task.message || '-'}</div>
-              <div className="mt-1 truncate font-mono text-[11px] text-slate-400">{task.taskID}</div>
+              <div className={`mt-1 truncate text-xs ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{task.message || '-'}</div>
+              <div className={`mt-1 truncate font-mono text-[11px] ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>{task.taskID}</div>
               {(task.updatedAt || task.createdAt) && (
-                <div className="mt-1 truncate text-[11px] text-slate-400">更新时间：{task.updatedAt || task.createdAt}</div>
+                <div className={`mt-1 truncate text-[11px] ${darkTheme ? 'text-slate-400' : 'text-slate-500'}`}>更新时间：{task.updatedAt || task.createdAt}</div>
               )}
             </button>
           ))}
-          {tasks.length === 0 && <div className="rounded-xl border border-dashed border-slate-700 p-4 text-center text-sm text-slate-400">暂无任务记录</div>}
+          {tasks.length === 0 && <div className={`rounded-xl border border-dashed p-4 text-center text-sm ${darkTheme ? 'border-slate-700 text-slate-400' : 'border-slate-300 text-slate-500'}`}>暂无任务记录</div>}
         </div>
       </div>
-      <PlainLogViewer title="任务日志" logs={logs} loading={loading} message={message} controls={controls} />
+      <PlainLogViewer title="任务日志" logs={logs} loading={loading} message={message} controls={controls} darkTheme={darkTheme} onToggleTheme={toggleLogTheme} />
     </div>
   )
 }
