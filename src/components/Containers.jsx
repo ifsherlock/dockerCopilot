@@ -2577,7 +2577,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
             resolveContainerBuiltInIconUrl(currentContainer),
           ]}
           alt={currentContainer.name}
-          className="h-12 w-12 rounded-xl object-cover"
+          className="h-12 w-12 rounded-xl object-contain"
           fallback={<FallbackIcon />}
         />
       );
@@ -2591,7 +2591,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
     return (
       <div
-        className="relative group cursor-pointer"
+        className="relative group h-12 w-12 flex-shrink-0 cursor-pointer"
         onClick={() => !isUploadingIcon && fileInputRef.current?.click()}
         title="点击上传自定义图标"
       >
@@ -2604,7 +2604,6 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
         />
 
         <IconContent />
-        <FallbackIcon />
 
         {/* 悬停覆盖层 */}
         <div className="absolute inset-0 bg-black bg-opacity-50 rounded-xl opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center">
