@@ -27,6 +27,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getCachedFavicon, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 import { useResizableTableColumns } from '../hooks/useResizableTableColumns.js'
 import icons8Img from '../assets/icons8.png'
+import { IconWithFallback } from './IconWithFallback.jsx'
 
 // 格式化运行时间为中文
 function formatRunningTime(runningTime) {
@@ -1311,19 +1312,23 @@ export function Containers() {
   }
 
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
-    const iconUrl = resolveContainerCustomIconUrl(container, customIcons)
-      || faviconIcons[container.id]
-      || getCachedFavicon(getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container))
-      || resolveContainerBuiltInIconUrl(container)
-
-    if (iconUrl) {
-      return <img src={iconUrl} alt={container.name} className={`${sizeClass} rounded-lg object-cover shadow-sm flex-shrink-0`} />
-    }
-
-    return (
+    const fallback = (
       <div className={`${sizeClass} bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0`}>
         <Package className="h-5 w-5 text-white" />
       </div>
+    )
+    return (
+      <IconWithFallback
+        sources={[
+          resolveContainerCustomIconUrl(container, customIcons),
+          faviconIcons[container.id],
+          getCachedFavicon(getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container)),
+          resolveContainerBuiltInIconUrl(container),
+        ]}
+        alt={container.name}
+        className={`${sizeClass} rounded-lg object-cover shadow-sm flex-shrink-0`}
+        fallback={fallback}
+      />
     )
   }
 
@@ -2563,29 +2568,23 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
   // 获取容器图标 - 与列表显示逻辑一致
   const getContainerIcon = () => {
-    const iconUrl = resolveContainerCustomIconUrl(currentContainer, customIcons)
-      || getCachedFavicon(endpoint.suggestedURL || getContainerWebUrl(currentContainer))
-      || resolveContainerBuiltInIconUrl(currentContainer);
-
     const IconContent = () => {
-      if (iconUrl) {
-        return (
-          <img
-            src={iconUrl}
-            alt={currentContainer.name}
-            className="h-12 w-12 rounded-xl object-cover"
-            onError={(e) => {
-              e.target.style.display = 'none';
-              e.target.nextSibling.style.display = 'flex';
-            }}
-          />
-        );
-      }
-      return null;
+      return (
+        <IconWithFallback
+          sources={[
+            resolveContainerCustomIconUrl(currentContainer, customIcons),
+            getCachedFavicon(endpoint.suggestedURL || getContainerWebUrl(currentContainer)),
+            resolveContainerBuiltInIconUrl(currentContainer),
+          ]}
+          alt={currentContainer.name}
+          className="h-12 w-12 rounded-xl object-cover"
+          fallback={<FallbackIcon />}
+        />
+      );
     };
 
     const FallbackIcon = () => (
-      <div className="h-12 w-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white" style={{ display: iconUrl ? 'none' : 'flex' }}>
+      <div className="h-12 w-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white">
         <Package className="h-6 w-6" />
       </div>
     );

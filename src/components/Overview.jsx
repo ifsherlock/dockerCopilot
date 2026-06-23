@@ -4,6 +4,7 @@ import { Activity, Box, Database, Globe2, GripVertical, HardDrive, Package, Plus
 import { overviewAPI, containerAPI, imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getCachedFavicon, getContainerImageRef, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
+import { IconWithFallback } from './IconWithFallback.jsx'
 
 const quickLinkPrefsKey = 'docker_copilot_overview_quick_links'
 
@@ -118,14 +119,18 @@ function AppIcon({ item, customIcons, size = 'h-9 w-9', rounded = 'rounded-xl' }
       cancelled = true
     }
   }, [customIconUrl, webUrl])
-  const iconUrl = customIconUrl || faviconUrl || builtInIconUrl
-  if (iconUrl) {
-    return <img src={iconUrl} alt={item?.name || 'app'} className={cn(size, rounded, 'object-cover shadow-sm')} />
-  }
-  return (
+  const fallback = (
     <span className={cn(size, rounded, 'flex items-center justify-center bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300')}>
       <Package className="h-4 w-4" />
     </span>
+  )
+  return (
+    <IconWithFallback
+      sources={[customIconUrl, faviconUrl, builtInIconUrl]}
+      alt={item?.name || 'app'}
+      className={cn(size, rounded, 'object-cover shadow-sm')}
+      fallback={fallback}
+    />
   )
 }
 
