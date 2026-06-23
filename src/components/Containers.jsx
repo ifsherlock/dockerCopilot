@@ -24,8 +24,7 @@ import {
 import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
-import { getImageLogo } from '../config/imageLogos.js'
-import { getCachedFavicon, getContainerWebUrl, resolveContainerIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
+import { getCachedFavicon, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 import { useResizableTableColumns } from '../hooks/useResizableTableColumns.js'
 import icons8Img from '../assets/icons8.png'
 
@@ -214,7 +213,7 @@ export function Containers() {
   useEffect(() => {
     let cancelled = false
     const missing = (containers || [])
-      .filter(container => !resolveContainerIconUrl(container, customIcons))
+      .filter(container => !resolveContainerCustomIconUrl(container, customIcons))
       .map(container => ({ id: container.id, url: getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container) }))
       .filter(item => item.id && item.url && !faviconIcons[item.id])
       .slice(0, 8)
@@ -1312,24 +1311,10 @@ export function Containers() {
   }
 
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
-    const imageRef = getContainerImageRef(container)
-    let iconUrl = resolveContainerIconUrl(container, customIcons)
-    if (!iconUrl && imageRef) {
-      const builtInLogo = getImageLogo(imageRef, customIcons, [container.name])
-      if (builtInLogo) {
-        iconUrl = builtInLogo
-      } else {
-        for (const [imageName, logoUrl] of Object.entries(customIcons || {})) {
-          if (imageRef.startsWith(imageName) || imageRef.includes(`${imageName}:`)) {
-            iconUrl = logoUrl
-            break
-          }
-        }
-      }
-    }
-    if (!iconUrl) {
-      iconUrl = faviconIcons[container.id] || getCachedFavicon(getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container))
-    }
+    const iconUrl = resolveContainerCustomIconUrl(container, customIcons)
+      || faviconIcons[container.id]
+      || getCachedFavicon(getEndpointLink(container)?.suggestedURL || getContainerWebUrl(container))
+      || resolveContainerBuiltInIconUrl(container)
 
     if (iconUrl) {
       return <img src={iconUrl} alt={container.name} className={`${sizeClass} rounded-lg object-cover shadow-sm flex-shrink-0`} />
@@ -2348,7 +2333,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
       return
     }
     try {
-      const quickIconUrl = currentContainer.iconUrl || resolveContainerIconUrl(currentContainer, customIcons) || await resolveFaviconFallback(url) || ''
+      const quickIconUrl = resolveContainerCustomIconUrl(currentContainer, customIcons) || await resolveFaviconFallback(url) || ''
       const key = 'docker_copilot_overview_quick_links'
       const parsed = JSON.parse(localStorage.getItem(key) || '{}')
       const prefs = {
@@ -2578,34 +2563,9 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
 
   // 获取容器图标 - 与列表显示逻辑一致
   const getContainerIcon = () => {
-    let iconUrl = currentContainer.iconUrl;
-
-    // 如果容器没有自定义图标，则查找镜像图标
-    if (!iconUrl && currentContainer.usingImage) {
-      // 优先使用内置logo配置（不依赖localStorage）
-      const builtInLogo = getImageLogo(currentContainer.usingImage, customIcons, [currentContainer.name]);
-      if (builtInLogo) {
-        iconUrl = builtInLogo;
-      } else {
-        // 如果没有内置logo，则尝试从用户自定义中查找
-        // const imageLogos = JSON.parse(localStorage.getItem('docker_copilot_image_logos') || '{}');
-        const imageLogos = customIcons;
-        const imageFullName = currentContainer.usingImage;
-
-        if (imageLogos[imageFullName]) {
-          iconUrl = imageLogos[imageFullName];
-        } else {
-          // 降级匹配逻辑
-          const imageName = imageFullName.split(':')[0];
-          for (const [imageId, logoUrl] of Object.entries(imageLogos)) {
-            if (imageId === imageName || imageFullName.startsWith(imageId)) {
-              iconUrl = logoUrl;
-              break;
-            }
-          }
-        }
-      }
-    }
+    const iconUrl = resolveContainerCustomIconUrl(currentContainer, customIcons)
+      || getCachedFavicon(endpoint.suggestedURL || getContainerWebUrl(currentContainer))
+      || resolveContainerBuiltInIconUrl(currentContainer);
 
     const IconContent = () => {
       if (iconUrl) {

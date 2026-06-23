@@ -96,7 +96,7 @@ export const builtInImageLogos = {
 };
 
 // 获取镜像的logo
-// 优先级: 内置logo > 用户自定义 > 默认图标
+// 优先级: 用户自定义精确匹配 > 内置精确匹配 > 默认图标
 const getLogoCandidates = (imageName, aliases = []) => {
   const values = [imageName, ...aliases].map(value => String(value || '').trim()).filter(Boolean);
   const candidates = [];
@@ -127,83 +127,21 @@ const findLogoInMap = (candidates, logos = {}) => {
     });
     if (direct) return direct[1];
   }
-  for (const name of candidates) {
-    const lower = name.toLowerCase();
-    const compactName = compact(lower);
-    for (const [key, url] of entries) {
-      const base = String(key).split('@')[0].split(':')[0].toLowerCase();
-      const simple = base.split('/').pop();
-      const compactBase = compact(base);
-      const compactSimple = compact(simple);
-      if (lower.includes(base) || lower.includes(simple) || base.includes(lower) || compactName.includes(compactBase) || compactName.includes(compactSimple) || compactBase.includes(compactName)) return url;
-    }
-  }
   return null;
 };
 
-export const getImageLogo = (imageName, customLogos = {}, aliases = []) => {
+export const getCustomImageLogo = (imageName, customLogos = {}, aliases = []) => {
   const candidates = getLogoCandidates(imageName, aliases);
-  const builtIn = findLogoInMap(candidates, builtInImageLogos);
-  if (builtIn) return builtIn;
-  const custom = findLogoInMap(candidates, customLogos);
-  if (custom) return custom;
-  if (candidates.length === 0) return null;
-  // 先检查内置logo（优先级最高）
-  const baseImageName = candidates[0].split(':')[0]; // 去掉tag部分
+  return findLogoInMap(candidates, customLogos);
+};
 
-  // 优先匹配完整镜像名（包含 registry/namespace）
-  if (builtInImageLogos[baseImageName]) {
-    return builtInImageLogos[baseImageName];
-  }
+export const getBuiltInImageLogo = (imageName, aliases = []) => {
+  const candidates = getLogoCandidates(imageName, aliases);
+  return findLogoInMap(candidates, builtInImageLogos);
+};
 
-  // 尝试匹配最后一段镜像名（去掉 registry/namespace）
-  const simpleName = baseImageName.split('/').pop();
-  if (builtInImageLogos[simpleName]) {
-    return builtInImageLogos[simpleName];
-  }
-
-  // 如果仍未匹配，使用关键字（子串）匹配
-  for (const [key, url] of Object.entries(builtInImageLogos)) {
-    if (!key) continue;
-    try {
-      if (baseImageName.includes(key) || simpleName.includes(key)) {
-        return url;
-      }
-    } catch (e) {
-      // 防御性代码：忽略任何异常并继续
-    }
-  }
-
-  // 再检查用户自定义的logo
-  if (customLogos[imageName]) {
-    return customLogos[imageName];
-  }
-  if (customLogos[baseImageName]) {
-    return customLogos[baseImageName];
-  }
-  if (customLogos[simpleName]) {
-    return customLogos[simpleName];
-  }
-
-  // 尝试自定义图标的模糊匹配
-  for (const [key, url] of Object.entries(customLogos)) {
-    if (!key) continue;
-    try {
-      // 检查key是否是imageName的前缀（处理tag不同的情况）
-      if (baseImageName === key || baseImageName.startsWith(key + ':') || baseImageName.startsWith(key + '/')) {
-        return url;
-      }
-      // 反向检查：如果自定义图标配置的是 nginx:latest，但当前是 nginx
-      if (key.split(':')[0] === baseImageName) {
-        return url;
-      }
-    } catch (e) {
-      // 忽略异常
-    }
-  }
-
-  // 没有找到logo，返回null
-  return null;
+export const getImageLogo = (imageName, customLogos = {}, aliases = []) => {
+  return getCustomImageLogo(imageName, customLogos, aliases) || getBuiltInImageLogo(imageName, aliases);
 };
 
 // 获取所有支持的镜像名称列表
@@ -214,20 +152,5 @@ export const getSupportedImageNames = () => {
 // 检查镜像是否有内置logo
 export const hasBuiltInLogo = (imageName, aliases = []) => {
   const candidates = getLogoCandidates(imageName, aliases);
-  if (candidates.length === 0) return false;
-  const baseImageName = candidates[0].split(':')[0];
-  if (builtInImageLogos[baseImageName]) return true;
-  const simpleName = baseImageName.split('/').pop();
-  if (builtInImageLogos[simpleName]) return true;
-
-  // 关键字（子串）匹配
-  for (const key of Object.keys(builtInImageLogos)) {
-    if (!key) continue;
-    try {
-      if (baseImageName.includes(key) || simpleName.includes(key)) return true;
-    } catch (e) {
-      // 忽略并继续
-    }
-  }
-  return false;
+  return Boolean(findLogoInMap(candidates, builtInImageLogos));
 };

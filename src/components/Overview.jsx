@@ -3,7 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { Activity, Box, Database, Globe2, GripVertical, HardDrive, Package, Plus, RefreshCw, RotateCcw, Server, Trash2 } from 'lucide-react'
 import { overviewAPI, containerAPI, imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
-import { getCachedFavicon, getContainerImageRef, getContainerWebUrl, resolveContainerIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
+import { getCachedFavicon, getContainerImageRef, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 
 const quickLinkPrefsKey = 'docker_copilot_overview_quick_links'
 
@@ -92,16 +92,17 @@ function guessQuickUrl(item) {
 }
 
 function resolveIconUrl(item, customIcons = {}) {
-  return resolveContainerIconUrl(item, customIcons)
+  return resolveContainerCustomIconUrl(item, customIcons)
 }
 
 function AppIcon({ item, customIcons, size = 'h-9 w-9', rounded = 'rounded-xl' }) {
   const webUrl = getContainerWebUrl(item)
-  const baseIconUrl = resolveIconUrl(item, customIcons)
-  const [faviconUrl, setFaviconUrl] = useState(() => baseIconUrl ? '' : getCachedFavicon(webUrl))
+  const customIconUrl = resolveIconUrl(item, customIcons)
+  const builtInIconUrl = resolveContainerBuiltInIconUrl(item)
+  const [faviconUrl, setFaviconUrl] = useState(() => customIconUrl ? '' : getCachedFavicon(webUrl))
   useEffect(() => {
     let cancelled = false
-    if (baseIconUrl || !webUrl) {
+    if (customIconUrl || !webUrl) {
       setFaviconUrl('')
       return undefined
     }
@@ -116,8 +117,8 @@ function AppIcon({ item, customIcons, size = 'h-9 w-9', rounded = 'rounded-xl' }
     return () => {
       cancelled = true
     }
-  }, [baseIconUrl, webUrl])
-  const iconUrl = baseIconUrl || faviconUrl
+  }, [customIconUrl, webUrl])
+  const iconUrl = customIconUrl || faviconUrl || builtInIconUrl
   if (iconUrl) {
     return <img src={iconUrl} alt={item?.name || 'app'} className={cn(size, rounded, 'object-cover shadow-sm')} />
   }
@@ -334,7 +335,7 @@ export function Overview({ onNavigate }) {
     if (!item) return
     const url = quickAddUrl.trim()
     if (!url) return
-    const iconUrl = item.iconUrl || resolveContainerIconUrl(item, customIcons) || await resolveFaviconFallback(url)
+    const iconUrl = resolveContainerCustomIconUrl(item, customIcons) || await resolveFaviconFallback(url)
     updateQuickLinkPrefs(prev => {
       const link = {
         id: item.id,

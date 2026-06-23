@@ -1,4 +1,4 @@
-import { getImageLogo } from '../config/imageLogos.js'
+import { getBuiltInImageLogo, getCustomImageLogo } from '../config/imageLogos.js'
 import { imageAPI } from '../api/client.js'
 
 export const faviconCacheKey = 'docker_copilot_favicon_cache_v1'
@@ -18,9 +18,19 @@ export function getContainerWebUrl(item) {
 }
 
 export function resolveContainerIconUrl(item, customIcons = {}) {
-  if (item?.iconUrl || item?.IconUrl) return item.iconUrl || item.IconUrl
+  return resolveContainerCustomIconUrl(item, customIcons) || resolveContainerBuiltInIconUrl(item)
+}
+
+export function resolveContainerCustomIconUrl(item, customIcons = {}) {
+  const explicitIcon = String(item?.iconUrl || item?.IconUrl || '').trim()
+  if (explicitIcon.startsWith('/src/config/image/')) return explicitIcon
   const imageRef = getContainerImageRef(item)
-  return getImageLogo(imageRef, customIcons, [item?.name, item?.containerName, item?.service].filter(Boolean))
+  return getCustomImageLogo(imageRef, customIcons, [item?.name, item?.containerName, item?.service].filter(Boolean))
+}
+
+export function resolveContainerBuiltInIconUrl(item) {
+  const imageRef = getContainerImageRef(item)
+  return getBuiltInImageLogo(imageRef, [item?.name, item?.containerName, item?.service].filter(Boolean))
 }
 
 export function getCachedFavicon(url) {
