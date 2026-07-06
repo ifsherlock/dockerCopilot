@@ -87,6 +87,9 @@ func (rt *webhookRuntime) Handle(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", http.StatusForbidden)
 		return
 	}
+	if err := recordRecentIdentity(cmd); err != nil {
+		logx.Errorf("%v", err)
+	}
 	writeJSON(w, HTTPCallbackACK())
 
 	dispatcher := NewCommandDispatcher(

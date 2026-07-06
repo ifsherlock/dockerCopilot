@@ -109,11 +109,8 @@ export function ThemeProvider({ children }) {
           qqbotEnabled: qqbot.enabled ?? false,
           qqbotAppId: qqbot.app_id || '',
           qqbotAppSecret: qqbot.app_secret || '',
-          qqbotSandbox: qqbot.sandbox ?? true,
-          qqbotEventMode: ['gateway', 'webhook'].includes(qqbot.event_mode) ? qqbot.event_mode : 'webhook',
           qqbotAllowedUserOpenids: Array.isArray(qqbot.allowed_user_openids) ? qqbot.allowed_user_openids.join('\n') : '',
           qqbotAllowedGroupOpenids: Array.isArray(qqbot.allowed_group_openids) ? qqbot.allowed_group_openids.join('\n') : '',
-          qqbotNotifyTargets: Array.isArray(qqbot.notify_targets) ? qqbot.notify_targets.join('\n') : '',
           qqbotMarkdownEnabled: qqbot.markdown_enabled ?? false,
           qqbotButtonsEnabled: qqbot.buttons_enabled ?? false,
         })

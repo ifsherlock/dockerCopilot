@@ -172,7 +172,7 @@ func TestQQBotConfigRoundTripAndMasksSecret(t *testing.T) {
 		QQBotEnabled:             true,
 		QQBotAppID:               "appid",
 		QQBotAppSecret:           "app-secret",
-		QQBotSandbox:             false,
+		QQBotSandbox:             true,
 		QQBotEventMode:           "gateway",
 		QQBotAllowedUserOpenIDs:  "user-1,user-2",
 		QQBotAllowedGroupOpenIDs: "group-1",
@@ -203,8 +203,8 @@ func TestQQBotConfigRoundTripAndMasksSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if stored.QQBot["app_secret"] != "app-secret" || stored.QQBot["event_mode"] != "gateway" {
-		t.Fatalf("stored qqbot = %#v, want raw secret and gateway", stored.QQBot)
+	if stored.QQBot["app_secret"] != "app-secret" || stored.QQBot["event_mode"] != "webhook" || stored.QQBot["sandbox"] != false {
+		t.Fatalf("stored qqbot = %#v, want raw secret, webhook, and sandbox=false", stored.QQBot)
 	}
 
 	resp, err = logic.GetConfig()

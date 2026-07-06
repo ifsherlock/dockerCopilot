@@ -476,12 +476,8 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	} else if _, ok := cfg.QQBot["app_secret"]; !ok {
 		cfg.QQBot["app_secret"] = ""
 	}
-	cfg.QQBot["sandbox"] = requestBoolOrExisting(req, "qqbotSandbox", req.QQBotSandbox, cfg.QQBot, "sandbox", true)
-	eventMode := strings.ToLower(strings.TrimSpace(requestOrExisting(req.QQBotEventMode, cfg.QQBot, "event_mode", "webhook")))
-	if eventMode != "gateway" && eventMode != "webhook" {
-		eventMode = "webhook"
-	}
-	cfg.QQBot["event_mode"] = eventMode
+	cfg.QQBot["sandbox"] = false
+	cfg.QQBot["event_mode"] = "webhook"
 	if req.HasField("qqbotAllowedUserOpenids") {
 		cfg.QQBot["allowed_user_openids"] = splitLinesOrComma(req.QQBotAllowedUserOpenIDs)
 	} else if _, ok := cfg.QQBot["allowed_user_openids"]; !ok {

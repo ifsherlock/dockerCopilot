@@ -56,11 +56,9 @@ export function Bot() {
     qqbotEnabled: false,
     qqbotAppId: '',
     qqbotAppSecret: '',
-    qqbotSandbox: true,
-    qqbotEventMode: 'webhook',
     qqbotAllowedUserOpenids: '',
     qqbotAllowedGroupOpenids: '',
-    qqbotNotifyTargets: '',
+    qqbotRecentIdentities: [],
     qqbotMarkdownEnabled: false,
     qqbotButtonsEnabled: false,
   })
@@ -126,11 +124,9 @@ export function Bot() {
         qqbotEnabled: qqbot.enabled ?? false,
         qqbotAppId: qqbot.app_id || '',
         qqbotAppSecret: qqbot.app_secret || '',
-        qqbotSandbox: qqbot.sandbox ?? true,
-        qqbotEventMode: ['gateway', 'webhook'].includes(qqbot.event_mode) ? qqbot.event_mode : 'webhook',
         qqbotAllowedUserOpenids: Array.isArray(qqbot.allowed_user_openids) ? qqbot.allowed_user_openids.join('\n') : '',
         qqbotAllowedGroupOpenids: Array.isArray(qqbot.allowed_group_openids) ? qqbot.allowed_group_openids.join('\n') : '',
-        qqbotNotifyTargets: Array.isArray(qqbot.notify_targets) ? qqbot.notify_targets.join('\n') : '',
+        qqbotRecentIdentities: Array.isArray(qqbot.recent_identities) ? qqbot.recent_identities : [],
         qqbotMarkdownEnabled: qqbot.markdown_enabled ?? false,
         qqbotButtonsEnabled: qqbot.buttons_enabled ?? false,
       }))
@@ -162,6 +158,36 @@ export function Bot() {
     setConfig(prev => ({ ...prev, [field]: value }))
   }
 
+  const appendLineValue = (current, value) => {
+    const trimmed = String(value || '').trim()
+    if (!trimmed) return current || ''
+    const items = String(current || '')
+      .split(/[\n,]+/)
+      .map(item => item.trim())
+      .filter(Boolean)
+    if (!items.includes(trimmed)) items.push(trimmed)
+    return items.join('\n')
+  }
+
+  const appendQQBotIdentity = (identity) => {
+    const openid = String(identity?.openid || '').trim()
+    if (!openid) return
+    const field = identity.kind === 'group' ? 'qqbotAllowedGroupOpenids' : 'qqbotAllowedUserOpenids'
+    handleChange(field, appendLineValue(config[field], openid))
+    setMessage(`${identity.kind === 'group' ? '群' : '用户'} OpenID 已加入白名单。`)
+  }
+
+  const copyQQBotIdentity = async (identity) => {
+    const openid = String(identity?.openid || '').trim()
+    if (!openid) return
+    try {
+      await navigator.clipboard.writeText(openid)
+      setMessage('OpenID 已复制。')
+    } catch {
+      setMessage('复制失败，请手动选中 OpenID 复制。')
+    }
+  }
+
   const parsedInstances = (() => {
     try {
       const value = JSON.parse(config.instances || '[]')
@@ -179,6 +205,10 @@ export function Bot() {
       return []
     }
   })()
+
+  const recentQQBotIdentities = Array.isArray(config.qqbotRecentIdentities)
+    ? config.qqbotRecentIdentities.filter(item => item && item.openid)
+    : []
 
   const actionLabels = {
     restart: '重启',
@@ -333,11 +363,8 @@ export function Bot() {
     qqbotEnabled: !!config.qqbotEnabled,
     qqbotAppId: config.qqbotAppId || '',
     qqbotAppSecret: config.qqbotAppSecret || '',
-    qqbotSandbox: !!config.qqbotSandbox,
-    qqbotEventMode: config.qqbotEventMode || 'webhook',
     qqbotAllowedUserOpenids: config.qqbotAllowedUserOpenids || '',
     qqbotAllowedGroupOpenids: config.qqbotAllowedGroupOpenids || '',
-    qqbotNotifyTargets: config.qqbotNotifyTargets || '',
     qqbotMarkdownEnabled: !!config.qqbotMarkdownEnabled,
     qqbotButtonsEnabled: !!config.qqbotButtonsEnabled,
   })
@@ -402,11 +429,9 @@ export function Bot() {
       qqbotEnabled: raw?.qqbotEnabled ?? false,
       qqbotAppId: raw?.qqbotAppId ?? '',
       qqbotAppSecret: raw?.qqbotAppSecret ?? '',
-      qqbotSandbox: raw?.qqbotSandbox ?? true,
-      qqbotEventMode: ['gateway', 'webhook'].includes(raw?.qqbotEventMode) ? raw.qqbotEventMode : 'webhook',
       qqbotAllowedUserOpenids: raw?.qqbotAllowedUserOpenids ?? '',
       qqbotAllowedGroupOpenids: raw?.qqbotAllowedGroupOpenids ?? '',
-      qqbotNotifyTargets: raw?.qqbotNotifyTargets ?? '',
+      qqbotRecentIdentities: Array.isArray(raw?.qqbotRecentIdentities) ? raw.qqbotRecentIdentities : config.qqbotRecentIdentities,
       qqbotMarkdownEnabled: raw?.qqbotMarkdownEnabled ?? false,
       qqbotButtonsEnabled: raw?.qqbotButtonsEnabled ?? false,
     }
@@ -662,17 +687,10 @@ export function Bot() {
                   </button>
                 </div>
               </Field>
-              <Field label="事件模式">
-                <select value={config.qqbotEventMode} onChange={(e) => handleChange('qqbotEventMode', e.target.value)} className={inputClass}>
-                  <option value="webhook">Webhook</option>
-                  <option value="gateway">Gateway</option>
-                </select>
-              </Field>
-              <Field label="沙箱环境">
-                <div className={togglePanelClass}>
-                  <SectionToggle checked={config.qqbotSandbox} onChange={() => handleChange('qqbotSandbox', !config.qqbotSandbox)} textOn="沙箱" textOff="正式" />
-                </div>
-              </Field>
+              <div className="sm:col-span-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
+                <div className="font-medium">QQ 后台事件回调地址</div>
+                <div className="mt-1 font-mono text-[11px] text-emerald-700 dark:text-emerald-300">https://你的公网域名/api/bot/qqbot/webhook</div>
+              </div>
               <Field label="允许用户 OpenID">
                 <textarea
                   value={config.qqbotAllowedUserOpenids}
@@ -691,15 +709,6 @@ export function Bot() {
                   className={cn(inputClass, 'resize-none font-mono')}
                 />
               </Field>
-              <Field label="通知目标" full>
-                <textarea
-                  value={config.qqbotNotifyTargets}
-                  onChange={(e) => handleChange('qqbotNotifyTargets', e.target.value)}
-                  rows={2}
-                  placeholder="例如 user:openid 或 group:openid"
-                  className={cn(inputClass, 'resize-none font-mono')}
-                />
-              </Field>
               <Field label="Markdown 消息">
                 <div className={togglePanelClass}>
                   <SectionToggle checked={config.qqbotMarkdownEnabled} onChange={() => handleChange('qqbotMarkdownEnabled', !config.qqbotMarkdownEnabled)} textOn="已开启" textOff="已关闭" />
@@ -710,6 +719,42 @@ export function Bot() {
                   <SectionToggle checked={config.qqbotButtonsEnabled} onChange={() => handleChange('qqbotButtonsEnabled', !config.qqbotButtonsEnabled)} textOn="已开启" textOff="已关闭" />
                 </div>
               </Field>
+              <div className="sm:col-span-2 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600 dark:text-gray-400">最近入站身份</span>
+                  <button type="button" onClick={() => loadConfig({ silent: true })} className="text-xs font-medium text-primary-600 hover:text-primary-700 dark:text-primary-400">
+                    刷新
+                  </button>
+                </div>
+                {recentQQBotIdentities.length === 0 ? (
+                  <div className="rounded-lg border border-dashed border-gray-200 px-3 py-2 text-xs text-gray-500 dark:border-gray-700 dark:text-gray-400">
+                    暂无记录。让用户私聊机器人或在群里 @ 机器人后，这里会显示可复制的 OpenID。
+                  </div>
+                ) : (
+                  <div className="max-h-44 space-y-2 overflow-y-auto">
+                    {recentQQBotIdentities.map((identity, index) => {
+                      const kindLabel = identity.kind === 'group' ? '群' : '用户'
+                      return (
+                        <div key={`${identity.kind || 'user'}-${identity.openid}-${index}`} className="rounded-lg border border-gray-200 bg-gray-50 px-3 py-2 dark:border-gray-700 dark:bg-gray-900/30">
+                          <div className="flex items-center justify-between gap-2">
+                            <span className="rounded bg-white px-1.5 py-0.5 text-[11px] font-medium text-gray-600 dark:bg-gray-800 dark:text-gray-300">{kindLabel}</span>
+                            <span className="truncate text-[11px] text-gray-500 dark:text-gray-400">{identity.event_type || ''}</span>
+                          </div>
+                          <div className="mt-1 break-all font-mono text-xs text-gray-900 dark:text-gray-100">{identity.openid}</div>
+                          <div className="mt-2 flex gap-2">
+                            <button type="button" onClick={() => appendQQBotIdentity(identity)} className="rounded-md bg-primary-600 px-2 py-1 text-xs font-medium text-white hover:bg-primary-700">
+                              加入白名单
+                            </button>
+                            <button type="button" onClick={() => copyQQBotIdentity(identity)} className="rounded-md border border-gray-200 px-2 py-1 text-xs font-medium text-gray-600 hover:bg-white dark:border-gray-700 dark:text-gray-300 dark:hover:bg-gray-800">
+                              复制
+                            </button>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
             </div>
           </div>
         </div>
