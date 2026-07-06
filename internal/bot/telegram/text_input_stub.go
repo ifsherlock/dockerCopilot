@@ -2,7 +2,6 @@ package telegram
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"net/url"
 	"strconv"
@@ -24,7 +23,7 @@ func (r *Runtime) startEditText(ctx context.Context, chatID int64, messageID int
 		"default_image_accelerator": svc.AsString(cfg.Telegram["default_image_accelerator"], ""),
 		"backup_max_files":          strconv.Itoa(svc.AsInt(cfg.Telegram["backup_max_files"], 20)),
 		"proxy_config":              proxySummaryFromMap(svc.ProxyMap(cfg.Telegram["proxy"])),
-		"instances_json":            prettyJSON(cfg.Dockercopilot["instances"]),
+		"instances_json":            maskedJSON(cfg.Dockercopilot["instances"]),
 	}[field]
 	fieldName := map[string]string{
 		"default_image_accelerator": "默认镜像加速器",
@@ -89,12 +88,12 @@ func (r *Runtime) processTextInput(ctx context.Context, msg *telego.Message, sta
 		}
 		proxyType, proxyHost, proxyPort, proxyUsername, proxyPassword = pt, ph, pp, pu, pw
 	case "instances_json":
-		var parsed []map[string]interface{}
-		if err := json.Unmarshal([]byte(input), &parsed); err != nil {
+		merged, err := preserveMaskedInstanceSecretsJSON(input, cfg.Dockercopilot["instances"])
+		if err != nil {
 			r.replyText(ctx, msg.Chat.ID, "❌ 实例 JSON 格式错误: "+err.Error())
 			return
 		}
-		instancesJSON = []byte(input)
+		instancesJSON = merged
 	default:
 		r.replyText(ctx, msg.Chat.ID, "❌ 不支持的文本配置项")
 		return
@@ -107,6 +106,8 @@ func (r *Runtime) processTextInput(ctx context.Context, msg *telego.Message, sta
 		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
+		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),
+		ParseMode:               svc.AsString(cfg.Telegram["parse_mode"], "HTML"),
 		UpdateBlacklist:         strings.Join(svc.StringList(cfg.Telegram["update_blacklist"]), ","),
 		AutoCleanImages:         svc.AsBool(cfg.Telegram["auto_clean_images"]),
 		CleanImagesCron:         svc.AsString(cfg.Telegram["clean_images_cron"], "3 2 * * *"),
@@ -156,14 +157,6 @@ func proxySummaryFromMap(proxyCfg map[string]interface{}) string {
 		return fmt.Sprintf("%s://%s:***@%s:%d", proxyType, user, host, port)
 	}
 	return fmt.Sprintf("%s://%s:%d", proxyType, host, port)
-}
-
-func prettyJSON(v interface{}) string {
-	bs, err := json.MarshalIndent(v, "", "  ")
-	if err != nil {
-		return ""
-	}
-	return string(bs)
 }
 
 func parseProxyInput(input string) (proxyType, host string, port int, username, password string, err error) {

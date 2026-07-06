@@ -125,6 +125,8 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 - 自更新：下载对应架构二进制并自动替换
 - 黑名单：可避免误更新关键容器
 
+架构规则见 [更新状态与前端拆分架构](docs/architecture/update-state.md)。更新检测、黑名单统计和概览数字以后端 `UpdateStore`、`blacklist.Matcher`、`summary` 为统一口径，前端只做筛选和展示。
+
 ## 🛠️ 开发构建
 ```bash
 npm install

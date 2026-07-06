@@ -1,0 +1,296 @@
+{
+  "version": 1,
+  "description": "Baseline response contracts for update-related API endpoints before update-state refactoring.",
+  "capturedAt": "2026-07-06",
+  "sourceFiles": [
+    "internal/handler/routes.go",
+    "internal/logic/container/containerslistlogic.go",
+    "internal/logic/container/checkupdatelogic.go",
+    "internal/logic/image/imageslistlogic.go",
+    "internal/logic/bot/configlogic.go",
+    "internal/logic/version/versionlogic.go",
+    "internal/utiles/resources.go"
+  ],
+  "contracts": [
+    {
+      "name": "containers.list",
+      "method": "GET",
+      "path": "/api/containers",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "array"
+      },
+      "dataItemRequiredFields": [
+        "id",
+        "status",
+        "name",
+        "usingImage",
+        "createImage",
+        "createTime",
+        "runningTime",
+        "haveUpdate",
+        "isSelf",
+        "endpointLink"
+      ],
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": [
+          {
+            "id": "0123456789ab",
+            "status": "running",
+            "name": "docker-copilot",
+            "usingImage": "ghcr.io/ifsherlock/dockercopilot:latest",
+            "createImage": "ghcr.io/ifsherlock/dockercopilot:latest",
+            "createTime": "2026-07-06 00:00:00",
+            "runningTime": "Up 1 hour",
+            "haveUpdate": false,
+            "isSelf": true,
+            "endpointLink": {
+              "networkMode": "bridge",
+              "running": true,
+              "hostIP": "",
+              "ports": [],
+              "suggestedURL": "",
+              "needsManual": false,
+              "exposedPorts": [],
+              "editablePort": "",
+              "source": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "containers.checkUpdate",
+      "method": "POST",
+      "path": "/api/containers/check-update",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "object"
+      },
+      "dataRequiredFields": ["running"],
+      "sample": {
+        "code": 200,
+        "msg": "已开始检测更新",
+        "data": {
+          "running": true
+        }
+      }
+    },
+    {
+      "name": "images.list",
+      "method": "GET",
+      "path": "/api/images",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "array"
+      },
+      "dataItemRequiredFields": [
+        "id",
+        "name",
+        "tag",
+        "size",
+        "inUsed",
+        "usageState",
+        "createTime",
+        "cleanupCandidate",
+        "cleanupReason",
+        "multiRef",
+        "haveUpdate",
+        "repoLinks"
+      ],
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": [
+          {
+            "id": "sha256:0123456789ab",
+            "name": "ghcr.io/ifsherlock/dockercopilot",
+            "tag": "latest",
+            "size": "120 Mb",
+            "inUsed": true,
+            "usageState": "running",
+            "createTime": "2026-07-06 00:00:00",
+            "cleanupCandidate": false,
+            "cleanupReason": "in_use_running",
+            "multiRef": false,
+            "haveUpdate": false,
+            "repoTags": ["ghcr.io/ifsherlock/dockercopilot:latest"],
+            "repoDigests": ["ghcr.io/ifsherlock/dockercopilot@sha256:abc"],
+            "repoLinks": {
+              "dockerHub": "",
+              "github": ""
+            }
+          }
+        ]
+      }
+    },
+    {
+      "name": "bot.updateBlacklist.get",
+      "method": "GET",
+      "path": "/api/bot/update-blacklist",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "array"
+      },
+      "dataItemType": "string",
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": ["nginx:latest"]
+      }
+    },
+    {
+      "name": "bot.updateBlacklist.save",
+      "method": "POST",
+      "path": "/api/bot/update-blacklist",
+      "requestRequiredFields": ["items"],
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "array"
+      },
+      "dataItemType": "string",
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": ["nginx:latest"]
+      }
+    },
+    {
+      "name": "version.local",
+      "method": "GET",
+      "path": "/api/version?type=local",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "object"
+      },
+      "dataRequiredFields": ["version", "buildDate"],
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": {
+          "version": "2.1.24",
+          "buildDate": "2026-07-06"
+        }
+      }
+    },
+    {
+      "name": "version.remote",
+      "method": "GET",
+      "path": "/api/version?type=remote",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "object"
+      },
+      "dataRequiredFields": ["remoteVersion"],
+      "sample": {
+        "code": 200,
+        "msg": "程序无更新",
+        "data": {
+          "remoteVersion": "2.1.24"
+        }
+      }
+    },
+    {
+      "name": "overview.resources",
+      "method": "GET",
+      "path": "/api/overview",
+      "responseEnvelope": {
+        "required": ["code", "msg", "data"],
+        "codeType": "number",
+        "msgType": "string",
+        "dataType": "object"
+      },
+      "dataRequiredFields": [
+        "docker",
+        "containers",
+        "images",
+        "networks",
+        "volumes",
+        "storage",
+        "quickLinks",
+        "runningContainers",
+        "recentOperationLogs",
+        "warnings"
+      ],
+      "nestedRequiredFields": {
+        "docker": ["connected", "status", "endpoint", "serverVersion", "apiVersion", "osType", "architecture", "message"],
+        "containers": ["total"],
+        "images": ["total"],
+        "networks": ["total"],
+        "volumes": ["total"],
+        "storage": ["partial", "items", "message"],
+        "quickLinks[]": ["id", "name", "url", "status", "image", "iconUrl", "container"],
+        "runningContainers[]": ["id", "name", "status", "image", "runningTime", "endpointLink"]
+      },
+      "sample": {
+        "code": 200,
+        "msg": "success",
+        "data": {
+          "docker": {
+            "connected": true,
+            "status": "connected",
+            "endpoint": "unix:///var/run/docker.sock",
+            "serverVersion": "27.3.1",
+            "apiVersion": "1.47",
+            "osType": "linux",
+            "architecture": "x86_64",
+            "message": ""
+          },
+          "containers": {
+            "total": 1,
+            "running": 1,
+            "stopped": 0,
+            "paused": 0,
+            "error": 0,
+            "updateAvailable": 0
+          },
+          "images": {
+            "total": 1,
+            "used": 1,
+            "unused": 0,
+            "dangling": 0,
+            "sizeBytes": 125829120,
+            "size": "120.0 MB"
+          },
+          "networks": {
+            "total": 1,
+            "bridge": 1,
+            "macvlan": 0,
+            "custom": 0,
+            "unused": 0
+          },
+          "volumes": {
+            "total": 0,
+            "used": 0,
+            "unused": 0
+          },
+          "storage": {
+            "partial": false,
+            "items": [],
+            "message": ""
+          },
+          "quickLinks": [],
+          "runningContainers": [],
+          "recentOperationLogs": [],
+          "warnings": []
+        }
+      }
+    }
+  ]
+}

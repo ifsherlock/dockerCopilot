@@ -74,6 +74,7 @@ export function ThemeProvider({ children }) {
         const telegram = data.telegram || {}
         const proxy = telegram.proxy || {}
         const dockercopilot = data.dockercopilot || {}
+        const qqbot = data.qqbot || {}
         const instances = Array.isArray(dockercopilot.instances) ? dockercopilot.instances : []
         await botAPI.saveConfig({
           botToken: telegram.bot_token || '',
@@ -81,6 +82,8 @@ export function ThemeProvider({ children }) {
           updateCheckCron: telegram.update_check_cron || '0 18 * * *',
           notifyOnUpdate: telegram.notify_on_update ?? true,
           interactiveEnabled: telegram.interactive_enabled ?? true,
+          richInteractionsEnabled: telegram.rich_interactions_enabled ?? false,
+          parseMode: ['HTML', 'MarkdownV2'].includes(telegram.parse_mode) ? telegram.parse_mode : 'HTML',
           updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
           autoCleanImages: telegram.auto_clean_images ?? false,
           cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
@@ -103,6 +106,16 @@ export function ThemeProvider({ children }) {
           defaultImageAccelerator: telegram.default_image_accelerator || '',
           themeMode: theme,
           themeAppearance: appearance,
+          qqbotEnabled: qqbot.enabled ?? false,
+          qqbotAppId: qqbot.app_id || '',
+          qqbotAppSecret: qqbot.app_secret || '',
+          qqbotSandbox: qqbot.sandbox ?? true,
+          qqbotEventMode: ['gateway', 'webhook'].includes(qqbot.event_mode) ? qqbot.event_mode : 'webhook',
+          qqbotAllowedUserOpenids: Array.isArray(qqbot.allowed_user_openids) ? qqbot.allowed_user_openids.join('\n') : '',
+          qqbotAllowedGroupOpenids: Array.isArray(qqbot.allowed_group_openids) ? qqbot.allowed_group_openids.join('\n') : '',
+          qqbotNotifyTargets: Array.isArray(qqbot.notify_targets) ? qqbot.notify_targets.join('\n') : '',
+          qqbotMarkdownEnabled: qqbot.markdown_enabled ?? false,
+          qqbotButtonsEnabled: qqbot.buttons_enabled ?? false,
         })
       } catch {}
     }, 250)

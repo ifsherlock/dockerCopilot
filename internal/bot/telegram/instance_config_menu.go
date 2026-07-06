@@ -119,7 +119,7 @@ func (r *Runtime) startEditInstanceConfig(ctx context.Context, chatID int64, mes
 		if inst.Name != name {
 			continue
 		}
-		payload := instanceEditPayload{Name: inst.Name, APIURL: inst.APIURL, SecretKey: inst.SecretKey, Timeout: inst.Timeout}
+		payload := maskedInstanceEditPayload(instanceEditPayload{Name: inst.Name, APIURL: inst.APIURL, SecretKey: inst.SecretKey, Timeout: inst.Timeout})
 		bs, _ := json.MarshalIndent(payload, "", "  ")
 		text := "✏️ <b>编辑实例</b>\n\n请直接发送修改后的单个实例 JSON：\n<code>" + escapeHTML(string(bs)) + "</code>\n\n发送 /cancel 可取消。"
 		r.setChatState(chatID, userState{Action: "instance_edit", Extra: name, MessageID: messageID})
@@ -176,6 +176,12 @@ func (r *Runtime) saveInstanceConfigAction(ctx context.Context, chatID int64, mo
 	payload.Name = strings.TrimSpace(payload.Name)
 	payload.APIURL = strings.TrimSpace(payload.APIURL)
 	payload.SecretKey = strings.TrimSpace(payload.SecretKey)
+	if mode == "edit" {
+		payload = preserveMaskedInstanceSecret(payload, instances, oldName)
+	}
+	if isMaskedSecretPlaceholder(payload.SecretKey) {
+		return fmt.Errorf("secret_key 不能使用遮罩占位符，请填写真实密钥")
+	}
 	if payload.Name == "" || payload.APIURL == "" || payload.SecretKey == "" {
 		return fmt.Errorf("name / api_url / secret_key 不能为空")
 	}

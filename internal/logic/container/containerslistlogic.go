@@ -2,10 +2,11 @@ package container
 
 import (
 	"context"
-	"os"
-	"strings"
 	"time"
 
+	"github.com/onlyLTY/dockerCopilot/internal/domain/summary"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
+	"github.com/onlyLTY/dockerCopilot/internal/logic/updateview"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
@@ -28,6 +29,10 @@ type Info struct {
 	RunningTime  string                      `json:"runningTime"`
 	HaveUpdate   bool                        `json:"haveUpdate"`
 	IsSelf       bool                        `json:"isSelf"`
+	UpdateKind   string                      `json:"updateKind,omitempty"`
+	UpdateStatus string                      `json:"updateStatus,omitempty"`
+	Ignored      bool                        `json:"ignored,omitempty"`
+	IgnoreReason string                      `json:"ignoreReason,omitempty"`
 	EndpointLink types.ContainerEndpointLink `json:"endpointLink"`
 }
 
@@ -41,7 +46,7 @@ func NewContainersListLogic(ctx context.Context, svcCtx *svc.ServiceContext) *Co
 
 func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	list, err := utiles.GetContainerList(l.svcCtx)
+	snapshot, err := updateview.BuildContainerSnapshot(l.ctx, l.svcCtx)
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
@@ -51,49 +56,64 @@ func (l *ContainersListLogic) ContainersList() (resp *types.Resp, err error) {
 	resp.Msg = "success"
 	var containerInfoList []Info
 	if l.svcCtx.TryStartUpdateCheck(30 * time.Minute) {
-		checkList := append([]types.Container(nil), list...)
+		checkList := make([]types.Container, 0, len(snapshot.DockerContainers))
+		for _, item := range snapshot.DockerContainers {
+			checkList = append(checkList, types.Container{Container: item})
+		}
 		go func() {
 			defer l.svcCtx.FinishUpdateCheck()
 			utiles.CheckImageUpdate(l.svcCtx, checkList)
 		}()
 	}
-	selfID, _ := os.Hostname()
-	selfID = strings.TrimSpace(selfID)
-	for _, v := range list {
-		var containerInfo Info
-		containerInfo.Id = v.ID
-		containerInfo.Status = v.State
-		if len(v.Names) > 0 {
-			containerInfo.Name = strings.TrimPrefix(v.Names[0], "/")
-		} else {
-			containerInfo.Name = "get container name error"
-			l.Error("get container name error" + v.ID)
+	for i, v := range snapshot.Inventory.Containers {
+		containerInfo := Info{
+			Id:           v.ID,
+			Status:       v.State,
+			Name:         v.Name,
+			UsingImage:   v.UsingImage,
+			CreateImage:  v.CreatedImageRef,
+			CreateTime:   v.CreatedAt.Format("2006-01-02 15:04:05"),
+			RunningTime:  v.Status,
+			IsSelf:       v.IsSelf,
+			UpdateStatus: string(updatecheck.StatusUnknown),
 		}
-		if v.Image != "" {
-			containerInfo.UsingImage = v.Image
+		if inspect, ok := snapshot.Inspects[v.ID]; ok {
+			if inspect.Config != nil {
+				containerInfo.CreateImage = inspect.Config.Image
+			}
+			if i < len(snapshot.DockerContainers) {
+				containerInfo.EndpointLink = utiles.BuildContainerEndpointLink(snapshot.DockerContainers[i], inspect, l.svcCtx.DockerClient)
+			}
 		} else {
-			containerInfo.UsingImage = v.ImageID
-			l.Error("image dont have name" + v.ID)
-		}
-		containerInspect, err := utiles.GetContainerInspect(l.svcCtx, v.ID)
-		if err != nil {
-			containerInfo.CreateImage = ""
 			l.Error("get image name error" + v.ID)
-		} else {
-			containerInfo.CreateImage = containerInspect.Config.Image
-			containerInfo.EndpointLink = utiles.BuildContainerEndpointLink(v.Container, containerInspect, l.svcCtx.DockerClient)
 		}
-		if cached, ok := l.svcCtx.GetHubImageUpdate(v.ImageID); ok {
-			v.Update = cached
+		state, _ := updateview.UpdateState(l.svcCtx.UpdateStore, v.ImageID)
+		containerInfo.HaveUpdate = state.Status == updatecheck.StatusUpdateAvailable
+		if containerInfo.HaveUpdate {
+			match := summary.ContainerIgnored(v, snapshot.Matcher)
+			containerInfo.Ignored = match.Matched
+			containerInfo.IgnoreReason = match.Reason
 		}
-		t := time.Unix(v.Created, 0)
-		containerInfo.CreateTime = t.Format("2006-01-02 15:04:05")
-		containerInfo.RunningTime = v.Status
-		containerInfo.HaveUpdate = v.Update
-		containerInfo.IsSelf = selfID != "" && (v.ID == selfID || strings.HasPrefix(v.ID, selfID) || strings.HasPrefix(selfID, v.ID))
+		containerInfo.UpdateKind, containerInfo.UpdateStatus = containerUpdateKind(containerInfo.IsSelf, containerInfo.HaveUpdate, containerInfo.Ignored, state)
 		containerInfoList = append(containerInfoList, containerInfo)
 	}
 	resp.Code = 200
 	resp.Data = containerInfoList
 	return resp, nil
+}
+
+func containerUpdateKind(isSelf bool, haveUpdate bool, ignored bool, state updatecheck.ImageState) (string, string) {
+	if ignored {
+		if isSelf {
+			return "self_container_image", string(updatecheck.StatusIgnored)
+		}
+		return "container_image", string(updatecheck.StatusIgnored)
+	}
+	if !haveUpdate {
+		return "", updateview.UpdateStatus(state, false)
+	}
+	if isSelf {
+		return "self_container_image", string(updatecheck.StatusUpdateAvailable)
+	}
+	return "container_image", string(updatecheck.StatusUpdateAvailable)
 }

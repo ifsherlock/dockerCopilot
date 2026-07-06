@@ -7,6 +7,7 @@ import (
 
 	"github.com/google/uuid"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
@@ -33,9 +34,24 @@ func (l *UpdateProgramLogic) UpdateProgram(force bool) (resp *types.Resp, err er
 		remoteVersion, remoteErr := utiles.GetRemoteVersion()
 		if remoteErr == nil && strings.TrimSpace(remoteVersion) != "" {
 			if strings.TrimPrefix(strings.TrimSpace(remoteVersion), "v") == strings.TrimPrefix(strings.TrimSpace(config.Version), "v") {
+				if l.svcCtx != nil && l.svcCtx.UpdateStore != nil {
+					l.svcCtx.UpdateStore.SetProgram(updatecheck.ProgramUpdateState{
+						LocalVersion:  config.Version,
+						BuildDate:     config.BuildDate,
+						RemoteVersion: remoteVersion,
+						Status:        updatecheck.StatusUpToDate,
+						CheckedAt:     time.Now(),
+					})
+				}
 				resp.Code = 200
 				resp.Msg = "当前已是最新版本"
-				resp.Data = map[string]interface{}{"updated": false, "currentVersion": config.Version, "remoteVersion": remoteVersion}
+				resp.Data = map[string]interface{}{
+					"updated":             false,
+					"currentVersion":      config.Version,
+					"remoteVersion":       remoteVersion,
+					"updateType":          "program",
+					"programUpdateStatus": string(updatecheck.StatusUpToDate),
+				}
 				return resp, nil
 			}
 		}
@@ -87,6 +103,6 @@ func (l *UpdateProgramLogic) UpdateProgram(force bool) (resp *types.Resp, err er
 
 	resp.Code = 200
 	resp.Msg = "success"
-	resp.Data = map[string]interface{}{"updated": true, "taskID": taskID}
+	resp.Data = map[string]interface{}{"updated": true, "taskID": taskID, "updateType": "program", "programUpdateStatus": string(updatecheck.StatusUpdateAvailable)}
 	return resp, nil
 }

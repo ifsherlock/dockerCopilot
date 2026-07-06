@@ -2,8 +2,10 @@ package svc
 
 import (
 	"testing"
+	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/config"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
 )
 
 func TestServiceContextPersistsRuntimeLogs(t *testing.T) {
@@ -37,5 +39,54 @@ func TestServiceContextPersistsRuntimeLogs(t *testing.T) {
 	}
 	if progress.CreatedAt == "" || progress.UpdatedAt == "" {
 		t.Fatalf("progress timestamps were not persisted: %#v", progress)
+	}
+}
+
+func TestServiceContextUsesUpdateStoreAsOnlyImageUpdateState(t *testing.T) {
+	ctx := NewServiceContext(config.Config{})
+
+	ctx.SetHubImageUpdate("sha256:image", true)
+	needUpdate, ok := ctx.GetHubImageUpdate("sha256:image")
+	if !ok || !needUpdate {
+		t.Fatalf("GetHubImageUpdate() = %v, %v; want true, true", needUpdate, ok)
+	}
+
+	state, ok := ctx.UpdateStore.GetImage("sha256:image")
+	if !ok || state.Status != updatecheck.StatusUpdateAvailable {
+		t.Fatalf("UpdateStore state = %#v, ok=%v", state, ok)
+	}
+
+	ctx.ClearHubImageUpdate("sha256:image")
+	if _, ok := ctx.GetHubImageUpdate("sha256:image"); ok {
+		t.Fatalf("GetHubImageUpdate() ok = true after clear")
+	}
+}
+
+func TestServiceContextDelegatesUpdateCheckLifecycleToUpdateStore(t *testing.T) {
+	ctx := NewServiceContext(config.Config{})
+	now := time.Date(2026, 7, 6, 1, 45, 0, 0, time.UTC)
+	ctx.UpdateStore = updatecheck.NewStoreWithClock(func() time.Time { return now })
+
+	if !ctx.TryStartUpdateCheck(30 * time.Minute) {
+		t.Fatalf("TryStartUpdateCheck() = false, want true")
+	}
+	running, last := ctx.UpdateCheckStatus()
+	if !running || !last.Equal(now) {
+		t.Fatalf("UpdateCheckStatus() = %v, %s; want running at %s", running, last, now)
+	}
+	if !ctx.UpdateCheckRunning || !ctx.UpdateCheckLast.Equal(now) {
+		t.Fatalf("legacy lifecycle fields not synchronized")
+	}
+	if ctx.TryStartUpdateCheck(0) {
+		t.Fatalf("TryStartUpdateCheck while running = true, want false")
+	}
+
+	ctx.FinishUpdateCheck()
+	running, last = ctx.UpdateCheckStatus()
+	if running || !last.Equal(now) {
+		t.Fatalf("UpdateCheckStatus() after finish = %v, %s", running, last)
+	}
+	if ctx.IsUpdateCheckRunning() {
+		t.Fatalf("IsUpdateCheckRunning() = true after finish")
 	}
 }

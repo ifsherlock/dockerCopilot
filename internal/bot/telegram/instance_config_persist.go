@@ -24,6 +24,8 @@ func (r *Runtime) persistInstancesConfig(ctx context.Context, cfg runtimeConfigV
 		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
+		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),
+		ParseMode:               svc.AsString(cfg.Telegram["parse_mode"], "HTML"),
 		UpdateBlacklist:         strings.Join(svc.StringList(cfg.Telegram["update_blacklist"]), ","),
 		AutoCleanImages:         svc.AsBool(cfg.Telegram["auto_clean_images"]),
 		CleanImagesCron:         svc.AsString(cfg.Telegram["clean_images_cron"], "3 2 * * *"),

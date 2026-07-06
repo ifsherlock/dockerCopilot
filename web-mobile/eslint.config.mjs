@@ -1,0 +1,28 @@
+import js from '@eslint/js'
+import tseslint from 'typescript-eslint'
+
+export default [
+  {
+    ignores: [
+      '.next/**',
+      'out/**',
+      'node_modules/**',
+      'components/ui/**',
+    ],
+  },
+  js.configs.recommended,
+  ...tseslint.configs.recommended,
+  {
+    files: ['app/**/*.{ts,tsx}', 'features/**/*.{ts,tsx}', 'hooks/**/*.{ts,tsx}', 'lib/**/*.{ts,tsx}'],
+    languageOptions: {
+      parserOptions: {
+        project: './tsconfig.json',
+        tsconfigRootDir: import.meta.dirname,
+      },
+    },
+    rules: {
+      '@typescript-eslint/no-explicit-any': 'off',
+      '@typescript-eslint/no-unused-vars': ['warn', { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }],
+    },
+  },
+]

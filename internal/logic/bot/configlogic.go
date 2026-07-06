@@ -4,11 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
-	"path/filepath"
 	"strconv"
 	"strings"
 
+	"github.com/onlyLTY/dockerCopilot/internal/domain/blacklist"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -20,6 +20,8 @@ type ConfigLogic struct {
 	svcCtx *svc.ServiceContext
 }
 
+const maskedSecretPlaceholder = "******"
+
 func NewConfigLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ConfigLogic {
 	return &ConfigLogic{
 		Logger: logx.WithContext(ctx),
@@ -28,99 +30,21 @@ func NewConfigLogic(ctx context.Context, svcCtx *svc.ServiceContext) *ConfigLogi
 	}
 }
 
-type runtimeConfig struct {
-	Version       string                 `json:"version"`
-	Dockercopilot map[string]interface{} `json:"dockercopilot"`
-	Telegram      map[string]interface{} `json:"telegram"`
+func (l *ConfigLogic) configStore() *runtimeconfig.Store {
+	secretKey := ""
+	if l != nil && l.svcCtx != nil {
+		secretKey = l.svcCtx.Config.Auth.AccessSecret
+	}
+	return runtimeconfig.NewStore("", secretKey)
 }
 
-func configPath() string {
-	if p := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG")); p != "" {
-		return p
-	}
-	return "/app/config/config.json"
-}
-
-func defaultConfig(secretKey string) runtimeConfig {
-	apiURL := os.Getenv("DOCKERCOPILOT_API_URL")
-	if apiURL == "" {
-		apiURL = "http://127.0.0.1:12712"
-	}
-	if secretKey == "" {
-		secretKey = os.Getenv("secretKey")
-	}
-	return runtimeConfig{
-		Version: "1.0",
-		Dockercopilot: map[string]interface{}{
-			"multi_instance_enabled": false,
-			"default_instance":       "local",
-			"service_log_dir":        "",
-			"instances": []map[string]interface{}{
-				{
-					"name":       "local",
-					"api_url":    apiURL,
-					"secret_key": secretKey,
-					"timeout":    30,
-				},
-			},
-		},
-		Telegram: map[string]interface{}{
-			"bot_token":                 "",
-			"chat_ids":                  []string{},
-			"polling_interval":          1,
-			"interactive_enabled":       true,
-			"update_check_cron":         "0 18 * * *",
-			"notify_on_update":          true,
-			"update_blacklist":          []string{},
-			"auto_clean_images":         false,
-			"clean_images_cron":         "3 2 * * *",
-			"auto_update_containers":    false,
-			"update_containers_cron":    "0 */6 * * *",
-			"scheduled_container_tasks": []map[string]interface{}{},
-			"auto_backup_json":          false,
-			"backup_json_cron":          "0 1 * * *",
-			"auto_backup_compose":       false,
-			"backup_compose_cron":       "30 1 * * *",
-			"backup_max_files":          20,
-			"image_accelerators":        []string{"docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"},
-			"default_image_accelerator": "docker.1ms.run",
-			"theme_mode":                "light",
-			"theme_appearance":          "aurora",
-			"proxy": map[string]interface{}{
-				"type":     "none",
-				"host":     "",
-				"port":     0,
-				"username": "",
-				"password": "",
-			},
-		},
-	}
-}
-
-func readConfig(secretKey string) (runtimeConfig, error) {
-	cfg := defaultConfig(secretKey)
-	b, err := os.ReadFile(configPath())
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-		return cfg, err
-	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		return cfg, err
-	}
-	if cfg.Dockercopilot == nil {
-		cfg.Dockercopilot = defaultConfig(secretKey).Dockercopilot
-	}
-	if cfg.Telegram == nil {
-		cfg.Telegram = defaultConfig(secretKey).Telegram
-	}
-	return cfg, nil
+func (l *ConfigLogic) readConfig() (runtimeconfig.Config, error) {
+	return l.configStore().Read()
 }
 
 func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	cfg, err := l.readConfig()
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
@@ -130,6 +54,9 @@ func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 	if cfg.Dockercopilot == nil {
 		cfg.Dockercopilot = map[string]interface{}{}
 	}
+	if cfg.QQBot == nil {
+		cfg.QQBot = map[string]interface{}{}
+	}
 	if _, ok := cfg.Dockercopilot["host_lan_ip"]; !ok {
 		cfg.Dockercopilot["host_lan_ip"] = ""
 	}
@@ -138,65 +65,20 @@ func (l *ConfigLogic) GetConfig() (resp *types.Resp, err error) {
 	}
 	resp.Code = 200
 	resp.Msg = "success"
+	if secret := strings.TrimSpace(toString(cfg.QQBot["app_secret"])); secret != "" {
+		cfg.QQBot["app_secret"] = maskedSecretPlaceholder
+	}
 	resp.Data = cfg
 	return resp, nil
 }
 
-func normalizeImageName(value string) string {
-	v := strings.ToLower(strings.TrimSpace(value))
-	v = strings.TrimPrefix(v, "http://")
-	v = strings.TrimPrefix(v, "https://")
-	for _, prefix := range []string{"registry-1.docker.io/", "docker.io/", "library/"} {
-		v = strings.TrimPrefix(v, prefix)
-	}
-	if v == "" {
-		return ""
-	}
-	slash := strings.LastIndex(v, "/")
-	colon := strings.LastIndex(v, ":")
-	if colon <= slash && !strings.Contains(v, "@") {
-		v += ":latest"
-	}
-	return v
-}
-
-func normalizeList(items []string) []string {
-	seen := make(map[string]struct{}, len(items))
-	out := make([]string, 0, len(items))
-	for _, item := range items {
-		v := normalizeImageName(item)
-		if v == "" {
-			continue
-		}
-		if _, ok := seen[v]; ok {
-			continue
-		}
-		seen[v] = struct{}{}
-		out = append(out, v)
-	}
-	return out
-}
-
 func stringSliceFromInterface(v interface{}) []string {
-	switch t := v.(type) {
-	case []string:
-		return normalizeList(t)
-	case []interface{}:
-		out := make([]string, 0, len(t))
-		for _, item := range t {
-			out = append(out, toString(item))
-		}
-		return normalizeList(out)
-	case string:
-		return splitLinesOrComma(t)
-	default:
-		return []string{}
-	}
+	return blacklist.LegacyStringsFromInterface(v)
 }
 
 func (l *ConfigLogic) GetUpdateBlacklist() (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	cfg, err := l.readConfig()
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
@@ -211,30 +93,16 @@ func (l *ConfigLogic) GetUpdateBlacklist() (resp *types.Resp, err error) {
 
 func (l *ConfigLogic) SaveUpdateBlacklist(req *types.UpdateBlacklistReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	cfg, err := l.readConfig()
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
 		resp.Data = []string{}
 		return resp, nil
 	}
-	list := normalizeList(req.Items)
+	list := blacklist.NormalizeLegacyStrings(req.Items)
 	cfg.Telegram["update_blacklist"] = list
-	path := configPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		resp.Code = 500
-		resp.Msg = err.Error()
-		resp.Data = []string{}
-		return resp, nil
-	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		resp.Code = 500
-		resp.Msg = err.Error()
-		resp.Data = []string{}
-		return resp, nil
-	}
-	if err := os.WriteFile(path, b, 0600); err != nil {
+	if err := l.configStore().Write(cfg); err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
 		resp.Data = []string{}
@@ -338,6 +206,26 @@ func requestBoolOrExisting(req *types.BotConfigReq, field string, submitted bool
 	return fallback
 }
 
+func normalizeTelegramParseMode(value string, fallback string) string {
+	mode := strings.TrimSpace(value)
+	if mode == "" {
+		mode = fallback
+	}
+	switch strings.ToUpper(mode) {
+	case "HTML":
+		return "HTML"
+	case "MARKDOWNV2", "MARKDOWN_V2", "MARKDOWN-V2":
+		return "MarkdownV2"
+	default:
+		return "HTML"
+	}
+}
+
+func isMaskedSecretPlaceholder(value string) bool {
+	trimmed := strings.TrimSpace(value)
+	return trimmed == maskedSecretPlaceholder || trimmed == "********"
+}
+
 func hasAnyConfigPayload(req *types.BotConfigReq) bool {
 	if req != nil && req.PresentFields != nil && len(req.PresentFields) > 0 {
 		return true
@@ -365,12 +253,19 @@ func hasAnyConfigPayload(req *types.BotConfigReq) bool {
 		strings.TrimSpace(req.ServiceLogDir) != "" ||
 		strings.TrimSpace(req.ThemeMode) != "" ||
 		strings.TrimSpace(req.ThemeAppearance) != "" ||
-		req.NotifyOnUpdate || req.InteractiveEnabled || req.AutoCleanImages || req.AutoUpdateContainers || req.AutoBackupJson || req.AutoBackupCompose || req.MultiInstanceEnabled
+		strings.TrimSpace(req.ParseMode) != "" ||
+		strings.TrimSpace(req.QQBotAppID) != "" ||
+		strings.TrimSpace(req.QQBotAppSecret) != "" ||
+		strings.TrimSpace(req.QQBotEventMode) != "" ||
+		strings.TrimSpace(req.QQBotAllowedUserOpenIDs) != "" ||
+		strings.TrimSpace(req.QQBotAllowedGroupOpenIDs) != "" ||
+		strings.TrimSpace(req.QQBotNotifyTargets) != "" ||
+		req.NotifyOnUpdate || req.InteractiveEnabled || req.RichInteractionsEnabled || req.AutoCleanImages || req.AutoUpdateContainers || req.AutoBackupJson || req.AutoBackupCompose || req.MultiInstanceEnabled
 }
 
 func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
-	cfg, err := readConfig(l.svcCtx.Config.Auth.AccessSecret)
+	cfg, err := l.readConfig()
 	if err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
@@ -455,8 +350,10 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	cfg.Telegram["update_check_cron"] = updateCheckCron
 	cfg.Telegram["notify_on_update"] = requestBoolOrExisting(req, "notifyOnUpdate", req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true)
 	cfg.Telegram["interactive_enabled"] = requestBoolOrExisting(req, "interactiveEnabled", req.InteractiveEnabled, cfg.Telegram, "interactive_enabled", true)
+	cfg.Telegram["rich_interactions_enabled"] = requestBoolOrExisting(req, "richInteractionsEnabled", req.RichInteractionsEnabled, cfg.Telegram, "rich_interactions_enabled", false)
+	cfg.Telegram["parse_mode"] = normalizeTelegramParseMode(requestOrExisting(req.ParseMode, cfg.Telegram, "parse_mode", "HTML"), "HTML")
 	if strings.TrimSpace(req.UpdateBlacklist) != "" {
-		cfg.Telegram["update_blacklist"] = normalizeList(splitLinesOrComma(req.UpdateBlacklist))
+		cfg.Telegram["update_blacklist"] = blacklist.NormalizeLegacyStrings(splitLinesOrComma(req.UpdateBlacklist))
 	} else if _, ok := cfg.Telegram["update_blacklist"]; !ok {
 		cfg.Telegram["update_blacklist"] = []string{}
 	}
@@ -567,6 +464,41 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	}
 	cfg.Telegram["theme_mode"] = themeMode
 	cfg.Telegram["theme_appearance"] = themeAppearance
+	if cfg.QQBot == nil {
+		cfg.QQBot = map[string]interface{}{}
+	}
+	cfg.QQBot["enabled"] = requestBoolOrExisting(req, "qqbotEnabled", req.QQBotEnabled, cfg.QQBot, "enabled", false)
+	cfg.QQBot["app_id"] = requestOrExisting(req.QQBotAppID, cfg.QQBot, "app_id", "")
+	if req.HasField("qqbotAppSecret") {
+		if !isMaskedSecretPlaceholder(req.QQBotAppSecret) {
+			cfg.QQBot["app_secret"] = strings.TrimSpace(req.QQBotAppSecret)
+		}
+	} else if _, ok := cfg.QQBot["app_secret"]; !ok {
+		cfg.QQBot["app_secret"] = ""
+	}
+	cfg.QQBot["sandbox"] = requestBoolOrExisting(req, "qqbotSandbox", req.QQBotSandbox, cfg.QQBot, "sandbox", true)
+	eventMode := strings.ToLower(strings.TrimSpace(requestOrExisting(req.QQBotEventMode, cfg.QQBot, "event_mode", "webhook")))
+	if eventMode != "gateway" && eventMode != "webhook" {
+		eventMode = "webhook"
+	}
+	cfg.QQBot["event_mode"] = eventMode
+	if req.HasField("qqbotAllowedUserOpenids") {
+		cfg.QQBot["allowed_user_openids"] = splitLinesOrComma(req.QQBotAllowedUserOpenIDs)
+	} else if _, ok := cfg.QQBot["allowed_user_openids"]; !ok {
+		cfg.QQBot["allowed_user_openids"] = []string{}
+	}
+	if req.HasField("qqbotAllowedGroupOpenids") {
+		cfg.QQBot["allowed_group_openids"] = splitLinesOrComma(req.QQBotAllowedGroupOpenIDs)
+	} else if _, ok := cfg.QQBot["allowed_group_openids"]; !ok {
+		cfg.QQBot["allowed_group_openids"] = []string{}
+	}
+	if req.HasField("qqbotNotifyTargets") {
+		cfg.QQBot["notify_targets"] = splitLinesOrComma(req.QQBotNotifyTargets)
+	} else if _, ok := cfg.QQBot["notify_targets"]; !ok {
+		cfg.QQBot["notify_targets"] = []string{}
+	}
+	cfg.QQBot["markdown_enabled"] = requestBoolOrExisting(req, "qqbotMarkdownEnabled", req.QQBotMarkdownEnabled, cfg.QQBot, "markdown_enabled", false)
+	cfg.QQBot["buttons_enabled"] = requestBoolOrExisting(req, "qqbotButtonsEnabled", req.QQBotButtonsEnabled, cfg.QQBot, "buttons_enabled", false)
 	if strings.TrimSpace(req.DefaultInstance) != "" {
 		cfg.Dockercopilot["default_instance"] = strings.TrimSpace(req.DefaultInstance)
 	}
@@ -650,21 +582,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		cfg.Dockercopilot["default_instance"] = defaultName
 	}
 
-	path := configPath()
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		resp.Code = 500
-		resp.Msg = err.Error()
-		resp.Data = map[string]interface{}{}
-		return resp, nil
-	}
-	b, err := json.MarshalIndent(cfg, "", "  ")
-	if err != nil {
-		resp.Code = 500
-		resp.Msg = err.Error()
-		resp.Data = map[string]interface{}{}
-		return resp, nil
-	}
-	if err := os.WriteFile(path, b, 0600); err != nil {
+	if err := l.configStore().Write(cfg); err != nil {
 		resp.Code = 500
 		resp.Msg = err.Error()
 		resp.Data = map[string]interface{}{}

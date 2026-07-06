@@ -19,7 +19,8 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/client"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
-	"github.com/onlyLTY/dockerCopilot/internal/module"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
 	backupCompose "github.com/onlyLTY/dockerCopilot/internal/utiles/backup_compose"
 	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -33,7 +34,7 @@ type ServiceContext struct {
 	BearerTokenCheckMiddleware rest.Middleware
 	JwtSecret                  string
 	PortainerJwt               string
-	HubImageInfo               *module.ImageUpdateData
+	UpdateStore                *updatecheck.Store
 	IndexCheckMiddleware       rest.Middleware
 	ProgressStore              ProgressStoreType
 	DockerClient               *client.Client
@@ -68,6 +69,7 @@ type ProgressStoreType map[string]TaskProgress
 type backupRuntimeConfig struct {
 	Dockercopilot map[string]interface{} `json:"dockercopilot"`
 	Telegram      map[string]interface{} `json:"telegram"`
+	QQBot         map[string]interface{} `json:"qqbot"`
 }
 
 func NewServiceContext(c config.Config) *ServiceContext {
@@ -77,7 +79,7 @@ func NewServiceContext(c config.Config) *ServiceContext {
 	}
 	ctx := &ServiceContext{
 		Config:        c,
-		HubImageInfo:  module.NewImageCheck(),
+		UpdateStore:   updatecheck.NewStore(),
 		ProgressStore: make(ProgressStoreType),
 		DockerClient:  cli,
 		BackupCron: cron.New(cron.WithParser(cron.NewParser(
@@ -91,39 +93,35 @@ func NewServiceContext(c config.Config) *ServiceContext {
 }
 
 func (ctx *ServiceContext) GetHubImageUpdate(imageID string) (bool, bool) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	cached, ok := ctx.HubImageInfo.Data[imageID]
+	state, ok := ctx.UpdateStore.GetImage(imageID)
 	if !ok {
 		return false, false
 	}
-	return cached.NeedUpdate, true
+	return state.NeedUpdate(), true
 }
 
 func (ctx *ServiceContext) SetHubImageUpdate(imageID string, needUpdate bool) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	ctx.HubImageInfo.Data[imageID] = module.ImageCheckList{NeedUpdate: needUpdate}
+	ctx.UpdateStore.SetLegacyImageUpdate(imageID, needUpdate)
 }
 
 func (ctx *ServiceContext) ClearHubImageUpdate(imageID string) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	delete(ctx.HubImageInfo.Data, imageID)
+	ctx.UpdateStore.ClearImages(imageID)
 }
 
 func (ctx *ServiceContext) ClearHubImageUpdates(imageIDs ...string) {
-	ctx.mu.Lock()
-	defer ctx.mu.Unlock()
-	for _, imageID := range imageIDs {
-		if imageID == "" {
-			continue
-		}
-		delete(ctx.HubImageInfo.Data, imageID)
-	}
+	ctx.UpdateStore.ClearImages(imageIDs...)
 }
 
 func (ctx *ServiceContext) TryStartUpdateCheck(cooldown time.Duration) bool {
+	if ctx.UpdateStore != nil {
+		started := ctx.UpdateStore.TryStartCheck(cooldown)
+		running, last := ctx.UpdateStore.CheckStatus()
+		ctx.mu.Lock()
+		ctx.UpdateCheckRunning = running
+		ctx.UpdateCheckLast = last
+		ctx.mu.Unlock()
+		return started
+	}
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 	if ctx.UpdateCheckRunning || time.Since(ctx.UpdateCheckLast) < cooldown {
@@ -135,18 +133,34 @@ func (ctx *ServiceContext) TryStartUpdateCheck(cooldown time.Duration) bool {
 }
 
 func (ctx *ServiceContext) FinishUpdateCheck() {
+	if ctx.UpdateStore != nil {
+		ctx.UpdateStore.FinishCheck()
+		running, last := ctx.UpdateStore.CheckStatus()
+		ctx.mu.Lock()
+		ctx.UpdateCheckRunning = running
+		ctx.UpdateCheckLast = last
+		ctx.mu.Unlock()
+		return
+	}
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 	ctx.UpdateCheckRunning = false
 }
 
 func (ctx *ServiceContext) IsUpdateCheckRunning() bool {
+	if ctx.UpdateStore != nil {
+		running, _ := ctx.UpdateStore.CheckStatus()
+		return running
+	}
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 	return ctx.UpdateCheckRunning
 }
 
 func (ctx *ServiceContext) UpdateCheckStatus() (running bool, last time.Time) {
+	if ctx.UpdateStore != nil {
+		return ctx.UpdateStore.CheckStatus()
+	}
 	ctx.mu.Lock()
 	defer ctx.mu.Unlock()
 	return ctx.UpdateCheckRunning, ctx.UpdateCheckLast
@@ -634,28 +648,11 @@ func (ctx *ServiceContext) RunComposeBackupNow() error {
 }
 
 func LoadRuntimeConfigForRead() (backupRuntimeConfig, error) {
-	path := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG"))
-	if path == "" {
-		path = "/app/config/config.json"
-	}
-	cfg := backupRuntimeConfig{Telegram: map[string]interface{}{}}
-	b, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			return cfg, nil
-		}
-		return cfg, err
-	}
-	if err := json.Unmarshal(b, &cfg); err != nil {
-		return cfg, err
-	}
-	if cfg.Telegram == nil {
-		cfg.Telegram = map[string]interface{}{}
-	}
-	if cfg.Dockercopilot == nil {
-		cfg.Dockercopilot = map[string]interface{}{}
-	}
-	return cfg, nil
+	cfg, err := runtimeconfig.NewStore("", "").Read()
+	return backupRuntimeConfig{
+		Dockercopilot: cfg.Dockercopilot,
+		Telegram:      cfg.Telegram,
+	}, err
 }
 
 func asBool(v interface{}) bool {

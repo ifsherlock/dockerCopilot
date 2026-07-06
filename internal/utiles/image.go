@@ -8,7 +8,6 @@ import (
 
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/image"
-	"github.com/onlyLTY/dockerCopilot/internal/module"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	MyType "github.com/onlyLTY/dockerCopilot/internal/types"
 	"log"
@@ -148,11 +147,12 @@ func enrichImageUpdateFlags(svcCtx *svc.ServiceContext, imageList []MyType.Image
 			imageList[i].HaveUpdate = false
 			continue
 		}
-		needUpdate, err := module.CheckImageRefUpdate(imageRef+":"+tag, imageInfo.RepoDigests)
+		result, err := checkImageRefUpdateState(imageRef+":"+tag, imageInfo.RepoDigests)
 		if err != nil {
 			imageList[i].HaveUpdate = false
 			continue
 		}
+		needUpdate := result.NeedUpdate
 		imageList[i].HaveUpdate = needUpdate
 		svcCtx.SetHubImageUpdate(imageInfo.ID, needUpdate)
 	}

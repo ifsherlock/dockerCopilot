@@ -14,7 +14,8 @@ import (
 	"path/filepath"
 	"time"
 
-	botruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
+	qqbotruntime "github.com/onlyLTY/dockerCopilot/internal/bot/qqbot"
+	telegramruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -141,12 +142,18 @@ export const customImageLogos = {
 		}
 	})
 	handler.RegisterHandlers(server, ctx)
+	qqbotruntime.RegisterWebhookRoutes(server, ctx)
 	RegisterHandlers(server, pcFS, mobileFS)
 	logx.Infof("HTTP 路由注册完成")
-	if err := botruntime.Start(context.Background(), ctx); err != nil {
+	if err := telegramruntime.Start(context.Background(), ctx); err != nil {
 		logx.Errorf("启动 Telegram Bot 失败: %v", err)
 	} else {
 		logx.Infof("Telegram Bot 启动流程已完成")
+	}
+	if err := qqbotruntime.Start(context.Background(), ctx); err != nil {
+		logx.Errorf("启动 QQBot 失败: %v", err)
+	} else {
+		logx.Infof("QQBot 启动流程已完成")
 	}
 	logx.Infof("程序版本=%s", config.Version)
 	logx.Infof("HTTP 服务准备监听: %s:%d", c.Host, c.Port)

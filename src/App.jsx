@@ -1,18 +1,6 @@
-import React, { useState, useEffect } from 'react'
+import React, { Suspense, lazy, useState, useEffect } from 'react'
 import { Auth } from './components/Auth.jsx'
 import { Sidebar, MobileBottomNav } from './components/Header.jsx'
-import { Overview } from './components/Overview.jsx'
-import { Containers } from './components/Containers.jsx'
-import { ContainerWorkspace } from './components/ContainerWorkspace.jsx'
-import { Images } from './components/Images.jsx'
-import { Backups } from './components/Backups.jsx'
-import { Icons } from './components/Icons.jsx'
-import { About } from './components/About.jsx'
-import { Bot } from './components/Bot.jsx'
-import { LogsPage } from './components/Logs.jsx'
-import { Store } from './components/Store.jsx'
-import { Networks } from './components/Networks.jsx'
-import { SettingsManager } from './components/SettingsManager.jsx'
 import { PageHeader } from './components/PageHeader.jsx'
 import { ThemeProvider, useTheme } from './hooks/useTheme.jsx'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
@@ -20,6 +8,18 @@ import { FileCode, ListTree, Plus } from 'lucide-react'
 import { cn } from './utils/cn.js'
 
 import { containerAPI, imageAPI, overviewAPI } from './api/client.js'
+
+const OverviewPage = lazy(() => import('./app/routes/OverviewPage.jsx'))
+const ContainersPage = lazy(() => import('./app/routes/ContainersPage.jsx'))
+const StorePage = lazy(() => import('./app/routes/StorePage.jsx'))
+const ImagesPage = lazy(() => import('./app/routes/ImagesPage.jsx'))
+const NetworksPage = lazy(() => import('./app/routes/NetworksPage.jsx'))
+const IconsPage = lazy(() => import('./app/routes/IconsPage.jsx'))
+const BackupsPage = lazy(() => import('./app/routes/BackupsPage.jsx'))
+const SettingsPage = lazy(() => import('./app/routes/SettingsPage.jsx'))
+const BotPage = lazy(() => import('./app/routes/BotPage.jsx'))
+const LogsPage = lazy(() => import('./app/routes/LogsPage.jsx'))
+const AboutPage = lazy(() => import('./app/routes/AboutPage.jsx'))
 
 // 创建一个全局的QueryClient实例
 const queryClient = new QueryClient({
@@ -44,6 +44,7 @@ const pageMeta = {
   '#images': { title: '镜像' },
   '#networks': { title: '网络' },
   '#settings': { title: '设置' },
+  '#bot': { title: '自动化' },
   '#logs': { title: '日志' },
   '#about': { title: '关于' },
 }
@@ -61,6 +62,14 @@ const normalizeRoute = (rawHash) => {
   }
 
   return main
+}
+
+function PageLoading() {
+  return (
+    <div className="flex min-h-[360px] items-center justify-center text-sm text-gray-500 dark:text-gray-400">
+      正在加载...
+    </div>
+  )
 }
 
 function AppContent() {
@@ -268,29 +277,29 @@ function AppContent() {
   const renderContent = () => {
     switch (mainTab) {
       case '#overview':
-        return <Overview onNavigate={handleTabChange} />
+        return <OverviewPage onNavigate={handleTabChange} />
       case '#containers':
-        return <ContainerWorkspace subTab={subTab || 'list'} onSubTabChange={(next) => setActiveTab(normalizeRoute(`#containers/${next}`))} />
+        return <ContainersPage subTab={subTab || 'list'} onSubTabChange={(next) => setActiveTab(normalizeRoute(`#containers/${next}`))} />
       case '#store':
-        return <Store onInstall={() => setActiveTab('#containers/new')} />
+        return <StorePage onInstall={() => setActiveTab('#containers/new')} />
       case '#images':
-        return <Images />
+        return <ImagesPage />
       case '#networks':
-        return <Networks />
+        return <NetworksPage />
       case '#icons':
-        return <Icons />
+        return <IconsPage />
       case '#backups':
-        return <Backups />
+        return <BackupsPage />
       case '#settings':
-        return <SettingsManager onNavigate={handleTabChange} />
+        return <SettingsPage onNavigate={handleTabChange} />
       case '#bot':
-        return <Bot />
+        return <BotPage />
       case '#logs':
         return <LogsPage />
       case '#about':
-        return <About />
+        return <AboutPage />
       default:
-        return <Overview onNavigate={handleTabChange} />
+        return <OverviewPage onNavigate={handleTabChange} />
     }
   }
 
@@ -338,7 +347,9 @@ function AppContent() {
             dockerStatus={dockerStatus}
           />
           <div className="w-full">
-            {renderContent()}
+            <Suspense fallback={<PageLoading />}>
+              {renderContent()}
+            </Suspense>
           </div>
         </div>
       </main>

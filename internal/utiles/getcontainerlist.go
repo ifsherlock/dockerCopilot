@@ -7,6 +7,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	dockerImage "github.com/docker/docker/api/types/image"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
 	"github.com/onlyLTY/dockerCopilot/internal/module"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	MyType "github.com/onlyLTY/dockerCopilot/internal/types"
@@ -49,11 +50,12 @@ func CheckImageUpdate(ctx *svc.ServiceContext, containerListData []MyType.Contai
 			ctx.ClearHubImageUpdate(v.ImageID)
 			continue
 		}
-		needUpdate, err := module.CheckImageRefUpdate(createImage, imageInspect.RepoDigests)
+		result, err := checkImageRefUpdateState(createImage, imageInspect.RepoDigests)
 		if err != nil {
 			ctx.ClearHubImageUpdate(v.ImageID)
 			continue
 		}
+		needUpdate := result.NeedUpdate
 		containerListData[i].Update = needUpdate
 		ctx.SetHubImageUpdate(v.ImageID, needUpdate)
 	}
@@ -90,10 +92,11 @@ func ContainerNeedsUpdate(ctx *svc.ServiceContext, id string, imageNameAndTag st
 	if err != nil {
 		return true
 	}
-	needUpdate, err := module.CheckImageRefUpdate(imageNameAndTag, imageInspect.RepoDigests)
+	result, err := checkImageRefUpdateState(imageNameAndTag, imageInspect.RepoDigests)
 	if err != nil {
 		return true
 	}
+	needUpdate := result.NeedUpdate
 	ctx.SetHubImageUpdate(inspect.Image, needUpdate)
 	return needUpdate
 }
@@ -106,4 +109,12 @@ func PullImageOnly(ctx *svc.ServiceContext, imageNameAndTag string) error {
 	defer reader.Close()
 	_, err = io.Copy(io.Discard, reader)
 	return err
+}
+
+func checkImageRefUpdateState(imageNameAndTag string, localRepoDigests []string) (updatecheck.RegistryCheckResult, error) {
+	checker := updatecheck.NewRegistryChecker()
+	checker.Token = func(ctx context.Context, imageName string) (string, error) {
+		return module.GetToken(MyType.Image{ImageName: imageName}, "")
+	}
+	return checker.CheckImageRef(context.Background(), imageNameAndTag, localRepoDigests)
 }

@@ -19,11 +19,11 @@ import (
 )
 
 type instanceConfig struct {
-	Name      string
-	APIURL    string
-	SecretKey string
-	Timeout   int
-	Local     bool
+	Name      string `json:"name"`
+	APIURL    string `json:"api_url"`
+	SecretKey string `json:"secret_key"`
+	Timeout   int    `json:"timeout"`
+	Local     bool   `json:"local,omitempty"`
 }
 
 type remoteContainer struct {
@@ -177,7 +177,7 @@ func (c *remoteClient) containers(ctx context.Context) ([]remoteContainer, error
 	if err != nil {
 		return nil, err
 	}
-	if resp.Code != 0 {
+	if !remoteOK(resp.Code) {
 		return nil, fmt.Errorf(resp.Msg)
 	}
 	var items []remoteContainer
@@ -186,6 +186,10 @@ func (c *remoteClient) containers(ctx context.Context) ([]remoteContainer, error
 	}
 	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
 	return items, nil
+}
+
+func remoteOK(code int) bool {
+	return code == 0 || code == 200
 }
 
 func (c *remoteClient) images(ctx context.Context) ([]remoteImage, error) {

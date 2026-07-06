@@ -86,6 +86,8 @@ export function useVersionCheck() {
 
         // 获取远端版本信息
         let remoteVersion = ''
+        let hasProgramUpdate = null
+        let programUpdateStatus = ''
 
         try {
           const remoteResponse = await versionAPI.getVersion('remote')
@@ -94,6 +96,10 @@ export function useVersionCheck() {
             const remoteData = remoteResponse.data.data
             if (remoteData && typeof remoteData === 'object') {
               remoteVersion = remoteData.remoteVersion ? String(remoteData.remoteVersion).trim() : remoteVersion
+              if (typeof remoteData.hasProgramUpdate === 'boolean') {
+                hasProgramUpdate = remoteData.hasProgramUpdate
+              }
+              programUpdateStatus = remoteData.programUpdateStatus || remoteData.programUpdateState?.status || ''
             } else if (typeof remoteData === 'string') {
               remoteVersion = remoteData.trim()
             }
@@ -106,7 +112,8 @@ export function useVersionCheck() {
           backendVersion,
           remoteVersion,
           buildDate,
-          hasBackendUpdate: shouldUpdate(backendVersion, remoteVersion)
+          programUpdateStatus,
+          hasBackendUpdate: hasProgramUpdate ?? shouldUpdate(backendVersion, remoteVersion)
         }
       } catch (error) {
         console.error('获取版本信息失败:', error)

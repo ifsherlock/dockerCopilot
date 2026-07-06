@@ -326,6 +326,7 @@ export function Containers() {
   const ignoreUpdate = async (container) => saveUpdateBlacklist([...updateBlacklist, ...getBlacklistCandidates(container)])
   const unignoreUpdate = async (container) => saveUpdateBlacklist(updateBlacklist.filter(item => !matchesBlacklistItem(container, item)))
   const getContainerActionState = (container) => containerActions[container.id] || containerActions[`name:${container.name}`]
+  const ignoredContainerCount = containers.filter(container => isUpdateIgnored(container)).length
 
   const flushUIFrame = () => new Promise(resolve => {
     if (typeof window !== 'undefined' && typeof window.requestAnimationFrame === 'function') {
@@ -1710,7 +1711,7 @@ export function Containers() {
             <div className="absolute inset-0 bg-gradient-to-br from-gray-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
               <div className="text-2xl sm:text-3xl font-bold text-gray-600 dark:text-gray-300 transition-transform duration-300 group-hover:scale-110">
-                {updateBlacklist.length}
+                {ignoredContainerCount}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">黑名单</div>
             </div>
@@ -2939,5 +2940,4 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     </div>
   )
 }
-
 
