@@ -34,18 +34,28 @@ type StatusSummary struct {
 }
 
 type ContainerInfoLite struct {
+	ID         string
 	Name       string
 	Status     string
 	Image      string
+	CreatedAt  string
+	RunningFor string
 	HaveUpdate bool
 	Ignored    bool
+	IsSelf     bool
 }
 
-type ImageSummary struct {
-	Total     int
-	InUse     int
-	Unused    int
-	Updatable int
+type ImageInfoLite struct {
+	ID               string
+	Name             string
+	Tag              string
+	Size             string
+	InUse            bool
+	UsageState       string
+	CleanupCandidate bool
+	CleanupReason    string
+	HaveUpdate       bool
+	Ignored          bool
 }
 
 type BackupSummary struct {
@@ -72,44 +82,93 @@ func (s *ActionService) Containers(ctx context.Context) ([]ContainerInfoLite, er
 	result := make([]ContainerInfoLite, 0, len(items))
 	for _, item := range items {
 		result = append(result, ContainerInfoLite{
+			ID:         item.Id,
 			Name:       item.Name,
 			Status:     item.Status,
 			Image:      firstNonEmpty(item.UsingImage, item.CreateImage),
+			CreatedAt:  item.CreateTime,
+			RunningFor: item.RunningTime,
 			HaveUpdate: item.HaveUpdate,
 			Ignored:    item.Ignored,
+			IsSelf:     item.IsSelf,
 		})
 	}
 	return result, nil
 }
 
-func (s *ActionService) Images(ctx context.Context) (ImageSummary, error) {
+func (s *ActionService) StartContainer(ctx context.Context, item ContainerInfoLite) (string, error) {
+	resp, err := containerlogic.NewStartLogic(ctx, s.svcCtx).Start(&types.IdReq{Id: item.ID})
+	if err != nil {
+		return "", err
+	}
+	return successMessage(resp, "容器已启动"), nil
+}
+
+func (s *ActionService) StopContainer(ctx context.Context, item ContainerInfoLite) (string, error) {
+	resp, err := containerlogic.NewStopLogic(ctx, s.svcCtx).Stop(&types.IdReq{Id: item.ID})
+	if err != nil {
+		return "", err
+	}
+	return successMessage(resp, "容器已停止"), nil
+}
+
+func (s *ActionService) RestartContainer(ctx context.Context, item ContainerInfoLite) (string, error) {
+	resp, err := containerlogic.NewRestartLogic(ctx, s.svcCtx).Restart(&types.IdReq{Id: item.ID})
+	if err != nil {
+		return "", err
+	}
+	return successMessage(resp, "容器已重启"), nil
+}
+
+func (s *ActionService) ImageList(ctx context.Context) ([]ImageInfoLite, error) {
 	logic := imagelogic.NewImagesListLogic(ctx, s.svcCtx)
 	resp, err := logic.ImagesList()
 	if err != nil {
-		return ImageSummary{}, err
+		return nil, err
 	}
 	if resp == nil || (resp.Code != 200 && resp.Code != 0) {
 		if resp == nil {
-			return ImageSummary{}, fmt.Errorf("获取镜像列表失败")
+			return nil, fmt.Errorf("获取镜像列表失败")
 		}
-		return ImageSummary{}, fmt.Errorf(resp.Msg)
+		return nil, fmt.Errorf(resp.Msg)
 	}
 	var images []imagelogic.Info
 	if err := decodeRespData(resp.Data, &images); err != nil {
-		return ImageSummary{}, err
+		return nil, err
 	}
-	summary := ImageSummary{Total: len(images)}
+	sort.Slice(images, func(i, j int) bool {
+		return strings.ToLower(images[i].Name+":"+images[i].Tag) < strings.ToLower(images[j].Name+":"+images[j].Tag)
+	})
+	result := make([]ImageInfoLite, 0, len(images))
 	for _, item := range images {
-		if item.InUsed {
-			summary.InUse++
-		} else {
-			summary.Unused++
-		}
-		if item.HaveUpdate && !item.Ignored {
-			summary.Updatable++
-		}
+		result = append(result, ImageInfoLite{
+			ID:               item.Id,
+			Name:             item.Name,
+			Tag:              item.Tag,
+			Size:             item.Size,
+			InUse:            item.InUsed,
+			UsageState:       item.UsageState,
+			CleanupCandidate: item.CleanupCandidate,
+			CleanupReason:    item.CleanupReason,
+			HaveUpdate:       item.HaveUpdate,
+			Ignored:          item.Ignored,
+		})
 	}
-	return summary, nil
+	return result, nil
+}
+
+func (s *ActionService) RemoveImage(ctx context.Context, item ImageInfoLite, force bool) (string, error) {
+	resp, err := imagelogic.NewRemoveLogic(ctx, s.svcCtx).Remove(&types.RemoveImageReq{
+		IdReq: types.IdReq{Id: item.ID},
+		Force: force,
+	})
+	if err != nil {
+		return "", err
+	}
+	if resp != nil && resp.Code != 200 && resp.Code != 0 {
+		return "", fmt.Errorf(firstNonEmpty(resp.Msg, "镜像删除失败"))
+	}
+	return successMessage(resp, "镜像已删除"), nil
 }
 
 func (s *ActionService) Backups(ctx context.Context) (BackupSummary, error) {
@@ -329,4 +388,11 @@ func mapString(values map[string]interface{}, key string) string {
 		return ""
 	}
 	return strings.TrimSpace(fmt.Sprint(values[key]))
+}
+
+func successMessage(resp *types.Resp, fallback string) string {
+	if resp == nil {
+		return fallback
+	}
+	return firstNonEmpty(resp.Msg, fallback)
 }

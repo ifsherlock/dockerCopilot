@@ -15,30 +15,38 @@ type messageSender interface {
 type commandActions interface {
 	Status(ctx context.Context) (StatusSummary, error)
 	Containers(ctx context.Context) ([]ContainerInfoLite, error)
-	Images(ctx context.Context) (ImageSummary, error)
+	ImageList(ctx context.Context) ([]ImageInfoLite, error)
 	Backups(ctx context.Context) (BackupSummary, error)
 	Version(ctx context.Context) (VersionSummary, error)
 	Updates(ctx context.Context) ([]ContainerUpdateItem, error)
 	CheckUpdates(ctx context.Context) (string, error)
+	StartContainer(ctx context.Context, item ContainerInfoLite) (string, error)
+	StopContainer(ctx context.Context, item ContainerInfoLite) (string, error)
+	RestartContainer(ctx context.Context, item ContainerInfoLite) (string, error)
 	UpdateContainer(ctx context.Context, item ContainerUpdateItem) (string, error)
 	BackupJSON(ctx context.Context) error
 	BackupCompose(ctx context.Context) error
 	CleanImages(ctx context.Context) (string, error)
+	RemoveImage(ctx context.Context, item ImageInfoLite, force bool) (string, error)
 }
 
 type CommandDispatcher struct {
-	cfg      Config
-	sender   messageSender
-	actions  commandActions
-	sessions *updateSessionStore
+	cfg               Config
+	sender            messageSender
+	actions           commandActions
+	sessions          *updateSessionStore
+	containerSessions *containerSessionStore
+	imageSessions     *imageSessionStore
 }
 
 func NewCommandDispatcher(cfg Config, sender messageSender, actions commandActions) *CommandDispatcher {
 	return &CommandDispatcher{
-		cfg:      cfg.Normalized(),
-		sender:   sender,
-		actions:  actions,
-		sessions: newUpdateSessionStore(10 * time.Minute),
+		cfg:               cfg.Normalized(),
+		sender:            sender,
+		actions:           actions,
+		sessions:          newUpdateSessionStore(10 * time.Minute),
+		containerSessions: newContainerSessionStore(10 * time.Minute),
+		imageSessions:     newImageSessionStore(10 * time.Minute),
 	}
 }
 
@@ -89,15 +97,17 @@ func (d *CommandDispatcher) handleContainers(ctx context.Context, cmd IncomingCo
 	if err != nil {
 		return d.reply(ctx, cmd, d.renderError("获取容器列表失败："+err.Error()))
 	}
-	return d.reply(ctx, cmd, renderContainers(items, d.cfg))
+	session := d.containerSessions.put(cmd.UserOpenID, cmd.GroupOpenID, items)
+	return d.reply(ctx, cmd, renderContainersPage(items, session, 0, d.cfg))
 }
 
 func (d *CommandDispatcher) handleImages(ctx context.Context, cmd IncomingCommand) error {
-	summary, err := d.actions.Images(ctx)
+	items, err := d.actions.ImageList(ctx)
 	if err != nil {
-		return d.reply(ctx, cmd, d.renderError("获取镜像统计失败："+err.Error()))
+		return d.reply(ctx, cmd, d.renderError("获取镜像列表失败："+err.Error()))
 	}
-	return d.reply(ctx, cmd, renderImages(summary, d.cfg))
+	session := d.imageSessions.put(cmd.UserOpenID, cmd.GroupOpenID, items)
+	return d.reply(ctx, cmd, renderImagesPage(items, session, 0, d.cfg))
 }
 
 func (d *CommandDispatcher) handleUpdates(ctx context.Context, cmd IncomingCommand) error {
@@ -115,7 +125,7 @@ func (d *CommandDispatcher) handleCheckUpdates(ctx context.Context, cmd Incoming
 		return d.reply(ctx, cmd, d.renderError("触发更新检测失败："+err.Error()))
 	}
 	return d.reply(ctx, cmd, richMessage(Message{
-		Text: msg + "\n\n稍后发送 /updates 查看结果。",
+		Text: renderNoticeText("更新检测已触发", msg, "稍后点击“查看更新”或发送 /updates 查看结果。", d.cfg.MarkdownEnabled),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "查看更新", Command: "/updates", ID: "updates"},
 			homeAction(),
@@ -170,6 +180,12 @@ func (d *CommandDispatcher) handleInteraction(ctx context.Context, cmd IncomingC
 		next.Action = ""
 		return d.Dispatch(ctx, next)
 	}
+	if cb, ok := parseContainerCallback(data); ok {
+		return d.handleContainerInteraction(ctx, cmd, cb)
+	}
+	if cb, ok := parseImageCallback(data); ok {
+		return d.handleImageInteraction(ctx, cmd, cb)
+	}
 	cb, ok := parseUpdateCallback(data)
 	if !ok {
 		return d.reply(ctx, cmd, renderStaleInteraction("按钮已失效，请发送 /updates 刷新。"))
@@ -200,6 +216,87 @@ func (d *CommandDispatcher) handleInteraction(ctx context.Context, cmd IncomingC
 	}
 }
 
+func (d *CommandDispatcher) handleContainerInteraction(ctx context.Context, cmd IncomingCommand, cb listCallback) error {
+	session, err := d.containerSessions.get(cmd.UserOpenID, cmd.GroupOpenID, cb.SessionID)
+	if err != nil {
+		return d.reply(ctx, cmd, renderStaleInteraction(err.Error()))
+	}
+	switch cb.Action {
+	case "page":
+		return d.reply(ctx, cmd, renderContainersPage(session.Items, session, cb.Page, d.cfg))
+	case "item":
+		if cb.Index < 0 || cb.Index >= len(session.Items) {
+			return d.reply(ctx, cmd, renderStaleInteraction("容器列表已变化，请重新发送 /containers 刷新。"))
+		}
+		return d.reply(ctx, cmd, renderContainerDetail(session.Items[cb.Index], session.ID, cb.Index, cb.Page, d.cfg))
+	case "start", "stop", "restart":
+		if cb.Index < 0 || cb.Index >= len(session.Items) {
+			return d.reply(ctx, cmd, renderStaleInteraction("容器列表已变化，请重新发送 /containers 刷新。"))
+		}
+		return d.runContainerAction(ctx, cmd, session, cb)
+	default:
+		return d.reply(ctx, cmd, renderStaleInteraction("按钮已失效，请发送 /containers 刷新。"))
+	}
+}
+
+func (d *CommandDispatcher) runContainerAction(ctx context.Context, cmd IncomingCommand, session containerSession, cb listCallback) error {
+	item := session.Items[cb.Index]
+	var msg string
+	var err error
+	switch cb.Action {
+	case "start":
+		msg, err = d.actions.StartContainer(ctx, item)
+	case "stop":
+		msg, err = d.actions.StopContainer(ctx, item)
+	case "restart":
+		msg, err = d.actions.RestartContainer(ctx, item)
+	}
+	if err != nil {
+		return d.reply(ctx, cmd, d.renderError("容器操作失败："+err.Error()))
+	}
+	return d.reply(ctx, cmd, renderContainerActionResult(item, msg, session.ID, cb.Index, cb.Page, d.cfg))
+}
+
+func (d *CommandDispatcher) handleImageInteraction(ctx context.Context, cmd IncomingCommand, cb listCallback) error {
+	session, err := d.imageSessions.get(cmd.UserOpenID, cmd.GroupOpenID, cb.SessionID)
+	if err != nil {
+		return d.reply(ctx, cmd, renderStaleInteraction(err.Error()))
+	}
+	switch cb.Action {
+	case "page":
+		return d.reply(ctx, cmd, renderImagesPage(session.Items, session, cb.Page, d.cfg))
+	case "item":
+		if cb.Index < 0 || cb.Index >= len(session.Items) {
+			return d.reply(ctx, cmd, renderStaleInteraction("镜像列表已变化，请重新发送 /images 刷新。"))
+		}
+		return d.reply(ctx, cmd, renderImageDetail(session.Items[cb.Index], session.ID, cb.Index, cb.Page, d.cfg))
+	case "confirm_delete":
+		if cb.Index < 0 || cb.Index >= len(session.Items) {
+			return d.reply(ctx, cmd, renderStaleInteraction("镜像列表已变化，请重新发送 /images 刷新。"))
+		}
+		return d.reply(ctx, cmd, renderImageDeleteConfirm(session.Items[cb.Index], session.ID, cb.Index, cb.Page, d.cfg))
+	case "delete":
+		if cb.Index < 0 || cb.Index >= len(session.Items) {
+			return d.reply(ctx, cmd, renderStaleInteraction("镜像列表已变化，请重新发送 /images 刷新。"))
+		}
+		return d.runImageDelete(ctx, cmd, session, cb)
+	default:
+		return d.reply(ctx, cmd, renderStaleInteraction("按钮已失效，请发送 /images 刷新。"))
+	}
+}
+
+func (d *CommandDispatcher) runImageDelete(ctx context.Context, cmd IncomingCommand, session imageSession, cb listCallback) error {
+	item := session.Items[cb.Index]
+	if item.InUse {
+		return d.reply(ctx, cmd, d.renderError("镜像仍在使用中，已阻止删除："+imageDisplayName(item)))
+	}
+	msg, err := d.actions.RemoveImage(ctx, item, false)
+	if err != nil {
+		return d.reply(ctx, cmd, d.renderError("镜像删除失败："+err.Error()))
+	}
+	return d.reply(ctx, cmd, renderImageActionResult(item, msg, session.ID, cb.Page, d.cfg))
+}
+
 func (d *CommandDispatcher) runOne(ctx context.Context, cmd IncomingCommand, item ContainerUpdateItem) error {
 	taskID, err := d.actions.UpdateContainer(ctx, item)
 	if err != nil {
@@ -219,6 +316,18 @@ func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, ite
 		started = append(started, item.Name)
 	}
 	var b strings.Builder
+	if d.cfg.MarkdownEnabled {
+		b.WriteString("**批量更新已提交**\n\n")
+		b.WriteString("| 状态 | 容器 |\n")
+		b.WriteString("|---|---|\n")
+		for _, name := range started {
+			b.WriteString(fmt.Sprintf("| 成功 | %s |\n", markdownCell(name)))
+		}
+		for _, name := range failed {
+			b.WriteString(fmt.Sprintf("| 失败 | %s |\n", markdownCell(name)))
+		}
+		return d.reply(ctx, cmd, d.renderSuccess(strings.TrimSpace(b.String())))
+	}
 	b.WriteString("批量更新已提交\n")
 	if len(started) > 0 {
 		b.WriteString("\n成功:\n")
@@ -236,12 +345,12 @@ func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, ite
 }
 
 func (d *CommandDispatcher) renderError(text string) Message {
-	return richMessage(Message{Text: text, Keyboard: homeKeyboard()}, d.cfg)
+	return richMessage(Message{Text: renderErrorText(text, d.cfg.MarkdownEnabled), Keyboard: homeKeyboard()}, d.cfg)
 }
 
 func (d *CommandDispatcher) renderSuccess(text string) Message {
 	return richMessage(Message{
-		Text: text,
+		Text: renderSuccessText(text, d.cfg.MarkdownEnabled),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "查看备份", Command: "/backups", ID: "backups"},
 			{Label: "查看更新", Command: "/updates", ID: "updates"},

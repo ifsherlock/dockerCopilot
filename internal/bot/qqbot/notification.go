@@ -27,7 +27,26 @@ func SendStartupNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, p
 	if !qqCfg.Enabled || len(targets) == 0 {
 		return
 	}
+	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: renderStartupNotificationText(proxySummary, instances, qqCfg.MarkdownEnabled)}, qqCfg.MarkdownEnabled))
+}
+
+func renderStartupNotificationText(proxySummary string, instances []string, markdown bool) string {
 	var b strings.Builder
+	if markdown {
+		b.WriteString("**DockerCopilot QQBot 启动成功**\n\n")
+		b.WriteString(fmt.Sprintf("- 实例：%d 个\n", len(instances)))
+		if strings.TrimSpace(proxySummary) != "" {
+			b.WriteString("- 代理：" + markdownInline(proxySummary) + "\n")
+		}
+		if len(instances) > 0 {
+			b.WriteString("\n**可用实例**\n")
+			for i, name := range instances {
+				b.WriteString(fmt.Sprintf("%d. %s\n", i+1, markdownInline(name)))
+			}
+		}
+		b.WriteString("\n" + renderHintText("发送 `/help` 查看可用命令。", true))
+		return strings.TrimSpace(b.String())
+	}
 	b.WriteString("Docker Copilot QQBot 启动成功\n\n")
 	b.WriteString(fmt.Sprintf("实例数量: %d 个\n", len(instances)))
 	if len(instances) > 0 {
@@ -40,7 +59,7 @@ func SendStartupNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, p
 		b.WriteString("\n代理: " + proxySummary + "\n")
 	}
 	b.WriteString("\n发送 /help 查看可用命令")
-	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: b.String()}, qqCfg.MarkdownEnabled))
+	return b.String()
 }
 
 func SendUpdateNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, instanceName string, items []NotifyUpdateItem) {
@@ -49,14 +68,36 @@ func SendUpdateNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, in
 	if !qqCfg.Enabled || len(targets) == 0 || len(items) == 0 {
 		return
 	}
+	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: renderUpdateNotificationText(instanceName, items, qqCfg.MarkdownEnabled)}, qqCfg.MarkdownEnabled))
+}
+
+func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem, markdown bool) string {
 	var b strings.Builder
-	b.WriteString("检测到可更新容器\n\n")
-	b.WriteString(fmt.Sprintf("实例: %s\n", strings.TrimSpace(instanceName)))
-	b.WriteString(fmt.Sprintf("数量: %d\n\n", len(items)))
 	limit := len(items)
 	if limit > 8 {
 		limit = 8
 	}
+	if markdown {
+		b.WriteString(fmt.Sprintf("**检测到可更新容器** · %d 个\n\n", len(items)))
+		b.WriteString("- 实例：" + markdownInline(firstNonEmpty(strings.TrimSpace(instanceName), "local")) + "\n")
+		b.WriteString(fmt.Sprintf("- 数量：%d\n\n", len(items)))
+		for i := 0; i < limit; i++ {
+			item := items[i]
+			ref := firstNonEmpty(item.ImageRef, item.CreateRef)
+			b.WriteString(fmt.Sprintf("%d. **%s**\n", i+1, markdownInline(item.Name)))
+			if strings.TrimSpace(ref) != "" {
+				b.WriteString("   `" + markdownCodeInline(shortenText(ref, 72)) + "`\n")
+			}
+		}
+		if len(items) > limit {
+			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示。", len(items)-limit), true))
+		}
+		b.WriteString("\n\n" + renderHintText("发送 `/updates` 查看详情。", true))
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString("检测到可更新容器\n\n")
+	b.WriteString(fmt.Sprintf("实例: %s\n", strings.TrimSpace(instanceName)))
+	b.WriteString(fmt.Sprintf("数量: %d\n\n", len(items)))
 	for i := 0; i < limit; i++ {
 		item := items[i]
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Name))
@@ -68,7 +109,7 @@ func SendUpdateNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, in
 		b.WriteString(fmt.Sprintf("\n还有 %d 个未显示。\n", len(items)-limit))
 	}
 	b.WriteString("\n发送 /updates 查看详情。")
-	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: b.String()}, qqCfg.MarkdownEnabled))
+	return b.String()
 }
 
 func sendNotificationToTargets(ctx context.Context, cfg Config, targets []notifyTarget, msg Message) {
