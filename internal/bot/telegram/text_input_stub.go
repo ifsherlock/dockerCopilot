@@ -52,8 +52,7 @@ func (r *Runtime) startEditText(ctx context.Context, chatID int64, messageID int
 func (r *Runtime) processTextInput(ctx context.Context, msg *telego.Message, state userState) {
 	input := strings.TrimSpace(msg.Text)
 	if input == "/cancel" {
-		r.clearChatState(msg.Chat.ID)
-		r.sendSettingsMenu(ctx, msg.Chat.ID, 0)
+		r.cancelStatefulInput(ctx, msg.Chat.ID, state)
 		return
 	}
 	cfg, err := r.getConfig(ctx)

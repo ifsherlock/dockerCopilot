@@ -22,7 +22,7 @@ import {
 import { cn } from '../../utils/cn.js'
 import { botAPI, containerAPI } from '../../api/client.js'
 import { cardBodyClass, cardClass, cardHeaderClass, Field, inputClass, SectionToggle } from './botUi.jsx'
-import { canonicalImageName, normalizeCronExpression, normalizeImageName, validateCronExpression } from './botUtils.js'
+import { canonicalImageName, isDisabledCronExpression, normalizeCronExpression, normalizeImageName, validateCronExpression } from './botUtils.js'
 
 export function Bot() {
   const [config, setConfig] = useState({
@@ -75,6 +75,7 @@ export function Bot() {
   const [taskDraft, setTaskDraft] = useState({ containerID: '', action: 'restart', cron: '0 3 * * *' })
   const [dirty, setDirty] = useState(false)
   const fileInputRef = useRef(null)
+  const updateCheckEnabled = !isDisabledCronExpression(config.updateCheckCron)
 
   const loadConfig = useCallback(async ({ silent = false } = {}) => {
     try {
@@ -155,7 +156,18 @@ export function Bot() {
 
   const handleChange = (field, value) => {
     setDirty(true)
-    setConfig(prev => ({ ...prev, [field]: value }))
+    setConfig(prev => {
+      if (field === 'updateCheckEnabled') {
+        const next = { ...prev }
+        if (!value) {
+          next.updateCheckCron = 'off'
+        } else if (isDisabledCronExpression(next.updateCheckCron)) {
+          next.updateCheckCron = '0 18 * * *'
+        }
+        return next
+      }
+      return { ...prev, [field]: value }
+    })
   }
 
   const appendLineValue = (current, value) => {
@@ -551,7 +563,7 @@ export function Bot() {
       setConfig(cleanConfig)
       const res = await botAPI.saveConfig(cleanConfig)
       if (res.data?.code >= 200 && res.data?.code < 300) {
-        setMessage('配置已保存。Bot 会在容器重启后加载新配置。')
+        setMessage('配置已保存，运行中的 Bot 会自动读取最新配置。')
         await loadConfig({ silent: true })
       } else {
         setMessage(`保存失败：${res.data?.msg || '未知错误'}`)
@@ -602,9 +614,9 @@ export function Bot() {
                 <div className={cn(headerIconClass, 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300')}>
                   <BotIcon className="h-4 w-4" />
                 </div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Telegram 通知设置</h3>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">Telegram Bot</h3>
               </div>
-              <SectionToggle checked={config.interactiveEnabled} onChange={() => handleChange('interactiveEnabled', !config.interactiveEnabled)} textOn="已启用" textOff="已关闭" />
+              <SectionToggle checked={config.interactiveEnabled} onChange={() => handleChange('interactiveEnabled', !config.interactiveEnabled)} textOn="Bot开启" textOff="Bot关闭" />
             </div>
             <div className={cardBodyClass}>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -640,13 +652,16 @@ export function Bot() {
                 <div className={cn(headerIconClass, 'bg-sky-100 text-sky-700 dark:bg-sky-900/30 dark:text-sky-300')}>
                   <Bell className="h-4 w-4" />
                 </div>
-                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">通知与更新检测</h3>
+                <h3 className="text-sm font-semibold text-gray-900 dark:text-white">更新检测与通知</h3>
               </div>
-              <SectionToggle checked={config.notifyOnUpdate} onChange={() => handleChange('notifyOnUpdate', !config.notifyOnUpdate)} textOn="通知开启" textOff="通知关闭" />
+              <div className="flex items-center gap-3">
+                <SectionToggle checked={updateCheckEnabled} onChange={() => handleChange('updateCheckEnabled', !updateCheckEnabled)} textOn="检测开启" textOff="检测关闭" />
+                <SectionToggle checked={config.notifyOnUpdate} onChange={() => handleChange('notifyOnUpdate', !config.notifyOnUpdate)} textOn="通知开启" textOff="通知关闭" />
+              </div>
             </div>
             <div className={cardBodyClass}>
               <Field label="检测 Cron">
-                {renderCronInput('updateCheckCron', '0 18 * * *', '例如：0 18 * * *')}
+                {renderCronInput('updateCheckCron', '0 18 * * *', '例如：0 18 * * *；检测关闭时为 off')}
               </Field>
             </div>
           </div>
@@ -688,8 +703,8 @@ export function Bot() {
                 </div>
               </Field>
               <div className="sm:col-span-2 rounded-lg border border-emerald-100 bg-emerald-50 px-3 py-2 text-xs text-emerald-800 dark:border-emerald-900/50 dark:bg-emerald-950/30 dark:text-emerald-200">
-                <div className="font-medium">QQ 后台事件回调地址</div>
-                <div className="mt-1 font-mono text-[11px] text-emerald-700 dark:text-emerald-300">https://你的公网域名/api/bot/qqbot/webhook</div>
+                <div className="font-medium">入站模式</div>
+                <div className="mt-1 text-emerald-700 dark:text-emerald-300">默认使用官方 Gateway 长连接，无需公网 Webhook 回调。</div>
               </div>
               <Field label="允许用户 OpenID">
                 <textarea

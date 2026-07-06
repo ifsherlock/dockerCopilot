@@ -10,7 +10,10 @@ import (
 	"github.com/onlyLTY/dockerCopilot/internal/domain/blacklist"
 	botlogic "github.com/onlyLTY/dockerCopilot/internal/logic/bot"
 	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
+	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
+	versionlogic "github.com/onlyLTY/dockerCopilot/internal/logic/version"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
+	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
 )
 
@@ -30,8 +33,175 @@ type StatusSummary struct {
 	UpdateCount int
 }
 
+type ContainerInfoLite struct {
+	Name       string
+	Status     string
+	Image      string
+	HaveUpdate bool
+	Ignored    bool
+}
+
+type ImageSummary struct {
+	Total     int
+	InUse     int
+	Unused    int
+	Updatable int
+}
+
+type BackupSummary struct {
+	Files []string
+}
+
+type VersionSummary struct {
+	LocalVersion  string
+	BuildDate     string
+	RemoteVersion string
+	RemoteStatus  string
+}
+
 type ActionService struct {
 	svcCtx *svc.ServiceContext
+}
+
+func (s *ActionService) Containers(ctx context.Context) ([]ContainerInfoLite, error) {
+	items, err := s.listContainers(ctx)
+	if err != nil {
+		return nil, err
+	}
+	sort.Slice(items, func(i, j int) bool { return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name) })
+	result := make([]ContainerInfoLite, 0, len(items))
+	for _, item := range items {
+		result = append(result, ContainerInfoLite{
+			Name:       item.Name,
+			Status:     item.Status,
+			Image:      firstNonEmpty(item.UsingImage, item.CreateImage),
+			HaveUpdate: item.HaveUpdate,
+			Ignored:    item.Ignored,
+		})
+	}
+	return result, nil
+}
+
+func (s *ActionService) Images(ctx context.Context) (ImageSummary, error) {
+	logic := imagelogic.NewImagesListLogic(ctx, s.svcCtx)
+	resp, err := logic.ImagesList()
+	if err != nil {
+		return ImageSummary{}, err
+	}
+	if resp == nil || (resp.Code != 200 && resp.Code != 0) {
+		if resp == nil {
+			return ImageSummary{}, fmt.Errorf("获取镜像列表失败")
+		}
+		return ImageSummary{}, fmt.Errorf(resp.Msg)
+	}
+	var images []imagelogic.Info
+	if err := decodeRespData(resp.Data, &images); err != nil {
+		return ImageSummary{}, err
+	}
+	summary := ImageSummary{Total: len(images)}
+	for _, item := range images {
+		if item.InUsed {
+			summary.InUse++
+		} else {
+			summary.Unused++
+		}
+		if item.HaveUpdate && !item.Ignored {
+			summary.Updatable++
+		}
+	}
+	return summary, nil
+}
+
+func (s *ActionService) Backups(ctx context.Context) (BackupSummary, error) {
+	logic := containerlogic.NewListBackupsLogic(ctx, s.svcCtx)
+	resp, err := logic.ListBackups()
+	if err != nil {
+		return BackupSummary{}, err
+	}
+	if resp == nil || (resp.Code != 200 && resp.Code != 0) {
+		if resp == nil {
+			return BackupSummary{}, fmt.Errorf("获取备份列表失败")
+		}
+		return BackupSummary{}, fmt.Errorf(resp.Msg)
+	}
+	var files []string
+	if err := decodeRespData(resp.Data, &files); err != nil {
+		return BackupSummary{}, err
+	}
+	sort.Strings(files)
+	return BackupSummary{Files: files}, nil
+}
+
+func (s *ActionService) Version(ctx context.Context) (VersionSummary, error) {
+	localResp, err := versionlogic.NewVersionLogic(ctx, s.svcCtx).Version(&types.VersionReq{Type: "local"})
+	if err != nil {
+		return VersionSummary{}, err
+	}
+	var local map[string]interface{}
+	if localResp != nil {
+		_ = decodeRespData(localResp.Data, &local)
+	}
+	remoteResp, _ := versionlogic.NewVersionLogic(ctx, s.svcCtx).Version(&types.VersionReq{Type: "remote"})
+	var remote map[string]interface{}
+	if remoteResp != nil {
+		_ = decodeRespData(remoteResp.Data, &remote)
+	}
+	return VersionSummary{
+		LocalVersion:  mapString(local, "version"),
+		BuildDate:     mapString(local, "buildDate"),
+		RemoteVersion: mapString(remote, "remoteVersion"),
+		RemoteStatus:  firstNonEmpty(mapString(remote, "programUpdateStatus"), remoteRespMsg(remoteResp), "未知"),
+	}, nil
+}
+
+func (s *ActionService) CheckUpdates(ctx context.Context) (string, error) {
+	resp, err := containerlogic.NewCheckUpdateLogic(ctx, s.svcCtx).CheckUpdate()
+	if err != nil {
+		return "", err
+	}
+	if resp == nil {
+		return "已提交更新检测。", nil
+	}
+	return firstNonEmpty(resp.Msg, "已提交更新检测。"), nil
+}
+
+func (s *ActionService) BackupJSON(ctx context.Context) error {
+	return s.svcCtx.RunJSONBackupNow()
+}
+
+func (s *ActionService) BackupCompose(ctx context.Context) error {
+	return s.svcCtx.RunComposeBackupNow()
+}
+
+func (s *ActionService) CleanImages(ctx context.Context) (string, error) {
+	images, err := imagelogic.NewImagesListLogic(ctx, s.svcCtx).ImagesList()
+	if err != nil {
+		return "", err
+	}
+	var items []imagelogic.Info
+	if images != nil {
+		_ = decodeRespData(images.Data, &items)
+	}
+	candidates := make([]imagelogic.Info, 0)
+	for _, item := range items {
+		if item.CleanupCandidate && !item.InUsed {
+			candidates = append(candidates, item)
+		}
+	}
+	if len(candidates) == 0 {
+		return "没有可清理的未使用镜像。", nil
+	}
+	removed := 0
+	for _, item := range candidates {
+		resp, err := imagelogic.NewRemoveLogic(ctx, s.svcCtx).Remove(&types.RemoveImageReq{
+			IdReq: types.IdReq{Id: item.Id},
+			Force: false,
+		})
+		if err == nil && resp != nil && (resp.Code == 200 || resp.Code == 0) {
+			removed++
+		}
+	}
+	return fmt.Sprintf("清理完成：已删除 %d/%d 个候选镜像。", removed, len(candidates)), nil
 }
 
 func NewActionService(svcCtx *svc.ServiceContext) *ActionService {
@@ -145,4 +315,18 @@ func decodeRespData(data interface{}, out interface{}) error {
 
 func newTaskID() string {
 	return uuid.New().String()
+}
+
+func remoteRespMsg(resp *types.Resp) string {
+	if resp == nil {
+		return ""
+	}
+	return resp.Msg
+}
+
+func mapString(values map[string]interface{}, key string) string {
+	if values == nil {
+		return ""
+	}
+	return strings.TrimSpace(fmt.Sprint(values[key]))
 }

@@ -1,6 +1,7 @@
 package telegram
 
 import (
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -8,6 +9,8 @@ import (
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/zeromicro/go-zero/core/logx"
 )
+
+var errTelegramBotDisabled = errors.New("Telegram Bot 已关闭")
 
 type telegramActionKind string
 
@@ -53,18 +56,18 @@ func (p telegramAuthPolicy) logStartupState() {
 		logx.Errorf("Telegram chat_ids 未配置，入站命令暂保持兼容开放；建议配置 chat_ids 限制可操作聊天")
 	}
 	if !p.interactiveEnabled {
-		logx.Infof("Telegram 交互已禁用：只允许帮助和只读命令")
+		logx.Infof("Telegram Bot 入站已关闭：不处理命令和按钮回调")
 	}
 }
 
 func (p telegramAuthPolicy) authorize(chatID int64, kind telegramActionKind) error {
+	if !p.interactiveEnabled {
+		return errTelegramBotDisabled
+	}
 	if p.restricted {
 		if _, ok := p.allowedChats[chatID]; !ok {
 			return fmt.Errorf("此聊天未被授权使用 Docker Copilot Bot")
 		}
-	}
-	if kind == telegramActionWrite && !p.interactiveEnabled {
-		return fmt.Errorf("Telegram 交互操作当前已禁用")
 	}
 	return nil
 }

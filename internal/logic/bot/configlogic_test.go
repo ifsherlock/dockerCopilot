@@ -161,6 +161,80 @@ func TestSaveConfigPreservesRichTelegramFieldsWhenMissing(t *testing.T) {
 	}
 }
 
+func TestSaveConfigCanDisableTelegramNotificationsWithoutDisablingChecks(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DOCKERCOPILOT_BOT_CONFIG", path)
+	cfg := runtimeconfig.Default("secret")
+	cfg.Telegram["update_check_cron"] = "5 1 * * *"
+	if err := runtimeconfig.NewStore(path, "secret").Write(cfg); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	appConfig := config.Config{}
+	appConfig.Auth.AccessSecret = "secret"
+	logic := NewConfigLogic(context.Background(), svc.NewServiceContext(appConfig))
+
+	resp, err := logic.SaveConfig(&types.BotConfigReq{
+		NotifyOnUpdate: false,
+		PresentFields: map[string]bool{
+			"notifyOnUpdate": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	if resp == nil || resp.Code != 200 {
+		t.Fatalf("SaveConfig() resp = %#v, want 200", resp)
+	}
+
+	got, err := runtimeconfig.NewStore(path, "secret").Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if got.Telegram["notify_on_update"] != false {
+		t.Fatalf("notify_on_update = %#v, want false", got.Telegram["notify_on_update"])
+	}
+	if got.Telegram["update_check_cron"] != "5 1 * * *" {
+		t.Fatalf("update_check_cron = %#v, want preserved cron", got.Telegram["update_check_cron"])
+	}
+}
+
+func TestSaveConfigCanDisableUpdateCheckCronWithoutDisablingNotifications(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	t.Setenv("DOCKERCOPILOT_BOT_CONFIG", path)
+	cfg := runtimeconfig.Default("secret")
+	cfg.Telegram["notify_on_update"] = true
+	if err := runtimeconfig.NewStore(path, "secret").Write(cfg); err != nil {
+		t.Fatalf("Write() error = %v", err)
+	}
+	appConfig := config.Config{}
+	appConfig.Auth.AccessSecret = "secret"
+	logic := NewConfigLogic(context.Background(), svc.NewServiceContext(appConfig))
+
+	resp, err := logic.SaveConfig(&types.BotConfigReq{
+		UpdateCheckCron: "off",
+		PresentFields: map[string]bool{
+			"updateCheckCron": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	if resp == nil || resp.Code != 200 {
+		t.Fatalf("SaveConfig() resp = %#v, want 200", resp)
+	}
+
+	got, err := runtimeconfig.NewStore(path, "secret").Read()
+	if err != nil {
+		t.Fatalf("Read() error = %v", err)
+	}
+	if got.Telegram["update_check_cron"] != "off" {
+		t.Fatalf("update_check_cron = %#v, want off", got.Telegram["update_check_cron"])
+	}
+	if got.Telegram["notify_on_update"] != true {
+		t.Fatalf("notify_on_update = %#v, want preserved true", got.Telegram["notify_on_update"])
+	}
+}
+
 func TestQQBotConfigRoundTripAndMasksSecret(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	t.Setenv("DOCKERCOPILOT_BOT_CONFIG", path)
@@ -203,8 +277,8 @@ func TestQQBotConfigRoundTripAndMasksSecret(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Read() error = %v", err)
 	}
-	if stored.QQBot["app_secret"] != "app-secret" || stored.QQBot["event_mode"] != "webhook" || stored.QQBot["sandbox"] != false {
-		t.Fatalf("stored qqbot = %#v, want raw secret, webhook, and sandbox=false", stored.QQBot)
+	if stored.QQBot["app_secret"] != "app-secret" || stored.QQBot["event_mode"] != "gateway" || stored.QQBot["sandbox"] != false {
+		t.Fatalf("stored qqbot = %#v, want raw secret, gateway, and sandbox=false", stored.QQBot)
 	}
 
 	resp, err = logic.GetConfig()

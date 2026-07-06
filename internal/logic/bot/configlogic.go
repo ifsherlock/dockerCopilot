@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/onlyLTY/dockerCopilot/internal/domain/blacklist"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/botreload"
 	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
@@ -345,10 +346,11 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 			_ = json.Unmarshal(b, &chatIDs)
 		}
 	}
+	notifyOnUpdate := requestBoolOrExisting(req, "notifyOnUpdate", req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true)
 	cfg.Telegram["bot_token"] = requestOrExisting(req.BotToken, cfg.Telegram, "bot_token", "")
 	cfg.Telegram["chat_ids"] = chatIDs
 	cfg.Telegram["update_check_cron"] = updateCheckCron
-	cfg.Telegram["notify_on_update"] = requestBoolOrExisting(req, "notifyOnUpdate", req.NotifyOnUpdate, cfg.Telegram, "notify_on_update", true)
+	cfg.Telegram["notify_on_update"] = notifyOnUpdate
 	cfg.Telegram["interactive_enabled"] = requestBoolOrExisting(req, "interactiveEnabled", req.InteractiveEnabled, cfg.Telegram, "interactive_enabled", true)
 	cfg.Telegram["rich_interactions_enabled"] = requestBoolOrExisting(req, "richInteractionsEnabled", req.RichInteractionsEnabled, cfg.Telegram, "rich_interactions_enabled", false)
 	cfg.Telegram["parse_mode"] = normalizeTelegramParseMode(requestOrExisting(req.ParseMode, cfg.Telegram, "parse_mode", "HTML"), "HTML")
@@ -477,7 +479,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		cfg.QQBot["app_secret"] = ""
 	}
 	cfg.QQBot["sandbox"] = false
-	cfg.QQBot["event_mode"] = "webhook"
+	cfg.QQBot["event_mode"] = "gateway"
 	if req.HasField("qqbotAllowedUserOpenids") {
 		cfg.QQBot["allowed_user_openids"] = splitLinesOrComma(req.QQBotAllowedUserOpenIDs)
 	} else if _, ok := cfg.QQBot["allowed_user_openids"]; !ok {
@@ -587,6 +589,12 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	if err := l.svcCtx.ReloadBackupSchedulers(); err != nil {
 		resp.Code = 500
 		resp.Msg = "配置已保存，但重载定时任务失败: " + err.Error()
+		resp.Data = cfg
+		return resp, nil
+	}
+	if err := botreload.ReloadQQBot(context.Background()); err != nil {
+		resp.Code = 500
+		resp.Msg = "配置已保存，但重载 QQBot 失败: " + err.Error()
 		resp.Data = cfg
 		return resp, nil
 	}

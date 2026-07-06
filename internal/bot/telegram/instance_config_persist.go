@@ -59,8 +59,7 @@ func (r *Runtime) persistInstancesConfig(ctx context.Context, cfg runtimeConfigV
 func (r *Runtime) processInstanceConfigInput(ctx context.Context, msg *telego.Message, state userState) {
 	input := strings.TrimSpace(msg.Text)
 	if input == "/cancel" {
-		r.clearChatState(msg.Chat.ID)
-		r.sendInstancesConfigMenu(ctx, msg.Chat.ID, 0)
+		r.cancelStatefulInput(ctx, msg.Chat.ID, state)
 		return
 	}
 	var payload instanceEditPayload

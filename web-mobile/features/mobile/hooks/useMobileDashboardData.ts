@@ -6,6 +6,7 @@ import type {
   ContainerInfo,
   ImageInfo,
   OperationLog,
+  QQBotIdentity,
   RuntimeConfig,
   VersionInfo,
 } from "@/lib/api"
@@ -13,9 +14,13 @@ import type {
 export type ConfigFormState = {
   botToken: string
   chatIds: string
+  interactiveEnabled: boolean
+  richInteractionsEnabled: boolean
+  parseMode: string
   hostLanIP: string
   defaultImageAccelerator: string
   enableUpdateCheck: boolean
+  notifyOnUpdate: boolean
   updateCheckCron: string
   proxyType: string
   proxyHost: string
@@ -30,14 +35,27 @@ export type ConfigFormState = {
   backupJsonCron: string
   autoBackupCompose: boolean
   backupComposeCron: string
+  backupMaxFiles: string
+  qqbotEnabled: boolean
+  qqbotAppId: string
+  qqbotAppSecret: string
+  qqbotAllowedUserOpenids: string
+  qqbotAllowedGroupOpenids: string
+  qqbotRecentIdentities: QQBotIdentity[]
+  qqbotMarkdownEnabled: boolean
+  qqbotButtonsEnabled: boolean
 }
 
 export const initialConfigForm: ConfigFormState = {
   botToken: "",
   chatIds: "",
+  interactiveEnabled: true,
+  richInteractionsEnabled: false,
+  parseMode: "HTML",
   hostLanIP: "",
   defaultImageAccelerator: "",
   enableUpdateCheck: false,
+  notifyOnUpdate: true,
   updateCheckCron: "0 18 * * *",
   proxyType: "none",
   proxyHost: "",
@@ -52,6 +70,15 @@ export const initialConfigForm: ConfigFormState = {
   backupJsonCron: "",
   autoBackupCompose: false,
   backupComposeCron: "",
+  backupMaxFiles: "20",
+  qqbotEnabled: false,
+  qqbotAppId: "",
+  qqbotAppSecret: "",
+  qqbotAllowedUserOpenids: "",
+  qqbotAllowedGroupOpenids: "",
+  qqbotRecentIdentities: [],
+  qqbotMarkdownEnabled: false,
+  qqbotButtonsEnabled: false,
 }
 
 export const builtInImageAccelerators = ["docker.io", "docker.1ms.run", "docker.xuanyuan.me", "dockerproxy.com"]
@@ -179,9 +206,13 @@ export function useMobileDashboardData() {
           setConfigForm({
             botToken: cfg.telegram?.bot_token ?? "",
             chatIds: (cfg.telegram?.chat_ids ?? []).join(", "),
+            interactiveEnabled: cfg.telegram?.interactive_enabled ?? true,
+            richInteractionsEnabled: cfg.telegram?.rich_interactions_enabled ?? false,
+            parseMode: ["HTML", "MarkdownV2"].includes(cfg.telegram?.parse_mode ?? "") ? cfg.telegram?.parse_mode ?? "HTML" : "HTML",
             hostLanIP: cfg.dockercopilot?.host_lan_ip ?? "",
             defaultImageAccelerator: normalizeAcceleratorValue(cfg.telegram?.default_image_accelerator ?? "") || "docker.io",
             enableUpdateCheck: Boolean(updateCheckCronRaw) && !updateCheckDisabled,
+            notifyOnUpdate: cfg.telegram?.notify_on_update ?? true,
             updateCheckCron: updateCheckDisabled ? "0 18 * * *" : updateCheckCronRaw || "0 18 * * *",
             proxyType: cfg.telegram?.proxy?.type ?? "none",
             proxyHost: cfg.telegram?.proxy?.host ?? "",
@@ -196,6 +227,15 @@ export function useMobileDashboardData() {
             backupJsonCron: cfg.telegram?.backup_json_cron ?? "0 1 * * *",
             autoBackupCompose: cfg.telegram?.auto_backup_compose ?? false,
             backupComposeCron: cfg.telegram?.backup_compose_cron ?? "30 1 * * *",
+            backupMaxFiles: cfg.telegram?.backup_max_files ? String(cfg.telegram.backup_max_files) : "20",
+            qqbotEnabled: cfg.qqbot?.enabled ?? false,
+            qqbotAppId: cfg.qqbot?.app_id ?? "",
+            qqbotAppSecret: cfg.qqbot?.app_secret ?? "",
+            qqbotAllowedUserOpenids: (cfg.qqbot?.allowed_user_openids ?? []).join("\n"),
+            qqbotAllowedGroupOpenids: (cfg.qqbot?.allowed_group_openids ?? []).join("\n"),
+            qqbotRecentIdentities: Array.isArray(cfg.qqbot?.recent_identities) ? cfg.qqbot.recent_identities : [],
+            qqbotMarkdownEnabled: cfg.qqbot?.markdown_enabled ?? false,
+            qqbotButtonsEnabled: cfg.qqbot?.buttons_enabled ?? false,
           })
         }
         if (blRes.status === "fulfilled") setUpdateBlacklist(blRes.value)

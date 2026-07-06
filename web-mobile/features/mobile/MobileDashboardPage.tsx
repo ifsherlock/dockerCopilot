@@ -138,6 +138,7 @@ export default function MobileDashboardPage() {
 
   const [configSaving, setConfigSaving] = useState(false)
   const [showBotToken, setShowBotToken] = useState(false)
+  const [showQQBotSecret, setShowQQBotSecret] = useState(false)
   const [showLogTimestamps, setShowLogTimestamps] = useState(true)
   const [showLogContainerName, setShowLogContainerName] = useState(false)
 
@@ -450,6 +451,7 @@ export default function MobileDashboardPage() {
       const normalizedProxyType = configForm.proxyType === "http" || configForm.proxyType === "socks5" ? configForm.proxyType : "none"
       const proxyEnabled = normalizedProxyType !== "none"
       const parsedProxyPort = Number.parseInt(configForm.proxyPort.trim(), 10)
+      const parsedBackupMaxFiles = Number.parseInt(configForm.backupMaxFiles.trim(), 10)
       const normalizedDefaultImageAccelerator = normalizeAcceleratorValue(configForm.defaultImageAccelerator)
       const normalizedImageAccelerators = Array.from(
         new Set(
@@ -466,6 +468,10 @@ export default function MobileDashboardPage() {
         imageAccelerators: normalizedImageAccelerators.join(",") || undefined,
         defaultImageAccelerator: normalizedDefaultImageAccelerator || undefined,
         updateCheckCron: configForm.enableUpdateCheck ? configForm.updateCheckCron || "0 18 * * *" : "off",
+        notifyOnUpdate: configForm.notifyOnUpdate,
+        interactiveEnabled: configForm.interactiveEnabled,
+        richInteractionsEnabled: configForm.richInteractionsEnabled,
+        parseMode: configForm.parseMode || "HTML",
         autoCleanImages: configForm.autoCleanImages,
         cleanImagesCron: configForm.cleanImagesCron || undefined,
         autoUpdateContainers: configForm.autoUpdateContainers,
@@ -479,6 +485,14 @@ export default function MobileDashboardPage() {
         backupJsonCron: configForm.backupJsonCron || undefined,
         autoBackupCompose: configForm.autoBackupCompose,
         backupComposeCron: configForm.backupComposeCron || undefined,
+        backupMaxFiles: Number.isFinite(parsedBackupMaxFiles) ? parsedBackupMaxFiles : undefined,
+        qqbotEnabled: configForm.qqbotEnabled,
+        qqbotAppId: configForm.qqbotAppId || undefined,
+        qqbotAppSecret: configForm.qqbotAppSecret || undefined,
+        qqbotAllowedUserOpenids: configForm.qqbotAllowedUserOpenids || undefined,
+        qqbotAllowedGroupOpenids: configForm.qqbotAllowedGroupOpenids || undefined,
+        qqbotMarkdownEnabled: configForm.qqbotMarkdownEnabled,
+        qqbotButtonsEnabled: configForm.qqbotButtonsEnabled,
       })
       setImageAccelerators(normalizedImageAccelerators)
       setConfigForm((prev) => ({
@@ -1150,6 +1164,8 @@ export default function MobileDashboardPage() {
           <ConfigView
             showBotToken={showBotToken}
             setShowBotToken={setShowBotToken}
+            showQQBotSecret={showQQBotSecret}
+            setShowQQBotSecret={setShowQQBotSecret}
             configForm={configForm}
             setConfigForm={setConfigForm}
             handleSaveConfig={handleSaveConfig}

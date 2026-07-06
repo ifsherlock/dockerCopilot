@@ -32,7 +32,7 @@ func ConfigFromRuntime(cfg svc.BackupRuntimeConfig) Config {
 		AppID:           strings.TrimSpace(svc.AsString(qq["app_id"], "")),
 		AppSecret:       strings.TrimSpace(svc.AsString(qq["app_secret"], "")),
 		Sandbox:         svc.AsBool(qq["sandbox"]),
-		EventMode:       normalizeEventMode(svc.AsString(qq["event_mode"], "webhook")),
+		EventMode:       normalizeEventMode(svc.AsString(qq["event_mode"], "gateway")),
 		MarkdownEnabled: svc.AsBool(qq["markdown_enabled"]),
 		ButtonsEnabled:  svc.AsBool(qq["buttons_enabled"]),
 		BaseURL:         DefaultBaseURL,
@@ -63,10 +63,12 @@ func (c Config) TokenRefreshSkew() time.Duration {
 
 func normalizeEventMode(value string) string {
 	switch strings.ToLower(strings.TrimSpace(value)) {
-	case "gateway":
+	case "", "gateway":
 		return "gateway"
-	default:
+	case "webhook":
 		return "webhook"
+	default:
+		return "gateway"
 	}
 }
 

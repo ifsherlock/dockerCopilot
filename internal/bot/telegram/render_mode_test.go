@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/mymmrac/telego"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 )
 
@@ -44,6 +45,10 @@ func TestParseModeFromConfig(t *testing.T) {
 		t.Fatal("renderer.rich = false, want true")
 	}
 
+	runtimeCfg := runtimeconfig.Default("secret")
+	runtimeCfg.Telegram["parse_mode"] = "markdown_v2"
+	runtimeCfg.Telegram["rich_interactions_enabled"] = true
+	writeTelegramRuntimeConfigForTest(t, runtimeCfg)
 	r := &Runtime{renderer: renderer}
 	if got := r.telegramParseMode(); got != telego.ModeMarkdownV2 {
 		t.Fatalf("telegramParseMode() = %q, want MarkdownV2", got)

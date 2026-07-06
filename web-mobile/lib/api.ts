@@ -73,6 +73,8 @@ export interface TelegramConfig {
   update_check_cron?: string
   notify_on_update?: boolean
   interactive_enabled?: boolean
+  rich_interactions_enabled?: boolean
+  parse_mode?: string
   update_blacklist?: string[]
   auto_clean_images?: boolean
   clean_images_cron?: string
@@ -96,6 +98,24 @@ export interface TelegramConfig {
   }
 }
 
+export interface QQBotIdentity {
+  kind?: string
+  openid?: string
+  label?: string
+  updated_at?: string
+}
+
+export interface QQBotConfig {
+  enabled?: boolean
+  app_id?: string
+  app_secret?: string
+  allowed_user_openids?: string[]
+  allowed_group_openids?: string[]
+  recent_identities?: QQBotIdentity[]
+  markdown_enabled?: boolean
+  buttons_enabled?: boolean
+}
+
 export interface DockerCopilotConfig {
   host_lan_ip?: string
   default_instance?: string
@@ -111,6 +131,7 @@ export interface DockerCopilotConfig {
 export interface RuntimeConfig {
   version?: string
   telegram?: TelegramConfig
+  qqbot?: QQBotConfig
   dockercopilot?: DockerCopilotConfig
 }
 
@@ -170,6 +191,8 @@ export interface SaveConfigPayload {
   updateCheckCron?: string
   notifyOnUpdate?: boolean
   interactiveEnabled?: boolean
+  richInteractionsEnabled?: boolean
+  parseMode?: string
   updateBlacklist?: string
   autoCleanImages?: boolean
   cleanImagesCron?: string
@@ -193,6 +216,13 @@ export interface SaveConfigPayload {
   defaultImageAccelerator?: string
   themeMode?: string
   themeAppearance?: string
+  qqbotEnabled?: boolean
+  qqbotAppId?: string
+  qqbotAppSecret?: string
+  qqbotAllowedUserOpenids?: string
+  qqbotAllowedGroupOpenids?: string
+  qqbotMarkdownEnabled?: boolean
+  qqbotButtonsEnabled?: boolean
 }
 
 export class ApiError extends Error {

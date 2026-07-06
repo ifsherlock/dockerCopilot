@@ -227,10 +227,13 @@ func (r *Runtime) sendSettingsMenu(ctx context.Context, chatID int64, messageID 
 	}
 	telegram := cfg.Telegram
 	blacklist := svc.StringList(telegram["update_blacklist"])
+	updateCheckCron := svc.AsString(telegram["update_check_cron"], "0 18 * * *")
+	updateCheckEnabled := !isDisabledTelegramCron(updateCheckCron)
 	var b strings.Builder
 	b.WriteString("⚙️ <b>定时任务配置</b>\n\n")
 	b.WriteString("🔄 <b>容器更新检测</b>\n")
-	b.WriteString(fmt.Sprintf("  • 时间: <code>%s</code>\n", escapeHTML(svc.AsString(telegram["update_check_cron"], "0 18 * * *"))))
+	b.WriteString(fmt.Sprintf("  • 检测: %s\n", boolText(updateCheckEnabled)))
+	b.WriteString(fmt.Sprintf("  • 时间: <code>%s</code>\n", escapeHTML(updateCheckCron)))
 	b.WriteString(fmt.Sprintf("  • 通知: %s\n\n", boolText(svc.AsBool(telegram["notify_on_update"]))))
 	b.WriteString("🧹 <b>镜像自动清理</b>\n")
 	b.WriteString(fmt.Sprintf("  • 时间: <code>%s</code>\n", escapeHTML(svc.AsString(telegram["clean_images_cron"], "3 2 * * *"))))
@@ -253,7 +256,10 @@ func (r *Runtime) sendSettingsMenu(ctx context.Context, chatID int64, messageID 
 	}
 	rows := [][]telego.InlineKeyboardButton{
 		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton(toggleLabel(updateCheckEnabled, "检测")).WithCallbackData("settings_toggle:update_check_enabled"),
 			tu.InlineKeyboardButton(toggleLabel(svc.AsBool(telegram["notify_on_update"]), "通知")).WithCallbackData("settings_toggle:notify_on_update"),
+		),
+		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("📝 编辑检测时间").WithCallbackData("settings_edit_cron:update_check"),
 		),
 		tu.InlineKeyboardRow(
@@ -330,11 +336,10 @@ func (r *Runtime) startEditBlacklist(ctx context.Context, chatID int64, messageI
 	))
 }
 
-func (r *Runtime) processBlacklistInput(ctx context.Context, msg *telego.Message) {
+func (r *Runtime) processBlacklistInput(ctx context.Context, msg *telego.Message, state userState) {
 	text := strings.TrimSpace(msg.Text)
 	if text == "/cancel" {
-		r.clearChatState(msg.Chat.ID)
-		r.sendSettingsMenu(ctx, msg.Chat.ID, 0)
+		r.cancelStatefulInput(ctx, msg.Chat.ID, state)
 		return
 	}
 	cfg, err := r.getConfig(ctx)
@@ -426,8 +431,7 @@ func (r *Runtime) startEditCron(ctx context.Context, chatID int64, messageID int
 func (r *Runtime) processCronInput(ctx context.Context, msg *telego.Message, state userState) {
 	input := strings.TrimSpace(msg.Text)
 	if input == "/cancel" {
-		r.clearChatState(msg.Chat.ID)
-		r.sendSettingsMenu(ctx, msg.Chat.ID, 0)
+		r.cancelStatefulInput(ctx, msg.Chat.ID, state)
 		return
 	}
 	cfg, err := r.getConfig(ctx)
@@ -532,6 +536,13 @@ func (r *Runtime) toggleSetting(ctx context.Context, chatID int64, messageID int
 		Instances:               string(instancesJSON),
 	}
 	switch settingName {
+	case "update_check_enabled":
+		current := svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *")
+		if isDisabledTelegramCron(current) {
+			req.UpdateCheckCron = "0 18 * * *"
+		} else {
+			req.UpdateCheckCron = "off"
+		}
 	case "notify_on_update":
 		req.NotifyOnUpdate = !svc.AsBool(cfg.Telegram["notify_on_update"])
 	case "auto_clean_images":
@@ -673,6 +684,15 @@ func boolText(v bool) string {
 		return "✅ 开启"
 	}
 	return "❌ 关闭"
+}
+
+func isDisabledTelegramCron(value string) bool {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "off", "false", "0", "no":
+		return true
+	default:
+		return false
+	}
 }
 
 func toggleLabel(v bool, label string) string {

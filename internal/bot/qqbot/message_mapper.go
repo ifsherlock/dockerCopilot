@@ -128,15 +128,24 @@ func mapInteraction(payload Payload) (IncomingCommand, bool, error) {
 	}
 	cmd.UserOpenID = firstNonEmpty(
 		stringValue(raw["user_openid"]),
+		stringValue(raw["group_member_openid"]),
+		stringValue(raw["member_openid"]),
 		stringValue(raw["openid"]),
 		nestedString(raw, "author", "user_openid"),
+		nestedString(raw, "author", "group_member_openid"),
 		nestedString(raw, "author", "member_openid"),
 	)
-	cmd.GroupOpenID = firstNonEmpty(stringValue(raw["group_openid"]), nestedString(raw, "group", "group_openid"))
+	cmd.GroupOpenID = firstNonEmpty(
+		stringValue(raw["group_openid"]),
+		nestedString(raw, "group", "group_openid"),
+		nestedString(raw, "source", "group_openid"),
+	)
 	cmd.Action = firstNonEmpty(
 		stringValue(raw["button_data"]),
 		nestedString(raw, "data", "button_data"),
 		nestedString(raw, "data", "custom_id"),
+		nestedString(raw, "data", "resolved", "button_data"),
+		nestedString(raw, "data", "resolved", "custom_id"),
 		nestedString(raw, "resolved", "button_data"),
 	)
 	cmd.Content = normalizeCommandText(firstNonEmpty(cmd.Action, stringValue(raw["content"])))

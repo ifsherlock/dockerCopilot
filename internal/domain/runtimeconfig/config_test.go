@@ -52,8 +52,8 @@ func TestStoreReadFillsMissingSections(t *testing.T) {
 	if cfg.Telegram["parse_mode"] != "HTML" {
 		t.Fatalf("parse_mode = %#v, want HTML", cfg.Telegram["parse_mode"])
 	}
-	if cfg.QQBot["enabled"] != false || cfg.QQBot["event_mode"] != "webhook" || cfg.QQBot["sandbox"] != false {
-		t.Fatalf("qqbot defaults = %#v, want disabled webhook production defaults", cfg.QQBot)
+	if cfg.QQBot["enabled"] != false || cfg.QQBot["event_mode"] != "gateway" || cfg.QQBot["sandbox"] != false {
+		t.Fatalf("qqbot defaults = %#v, want disabled gateway production defaults", cfg.QQBot)
 	}
 	if _, ok := cfg.QQBot["recent_identities"]; !ok {
 		t.Fatalf("qqbot defaults = %#v, want recent identities", cfg.QQBot)

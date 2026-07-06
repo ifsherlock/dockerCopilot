@@ -43,7 +43,8 @@ QQ 只做官方 QQBot 模块，基于 QQ Bot API v2。
 - `/status`：容器概览和可更新数量。
 - `/updates`：可更新容器列表。
 - 开启按钮能力时，支持单个和批量更新确认回调。
-- Webhook 模式下支持官方回调地址验证、请求签名校验、HTTP ACK 和异步命令分发。
+- Gateway 模式下通过官方 WebSocket 长连接接收入站事件，无需公网回调地址。
+- 兼容保留 Webhook 路由能力：支持官方回调地址验证、请求签名校验、HTTP ACK 和异步命令分发。
 
 明确不支持：
 
@@ -56,12 +57,8 @@ QQ 只做官方 QQBot 模块，基于 QQ Bot API v2。
 
 QQBot 配置独立存放在 `qqbot` 命名空间。默认关闭，只有显式开启并配置官方 AppID/AppSecret 后才会启动。AppSecret 在 API 返回和 PC 设置页中会以遮罩形式展示。
 
-当前 QQBot 事件接入固定使用 Webhook，QQ 官方后台回调地址填写：
+当前 QQBot 事件接入默认使用 Gateway/WebSocket 长连接。DockerCopilot 启动后会用 AppID/AppSecret 获取 access token，再调用 QQ 官方 `/gateway` 接口取得 WebSocket 地址，完成 Identify、心跳和事件分发。因此 NAS 内网部署不需要配置公网 Webhook。
 
-```text
-https://你的公网域名/api/bot/qqbot/webhook
-```
+`event_mode` 固定保存为 `gateway`，`sandbox` 固定保存为 `false`。Webhook 仍作为内部兼容模式保留路由，但 PC 设置页不展示模式切换，避免把用户不需要理解的传输细节变成配置项。
 
-`event_mode` 固定保存为 `webhook`，`sandbox` 固定保存为 `false`。Gateway 和沙箱开关属于后续能力或内部兼容字段，PC 设置页不再展示，避免把未实现能力变成用户需要理解的配置项。
-
-OpenID 白名单可以先留空跑通回调。Webhook 收到已通过签名和鉴权的入站事件后，会在配置里记录最近入站身份；PC 设置页会展示最近的用户 OpenID 和群 OpenID，并提供复制和加入白名单入口。
+OpenID 白名单可以先留空跑通入站消息。Gateway 收到已通过鉴权的入站事件后，会在配置里记录最近入站身份；PC 设置页会展示最近的用户 OpenID 和群 OpenID，并提供复制和加入白名单入口。

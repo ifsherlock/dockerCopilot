@@ -2,11 +2,18 @@ package telegram
 
 import (
 	"context"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
 	"github.com/mymmrac/telego"
 	ta "github.com/mymmrac/telego/telegoapi"
+	"github.com/onlyLTY/dockerCopilot/internal/config"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
+	botlogic "github.com/onlyLTY/dockerCopilot/internal/logic/bot"
+	"github.com/onlyLTY/dockerCopilot/internal/svc"
+	"github.com/onlyLTY/dockerCopilot/internal/types"
 )
 
 func TestTelegramAuthPolicyAllowsConfiguredChat(t *testing.T) {
@@ -39,8 +46,8 @@ func TestTelegramAuthPolicyBlocksWritesWhenInteractiveDisabled(t *testing.T) {
 	if err := policy.authorize(12345, telegramActionWrite); err == nil {
 		t.Fatal("authorize write while disabled = nil, want error")
 	}
-	if err := policy.authorize(12345, telegramActionRead); err != nil {
-		t.Fatalf("authorize read while disabled = %v, want nil", err)
+	if err := policy.authorize(12345, telegramActionRead); err == nil {
+		t.Fatal("authorize read while disabled = nil, want error")
 	}
 }
 
@@ -65,6 +72,25 @@ func TestTelegramCallbackActionKind(t *testing.T) {
 		if got := telegramCallbackActionKind(action); got != telegramActionWrite {
 			t.Fatalf("telegramCallbackActionKind(%q) = %s, want write", action, got)
 		}
+	}
+}
+
+func TestStartupNotificationRespectsNotifySwitch(t *testing.T) {
+	r, calls := newAuthPolicyTestRuntime(t, newTelegramAuthPolicy([]string{"12345"}, true))
+	cfg := svc.BackupRuntimeConfig{
+		Dockercopilot: map[string]interface{}{},
+		Telegram: map[string]interface{}{
+			"chat_ids":         []string{"12345"},
+			"notify_on_update": false,
+		},
+		QQBot: map[string]interface{}{},
+	}
+
+	if err := r.sendStartupNotification(context.Background(), cfg); err != nil {
+		t.Fatalf("sendStartupNotification() error = %v", err)
+	}
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no startup notification when notify_on_update=false", calls.methods)
 	}
 }
 
@@ -108,11 +134,86 @@ func TestHandleMessageBlocksWriteWhenInteractiveDisabled(t *testing.T) {
 		Text: "/updates",
 	})
 
-	if len(calls.methods) != 1 || calls.methods[0] != "sendMessage" {
-		t.Fatalf("methods = %#v, want only sendMessage disabled response", calls.methods)
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no reply while Telegram Bot is disabled", calls.methods)
 	}
-	if !strings.Contains(calls.payloads[0], "交互操作当前已禁用") {
-		t.Fatalf("payload = %s, want disabled text", calls.payloads[0])
+}
+
+func TestHandleMessageBlocksReadWhenInteractiveDisabled(t *testing.T) {
+	r, calls := newAuthPolicyTestRuntime(t, newTelegramAuthPolicy([]string{"12345"}, false))
+
+	r.handleMessage(context.Background(), &telego.Message{
+		Chat: telego.Chat{ID: 12345},
+		Text: "/help",
+	})
+
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no reply while Telegram Bot is disabled", calls.methods)
+	}
+}
+
+func TestHandleMessageUsesUpdatedRuntimeAuthPolicy(t *testing.T) {
+	r, calls := newAuthPolicyTestRuntime(t, newTelegramAuthPolicy([]string{"12345"}, true))
+	cfg := runtimeconfig.Default("secret")
+	cfg.Telegram["chat_ids"] = []string{"12345"}
+	cfg.Telegram["interactive_enabled"] = false
+	writeTelegramRuntimeConfigForTest(t, cfg)
+
+	r.handleMessage(context.Background(), &telego.Message{
+		Chat: telego.Chat{ID: 12345},
+		Text: "/updates",
+	})
+
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no reply while Telegram Bot is disabled", calls.methods)
+	}
+}
+
+func TestHandleMessageUsesConfigSavedAfterRuntimeCreation(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "runtime.json")
+	t.Setenv("DOCKERCOPILOT_BOT_CONFIG", path)
+	cfg := runtimeconfig.Default("secret")
+	cfg.Telegram["chat_ids"] = []string{"12345"}
+	cfg.Telegram["interactive_enabled"] = true
+	if err := runtimeconfig.NewStore(path, "secret").Write(cfg); err != nil {
+		t.Fatalf("write initial runtime config: %v", err)
+	}
+
+	calls := &authPolicyTestCaller{}
+	tgBot, err := telego.NewBot("123456:abcdefghijklmnopqrstuvwxyzABCDEFGHI", telego.WithAPICaller(calls))
+	if err != nil {
+		t.Fatalf("NewBot() error = %v", err)
+	}
+	r := &Runtime{
+		bot:          tgBot,
+		chatInstance: map[int64]string{},
+		chatState:    map[int64]userState{},
+		authPolicy:   newTelegramAuthPolicy([]string{"12345"}, true),
+	}
+
+	appConfig := config.Config{}
+	appConfig.Auth.AccessSecret = "secret"
+	logic := botlogic.NewConfigLogic(context.Background(), svc.NewServiceContext(appConfig))
+	resp, err := logic.SaveConfig(&types.BotConfigReq{
+		InteractiveEnabled: false,
+		PresentFields: map[string]bool{
+			"interactiveEnabled": true,
+		},
+	})
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+	if resp == nil || resp.Code != 200 {
+		t.Fatalf("SaveConfig() resp = %#v, want 200", resp)
+	}
+
+	r.handleMessage(context.Background(), &telego.Message{
+		Chat: telego.Chat{ID: 12345},
+		Text: "/updates",
+	})
+
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no reply while Telegram Bot is disabled", calls.methods)
 	}
 }
 
@@ -139,6 +240,20 @@ func TestHandleCallbackRejectsUnlistedChatBeforeUpdateAction(t *testing.T) {
 	}
 }
 
+func TestHandleCallbackBlocksWhenInteractiveDisabled(t *testing.T) {
+	r, calls := newAuthPolicyTestRuntime(t, newTelegramAuthPolicy([]string{"12345"}, false))
+
+	r.handleCallback(context.Background(), &telego.CallbackQuery{
+		ID:      "callback-1",
+		Message: &telego.Message{Chat: telego.Chat{ID: 12345}, MessageID: 10},
+		Data:    "status_menu:",
+	})
+
+	if len(calls.methods) != 0 {
+		t.Fatalf("methods = %#v, want no callback response while Telegram Bot is disabled", calls.methods)
+	}
+}
+
 type authPolicyTestCaller struct {
 	methods  []string
 	payloads []string
@@ -161,6 +276,10 @@ func (c *authPolicyTestCaller) Call(_ context.Context, url string, data *ta.Requ
 
 func newAuthPolicyTestRuntime(t *testing.T, policy telegramAuthPolicy) (*Runtime, *authPolicyTestCaller) {
 	t.Helper()
+	cfg := runtimeconfig.Default("secret")
+	cfg.Telegram["chat_ids"] = policy.chatIDsForTest()
+	cfg.Telegram["interactive_enabled"] = policy.interactiveEnabled
+	writeTelegramRuntimeConfigForTest(t, cfg)
 	caller := &authPolicyTestCaller{}
 	bot, err := telego.NewBot("123456:abcdefghijklmnopqrstuvwxyzABCDEFGHI", telego.WithAPICaller(caller))
 	if err != nil {
@@ -172,4 +291,24 @@ func newAuthPolicyTestRuntime(t *testing.T, policy telegramAuthPolicy) (*Runtime
 		chatState:    map[int64]userState{},
 		authPolicy:   policy,
 	}, caller
+}
+
+func (p telegramAuthPolicy) chatIDsForTest() []string {
+	if !p.restricted {
+		return nil
+	}
+	ids := make([]string, 0, len(p.allowedChats))
+	for id := range p.allowedChats {
+		ids = append(ids, strconv.FormatInt(id, 10))
+	}
+	return ids
+}
+
+func writeTelegramRuntimeConfigForTest(t *testing.T, cfg runtimeconfig.Config) {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "runtime.json")
+	t.Setenv("DOCKERCOPILOT_BOT_CONFIG", path)
+	if err := runtimeconfig.NewStore(path, "secret").Write(cfg); err != nil {
+		t.Fatalf("write runtime config: %v", err)
+	}
 }

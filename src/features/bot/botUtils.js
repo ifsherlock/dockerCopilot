@@ -17,11 +17,16 @@ export function canonicalImageName(value) {
 }
 
 export function normalizeCronExpression(value) {
-  return String(value || '').trim().replace(/\s+/g, ' ')
+	return String(value || '').trim().replace(/\s+/g, ' ')
+}
+
+export function isDisabledCronExpression(value) {
+  const normalized = normalizeCronExpression(value).toLowerCase()
+  return ['off', 'false', '0', 'no'].includes(normalized)
 }
 
 export function splitCronFields(value) {
-  return normalizeCronExpression(value).split(' ').filter(Boolean)
+	return normalizeCronExpression(value).split(' ').filter(Boolean)
 }
 
 export function explainCronField(field, min, max) {
@@ -49,6 +54,7 @@ export function explainCronField(field, min, max) {
 
 export function validateCronExpression(value) {
   const cron = normalizeCronExpression(value)
+  if (isDisabledCronExpression(cron)) return { ok: true, normalized: 'off', message: '' }
   const fields = splitCronFields(cron)
   if (fields.length !== 5) return { ok: false, normalized: cron, message: `Cron 必须是 5 段；当前是 ${fields.length} 段。例：40 13 * * *` }
   const ranges = [[0, 59], [0, 23], [1, 31], [1, 12], [0, 7]]

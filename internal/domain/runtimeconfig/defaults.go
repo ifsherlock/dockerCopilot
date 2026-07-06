@@ -62,7 +62,7 @@ func Default(secretKey string) Config {
 			"app_id":                "",
 			"app_secret":            "",
 			"sandbox":               false,
-			"event_mode":            "webhook",
+			"event_mode":            "gateway",
 			"allowed_user_openids":  []string{},
 			"allowed_group_openids": []string{},
 			"notify_targets":        []string{},

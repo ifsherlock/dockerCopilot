@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/http"
 	"sort"
@@ -131,17 +132,44 @@ func (r *Runtime) setupCommands(ctx context.Context) error {
 	))
 }
 
-func (r *Runtime) sendStartupNotification(ctx context.Context, cfg svc.BackupRuntimeConfig) error {
-	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
-	if len(chatIDs) == 0 {
-		return nil
+func (r *Runtime) currentConfig() (svc.BackupRuntimeConfig, bool) {
+	cfg, err := svc.LoadRuntimeConfigForRead()
+	if err != nil {
+		logx.Errorf("加载 Telegram 运行时配置失败，使用启动快照: %v", err)
+		return svc.BackupRuntimeConfig{}, false
 	}
+	return cfg, true
+}
+
+func (r *Runtime) currentAuthPolicy() telegramAuthPolicy {
+	if cfg, ok := r.currentConfig(); ok {
+		return newTelegramAuthPolicyFromConfig(cfg)
+	}
+	return r.authPolicy
+}
+
+func (r *Runtime) currentRenderer() telegramRenderer {
+	if cfg, ok := r.currentConfig(); ok {
+		return newTelegramRendererFromConfig(cfg)
+	}
+	return r.renderer
+}
+
+func (r *Runtime) sendStartupNotification(ctx context.Context, cfg svc.BackupRuntimeConfig) error {
 	instances := []instanceConfig{{Name: "local", APIURL: "http://127.0.0.1:12712", SecretKey: "", Timeout: 30, Local: true}}
 	if runtimeCfg, err := r.getConfig(ctx); err == nil {
 		loaded := parseInstances(runtimeCfg.Dockercopilot["instances"])
 		if len(loaded) > 0 {
 			instances = loaded
 		}
+	}
+	if !svc.AsBool(cfg.Telegram["notify_on_update"]) {
+		logx.Infof("Telegram 通知已关闭，跳过启动通知")
+		return nil
+	}
+	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
+	if len(chatIDs) == 0 {
+		return nil
 	}
 	var b strings.Builder
 	b.WriteString("🎉 <b>Docker Copilot Bot 启动成功</b>\n\n")
@@ -154,7 +182,8 @@ func (r *Runtime) sendStartupNotification(ctx context.Context, cfg svc.BackupRun
 		}
 	}
 	b.WriteString("\n✅ Bot已就绪,可以开始使用!\n")
-	b.WriteString(fmt.Sprintf("🌐代理: %s", escapeHTML(r.proxySummary(cfg))))
+	proxySummary := r.proxySummary(cfg)
+	b.WriteString(fmt.Sprintf("🌐代理: %s", escapeHTML(proxySummary)))
 	b.WriteString("\n\n💡 发送 /help 查看可用命令")
 	msg := b.String()
 	for _, chatID := range chatIDs {
@@ -243,6 +272,9 @@ func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
 			wait := time.Until(next)
 			if wait < 0 {
 				wait = time.Second
+			}
+			if wait > 30*time.Second {
+				wait = 30 * time.Second
 			}
 			select {
 			case <-ctx.Done():
@@ -430,8 +462,11 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 		return
 	}
 	command := strings.Fields(strings.ToLower(text))[0]
-	if err := r.authPolicy.authorize(msg.Chat.ID, telegramCommandActionKind(command)); err != nil {
+	if err := r.currentAuthPolicy().authorize(msg.Chat.ID, telegramCommandActionKind(command)); err != nil {
 		logx.Errorf("拒绝 Telegram 消息: chat=%d command=%q err=%v", msg.Chat.ID, command, err)
+		if errors.Is(err, errTelegramBotDisabled) {
+			return
+		}
 		r.replyText(ctx, msg.Chat.ID, telegramAccessDeniedMessage(err))
 		return
 	}
@@ -446,13 +481,12 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 		r.sendHomeOrHelp(ctx, msg.Chat.ID)
 	case "/cancel":
 		if state, ok := r.getChatState(msg.Chat.ID); ok {
-			logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_reply", msg.Chat.ID, state.Action, state.Extra, state.MessageID, state.Selected)
-			r.clearChatState(msg.Chat.ID)
-			r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
+			logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_return_menu", msg.Chat.ID, state.Action, state.Extra, state.MessageID, state.Selected)
+			r.cancelStatefulInput(ctx, msg.Chat.ID, state)
 			return
 		}
-		logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_without_state", msg.Chat.ID, "", "", 0, "")
-		r.replyText(ctx, msg.Chat.ID, "已取消。\n\n发送 /help 唤出菜单")
+		logx.Infof("telegram command /cancel: chat=%d old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=home_without_state", msg.Chat.ID, "", "", 0, "")
+		r.sendHomeOrHelp(ctx, msg.Chat.ID)
 	case "/containers":
 		logx.Infof("telegram command /containers chat=%d", msg.Chat.ID)
 		r.sendContainers(ctx, msg.Chat.ID)
@@ -480,7 +514,7 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	case "/program_update", "/update_program":
 		r.confirmProgramUpdate(ctx, msg.Chat.ID)
 	case "/status":
-		r.sendStatus(ctx, msg.Chat.ID)
+		r.sendStatus(ctx, msg.Chat.ID, 0)
 	case "/version":
 		r.sendVersion(ctx, msg.Chat.ID)
 	default:
@@ -505,8 +539,11 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	if len(parts) > 1 {
 		arg = strings.Join(parts[1:], ":")
 	}
-	if err := r.authPolicy.authorize(chatID, telegramCallbackActionKind(action)); err != nil {
+	if err := r.currentAuthPolicy().authorize(chatID, telegramCallbackActionKind(action)); err != nil {
 		logx.Errorf("拒绝 Telegram 回调: chat=%d action=%q err=%v", chatID, action, err)
+		if errors.Is(err, errTelegramBotDisabled) {
+			return
+		}
 		_ = r.bot.AnswerCallbackQuery(ctx, tu.CallbackQuery(q.ID).WithText(err.Error()).WithShowAlert())
 		return
 	}
@@ -518,9 +555,9 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "home_menu":
 		r.sendHomeMenu(ctx, chatID, messageID)
 	case "help_menu":
-		r.editOrReplyText(ctx, chatID, messageID, r.helpText(), staleUpdatesMarkup())
+		r.editOrReplyText(ctx, chatID, messageID, r.helpText(), homeOnlyMarkup())
 	case "status_menu":
-		r.sendStatus(ctx, chatID)
+		r.sendStatus(ctx, chatID, messageID)
 	case "update":
 		r.updateContainer(ctx, chatID, arg)
 	case "switch_instance":
@@ -572,7 +609,7 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "containers_update_all":
 		r.updateAllContainersOnPage(ctx, chatID, messageID, parsePage(arg))
 	case "containers_close":
-		r.editOrReplyText(ctx, chatID, messageID, "✅ 已退出容器菜单\n\n发送 /help 唤出菜单", nil)
+		r.sendHomeMenu(ctx, chatID, messageID)
 	case "container_back_list":
 		r.sendContainersPage(ctx, chatID, messageID, parsePage(arg))
 	case "container_start":
@@ -635,12 +672,12 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 		r.doCleanUnusedImages(ctx, chatID, true)
 	case "cancel":
 		if state, ok := r.getChatState(chatID); ok {
-			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_reply", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=clear_and_home", chatID, data, state.Action, state.Extra, state.MessageID, state.Selected)
 			r.clearChatState(chatID)
 		} else {
-			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=reply_without_state", chatID, data, "", "", 0, "")
+			logx.Infof("telegram callback cancel: chat=%d data=%q old_state_action=%q old_state_extra=%q old_state_message_id=%d old_state_selected=%q branch=home_without_state", chatID, data, "", "", 0, "")
 		}
-		r.replyText(ctx, chatID, "已取消。\n\n发送 /help 唤出菜单")
+		r.sendHomeMenu(ctx, chatID, messageID)
 	case "confirm_program_update":
 		r.doProgramUpdate(ctx, chatID)
 	case "remove_image":
@@ -722,7 +759,7 @@ func (r *Runtime) handleStatefulInput(ctx context.Context, msg *telego.Message) 
 	switch state.Action {
 	case "edit_blacklist":
 		logx.Infof("telegram stateful input dispatch: chat=%d input=%q branch=edit_blacklist", msg.Chat.ID, inputForLog)
-		r.processBlacklistInput(ctx, msg)
+		r.processBlacklistInput(ctx, msg, state)
 		return true
 	case "edit_cron":
 		logx.Infof("telegram stateful input dispatch: chat=%d input=%q branch=edit_cron", msg.Chat.ID, inputForLog)
@@ -742,8 +779,18 @@ func (r *Runtime) handleStatefulInput(ctx context.Context, msg *telego.Message) 
 	}
 }
 
+func (r *Runtime) cancelStatefulInput(ctx context.Context, chatID int64, state userState) {
+	r.clearChatState(chatID)
+	switch state.Action {
+	case "instance_add", "instance_edit":
+		r.sendInstancesConfigMenu(ctx, chatID, state.MessageID)
+	default:
+		r.sendSettingsMenu(ctx, chatID, state.MessageID)
+	}
+}
+
 func (r *Runtime) sendHomeOrHelp(ctx context.Context, chatID int64) {
-	if r.renderer.RichEnabled() {
+	if r.currentRenderer().RichEnabled() {
 		r.sendHomeMenu(ctx, chatID, 0)
 		return
 	}
@@ -756,8 +803,9 @@ func (r *Runtime) sendHomeMenu(ctx context.Context, chatID int64, messageID int)
 }
 
 func (r *Runtime) homeMenu() (string, *telego.InlineKeyboardMarkup) {
+	renderer := r.currentRenderer()
 	text := strings.Join([]string{
-		"🚀 " + r.renderer.Bold("Docker Copilot Bot"),
+		"🚀 " + renderer.Bold("Docker Copilot Bot"),
 		"",
 		"请选择要打开的功能。",
 	}, "\n")
@@ -868,7 +916,7 @@ func (r *Runtime) telegramParseMode() string {
 	if r == nil {
 		return telego.ModeHTML
 	}
-	return r.renderer.ParseMode()
+	return r.currentRenderer().ParseMode()
 }
 
 func (r *Runtime) replyText(ctx context.Context, chatID int64, text string) {
@@ -1350,7 +1398,15 @@ func staleUpdatesMarkup() *telego.InlineKeyboardMarkup {
 	return tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("🔄 刷新").WithCallbackData("updates_refresh:"),
-			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
+			tu.InlineKeyboardButton("⬅️ 返回首页").WithCallbackData("home_menu:"),
+		),
+	)
+}
+
+func homeOnlyMarkup() *telego.InlineKeyboardMarkup {
+	return tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("⬅️ 返回首页").WithCallbackData("home_menu:"),
 		),
 	)
 }
@@ -1550,7 +1606,7 @@ func (r *Runtime) renderBackupsPage(items []string, instanceName string, page in
 	return b.String(), tu.InlineKeyboard(rows...)
 }
 
-func (r *Runtime) sendStatus(ctx context.Context, chatID int64) {
+func (r *Runtime) sendStatus(ctx context.Context, chatID int64, messageID int) {
 	containers, inst, err := r.listCurrentContainers(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取系统状态失败: "+err.Error())
@@ -1579,7 +1635,11 @@ func (r *Runtime) sendStatus(ctx context.Context, chatID int64) {
 		}
 	}
 	text := fmt.Sprintf("📊 <b>系统状态</b> · <b>%s</b>\n\n容器总数: <b>%d</b>\n运行中: <b>%d</b>\n可更新容器: <b>%d</b>\n镜像总数: <b>%d</b>\n可清理镜像: <b>%d</b>", escapeHTML(inst.Name), len(containers), running, updates, len(images), unusedImages)
-	r.replyText(ctx, chatID, text)
+	var markup *telego.InlineKeyboardMarkup
+	if messageID > 0 || r.currentRenderer().RichEnabled() {
+		markup = homeOnlyMarkup()
+	}
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
 }
 
 func (r *Runtime) sendVersion(ctx context.Context, chatID int64) {

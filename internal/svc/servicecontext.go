@@ -652,6 +652,7 @@ func LoadRuntimeConfigForRead() (backupRuntimeConfig, error) {
 	return backupRuntimeConfig{
 		Dockercopilot: cfg.Dockercopilot,
 		Telegram:      cfg.Telegram,
+		QQBot:         cfg.QQBot,
 	}, err
 }
 

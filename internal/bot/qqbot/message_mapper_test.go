@@ -67,6 +67,27 @@ func TestInteractionMapsButtonPayload(t *testing.T) {
 	}
 }
 
+func TestInteractionMapsOfficialGroupButtonPayload(t *testing.T) {
+	payload := mustPayload(t, `{
+		"id": "interaction-event",
+		"op": 0,
+		"t": "INTERACTION_CREATE",
+		"d": {
+			"id": "interaction-id",
+			"group_openid": "group-openid",
+			"group_member_openid": "member-openid",
+			"data": {"resolved": {"button_data": "cmd:/status"}}
+		}
+	}`)
+	cmd, ok, err := MapPayloadToCommand(payload)
+	if err != nil || !ok {
+		t.Fatalf("MapPayloadToCommand() ok=%v err=%v", ok, err)
+	}
+	if cmd.Kind != CommandKindInteraction || cmd.GroupOpenID != "group-openid" || cmd.UserOpenID != "member-openid" || cmd.Action != "cmd:/status" {
+		t.Fatalf("command = %#v", cmd)
+	}
+}
+
 func mustPayload(t *testing.T, raw string) Payload {
 	t.Helper()
 	payload, err := ParsePayload([]byte(raw))
