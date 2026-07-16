@@ -103,35 +103,17 @@ func (r *Runtime) updateAllUpdatableContainers(ctx context.Context, chatID int64
 		r.replyText(ctx, chatID, "✅ 当前没有可更新容器")
 		return
 	}
+	tasks := make([]batchTask, 0, len(updates))
 	failed := make([]string, 0)
-	started := make([]string, 0)
 	for _, item := range updates {
 		name, taskID, err := r.updateContainerOnCurrent(ctx, chatID, item.ID)
 		if err != nil {
 			failed = append(failed, item.Name)
 			continue
 		}
-		if taskID != "" {
-			r.startTaskProgressWatcher(ctx, chatID, inst, "更新容器: "+name, taskID)
-		}
-		started = append(started, name)
+		tasks = append(tasks, batchTask{Name: name, TaskID: taskID})
 	}
-	var b strings.Builder
-	b.WriteString("⚡ 全部更新结果\n")
-	if len(started) > 0 {
-		b.WriteString("\n✅ 已提交:\n")
-		for _, name := range started {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	if len(failed) > 0 {
-		b.WriteString("\n❌ 提交失败:\n")
-		for _, name := range failed {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	r.replyText(ctx, chatID, b.String())
-	r.sendUpdates(ctx, chatID)
+	r.startBatchProgressWatcher(ctx, chatID, inst, "全部更新", tasks, failed)
 }
 
 func (r *Runtime) updateAllUpdateSessionItems(ctx context.Context, chatID int64, session updateSession) {
@@ -140,8 +122,8 @@ func (r *Runtime) updateAllUpdateSessionItems(ctx context.Context, chatID int64,
 		r.replyText(ctx, chatID, "❌ 获取当前实例失败: "+err.Error())
 		return
 	}
+	tasks := make([]batchTask, 0, len(session.Items))
 	failed := make([]string, 0)
-	started := make([]string, 0)
 	for _, item := range session.Items {
 		if item.UpdateBlocked {
 			failed = append(failed, item.Name)
@@ -152,27 +134,9 @@ func (r *Runtime) updateAllUpdateSessionItems(ctx context.Context, chatID int64,
 			failed = append(failed, item.Name)
 			continue
 		}
-		if taskID != "" {
-			r.startTaskProgressWatcher(ctx, chatID, inst, "更新容器: "+name, taskID)
-		}
-		started = append(started, name)
+		tasks = append(tasks, batchTask{Name: name, TaskID: taskID})
 	}
-	var b strings.Builder
-	b.WriteString("⚡ 批量更新结果\n")
-	if len(started) > 0 {
-		b.WriteString("\n✅ 已提交:\n")
-		for _, name := range started {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	if len(failed) > 0 {
-		b.WriteString("\n❌ 提交失败:\n")
-		for _, name := range failed {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	r.replyText(ctx, chatID, b.String())
-	r.sendUpdates(ctx, chatID)
+	r.startBatchProgressWatcher(ctx, chatID, inst, "批量更新", tasks, failed)
 }
 
 func (r *Runtime) updateAllContainersOnPage(ctx context.Context, chatID int64, messageID int, page int) {
@@ -194,33 +158,15 @@ func (r *Runtime) updateAllContainersOnPage(ctx context.Context, chatID int64, m
 		r.replyText(ctx, chatID, "💡 当前页没有可更新容器")
 		return
 	}
+	tasks := make([]batchTask, 0, len(updatable))
 	failed := make([]string, 0)
-	started := make([]string, 0)
 	for _, item := range updatable {
 		name, taskID, err := r.updateContainerOnCurrent(ctx, chatID, item.ID)
 		if err != nil {
 			failed = append(failed, item.Name)
 			continue
 		}
-		if taskID != "" {
-			r.startTaskProgressWatcher(ctx, chatID, inst, "更新容器: "+name, taskID)
-		}
-		started = append(started, name)
+		tasks = append(tasks, batchTask{Name: name, TaskID: taskID})
 	}
-	var b strings.Builder
-	b.WriteString(fmt.Sprintf("🆙 本页更新结果（第 %d 页）\n", page+1))
-	if len(started) > 0 {
-		b.WriteString("\n✅ 已提交:\n")
-		for _, name := range started {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	if len(failed) > 0 {
-		b.WriteString("\n❌ 提交失败:\n")
-		for _, name := range failed {
-			b.WriteString("• " + name + "\n")
-		}
-	}
-	r.replyText(ctx, chatID, b.String())
-	r.sendContainersPage(ctx, chatID, messageID, page)
+	r.startBatchProgressWatcher(ctx, chatID, inst, fmt.Sprintf("本页更新（第 %d 页）", page+1), tasks, failed)
 }

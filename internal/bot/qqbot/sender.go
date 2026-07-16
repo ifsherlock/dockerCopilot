@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -25,10 +26,14 @@ type Sender struct {
 }
 
 type Message struct {
-	Text     string
-	MsgID    string
-	Markdown *Markdown
-	Keyboard *Keyboard
+	Text string
+	// PlainText 是富文本（markdown）发送失败时的降级文案。
+	// 为空时降级会直接复用 Text——那样 markdown 源码会原样露出，
+	// 因此所有 markdown 渲染都应同时提供 PlainText。
+	PlainText string
+	MsgID     string
+	Markdown  *Markdown
+	Keyboard  *Keyboard
 }
 
 type Markdown struct {
@@ -82,7 +87,7 @@ func (s *Sender) send(ctx context.Context, path string, msg Message) error {
 	} else if !isUnauthorizedErr(err) {
 		if shouldFallbackToText(err, msg) {
 			logx.Errorf("QQBot 富消息发送失败，降级纯文本: %v", err)
-			return s.sendOnceWithToken(ctx, path, Message{Text: msg.Text, MsgID: msg.MsgID}, false)
+			return s.sendOnceWithToken(ctx, path, s.plainFallback(msg), false)
 		}
 		return err
 	}
@@ -91,10 +96,20 @@ func (s *Sender) send(ctx context.Context, path string, msg Message) error {
 		return nil
 	} else if shouldFallbackToText(err, msg) {
 		logx.Errorf("QQBot 刷新 token 后富消息发送失败，降级纯文本: %v", err)
-		return s.sendOnceWithToken(ctx, path, Message{Text: msg.Text, MsgID: msg.MsgID}, false)
+		return s.sendOnceWithToken(ctx, path, s.plainFallback(msg), false)
 	} else {
 		return err
 	}
+}
+
+// plainFallback 构造降级用的纯文本消息：优先使用渲染时同步产出的 PlainText，
+// 避免把 markdown 源码（**、表格管道符等）直接发给用户造成乱码。
+func (s *Sender) plainFallback(msg Message) Message {
+	text := msg.PlainText
+	if strings.TrimSpace(text) == "" {
+		text = msg.Text
+	}
+	return Message{Text: text, MsgID: msg.MsgID}
 }
 
 func (s *Sender) sendOnceWithToken(ctx context.Context, path string, msg Message, refresh bool) error {
@@ -143,8 +158,11 @@ func (s *Sender) messagePayload(msg Message) map[string]interface{} {
 		"content":  strings.TrimSpace(msg.Text),
 		"msg_type": 0,
 	}
-	if strings.TrimSpace(msg.MsgID) != "" {
-		payload["msg_id"] = strings.TrimSpace(msg.MsgID)
+	if msgID := strings.TrimSpace(msg.MsgID); msgID != "" {
+		payload["msg_id"] = msgID
+		// QQ 官方对同一 msg_id 的被动回复按 msg_seq 去重，
+		// 不递增 seq 时第二条回复会被吞掉。
+		payload["msg_seq"] = nextMsgSeq(msgID)
 	}
 	if s.cfg.MarkdownEnabled && msg.Markdown != nil {
 		payload["msg_type"] = 2
@@ -154,6 +172,56 @@ func (s *Sender) messagePayload(msg Message) map[string]interface{} {
 		payload["keyboard"] = keyboardPayload(*msg.Keyboard)
 	}
 	return payload
+}
+
+// AckInteraction 按 QQ 官方要求回执按钮回调（PUT /interactions/{id}），
+// 否则客户端按钮会一直转圈并提示“操作失败”。
+func (s *Sender) AckInteraction(ctx context.Context, cmd IncomingCommand) error {
+	interactionID := strings.TrimSpace(firstNonEmpty(cmd.InteractionID, cmd.EventID))
+	if interactionID == "" {
+		return fmt.Errorf("QQBot interaction id 为空，无法回执")
+	}
+	body, err := json.Marshal(map[string]interface{}{"code": 0})
+	if err != nil {
+		return err
+	}
+	token, err := s.accessToken(ctx, false)
+	if err != nil {
+		return err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut,
+		s.cfg.BaseURL+fmt.Sprintf("/interactions/%s", url.PathEscape(interactionID)), bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "QQBot "+token)
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := s.client.Do(req)
+	if err != nil {
+		return fmt.Errorf("回执 QQBot interaction 失败: %w", err)
+	}
+	defer resp.Body.Close()
+	io.Copy(io.Discard, resp.Body)
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return nil
+	}
+	return fmt.Errorf("回执 QQBot interaction 失败: status=%d", resp.StatusCode)
+}
+
+// msgSeqStore 为每个 msg_id 维护递增的 msg_seq。
+var msgSeqStore = struct {
+	mu   sync.Mutex
+	seqs map[string]int
+}{seqs: map[string]int{}}
+
+func nextMsgSeq(msgID string) int {
+	msgSeqStore.mu.Lock()
+	defer msgSeqStore.mu.Unlock()
+	if len(msgSeqStore.seqs) > 2048 {
+		msgSeqStore.seqs = map[string]int{}
+	}
+	msgSeqStore.seqs[msgID]++
+	return msgSeqStore.seqs[msgID]
 }
 
 func markdownPayload(markdown Markdown) map[string]interface{} {

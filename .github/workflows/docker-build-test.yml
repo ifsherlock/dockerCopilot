@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
+      - test
       - codex/2.1.20-test
       - latest
     paths:

@@ -52,6 +52,7 @@ func (m *runtimeManager) reload(ctx context.Context, svcCtx *svc.ServiceContext,
 	if m.cancel != nil {
 		m.cancel()
 		m.cancel = nil
+		unregisterNotifier()
 		logx.Infof("QQBot 运行时已停止，准备按最新配置重载")
 	}
 
@@ -61,6 +62,7 @@ func (m *runtimeManager) reload(ctx context.Context, svcCtx *svc.ServiceContext,
 	}
 	qqCfg := ConfigFromRuntime(cfg)
 	if !qqCfg.Enabled {
+		unregisterNotifier()
 		logx.Infof("QQBot 未启用，跳过官方 QQBot 启动")
 		return nil
 	}
@@ -68,7 +70,9 @@ func (m *runtimeManager) reload(ctx context.Context, svcCtx *svc.ServiceContext,
 		return fmt.Errorf("QQBot 已启用但 app_id 或 app_secret 未配置")
 	}
 	runCtx, cancel := context.WithCancel(ctx)
-	startUpdateBackgroundJobs(runCtx, svcCtx)
+	// 更新检测/自动化任务由 internal/automation 统一调度，
+	// QQBot 只作为通知渠道注册。启动通知仅在进程首次启动时发送一次。
+	registerNotifier(svcCtx)
 	if allowInitialize {
 		SendStartupNotification(runCtx, cfg, "none", startupInstanceNames(cfg))
 	}

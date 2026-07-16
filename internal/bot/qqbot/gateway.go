@@ -46,6 +46,10 @@ type GatewayRuntime struct {
 	gatewayURLFn func(context.Context, string) (string, error)
 	heartbeatFn  func(context.Context, time.Duration, func())
 	reconnects   []time.Duration
+	// sender / dispatcher 常驻整个运行时生命周期：
+	// dispatcher 内部持有交互会话（分页/确认按钮），按事件重建会导致所有按钮点击失效。
+	sender     *Sender
+	dispatcher *CommandDispatcher
 }
 
 func NewGatewayRuntime(cfg Config, runtimeCfg svc.BackupRuntimeConfig, svcCtx *svc.ServiceContext, client *http.Client) *GatewayRuntime {
@@ -71,6 +75,8 @@ func NewGatewayRuntime(cfg Config, runtimeCfg svc.BackupRuntimeConfig, svcCtx *s
 	rt.dialer = defaultWebsocketDialer
 	rt.gatewayURLFn = rt.gatewayURL
 	rt.heartbeatFn = defaultHeartbeatLoop
+	rt.sender = NewSender(normalized, rt.client, rt.tokens)
+	rt.dispatcher = NewCommandDispatcher(normalized, rt.sender, NewActionService(svcCtx))
 	return rt
 }
 
@@ -266,15 +272,16 @@ func (s *gatewaySession) handleDispatch(ctx context.Context, payload Payload) er
 	if err := recordRecentIdentity(cmd); err != nil {
 		logx.Errorf("%v", err)
 	}
-	dispatcher := NewCommandDispatcher(
-		s.rt.cfg,
-		NewSender(s.rt.cfg, s.rt.client, s.rt.tokens),
-		NewActionService(s.rt.svcCtx),
-	)
 	go func() {
 		dispatchCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
 		defer cancel()
-		if err := dispatcher.Dispatch(dispatchCtx, cmd); err != nil {
+		// 按钮回调先回执，避免客户端一直转圈；回执失败不阻断后续处理。
+		if cmd.Kind == CommandKindInteraction {
+			if err := s.rt.sender.AckInteraction(dispatchCtx, cmd); err != nil {
+				logx.Errorf("QQBot Gateway 回执 interaction 失败: %v", err)
+			}
+		}
+		if err := s.rt.dispatcher.Dispatch(dispatchCtx, cmd); err != nil {
 			logx.Errorf("QQBot Gateway 命令处理失败: %v", err)
 		}
 	}()

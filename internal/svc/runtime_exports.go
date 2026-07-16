@@ -8,12 +8,42 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"golang.org/x/net/proxy"
 )
 
 type BackupRuntimeConfig = backupRuntimeConfig
+
+// automationReloader 由 automation 包注册，配置保存后触发自动化任务重载。
+var (
+	automationReloaderMu sync.Mutex
+	automationReloader   func() error
+)
+
+// SetAutomationReloader 注册自动化调度器的重载回调。
+func SetAutomationReloader(fn func() error) {
+	automationReloaderMu.Lock()
+	defer automationReloaderMu.Unlock()
+	automationReloader = fn
+}
+
+// ReloadAutomation 触发已注册的自动化调度器重载，未注册时为空操作。
+func ReloadAutomation() error {
+	automationReloaderMu.Lock()
+	fn := automationReloader
+	automationReloaderMu.Unlock()
+	if fn == nil {
+		return nil
+	}
+	return fn()
+}
+
+// RuntimeStateFile 返回运行时状态文件的绝对/相对路径，与运行日志同目录。
+func RuntimeStateFile(name string) string {
+	return runtimeLogFile(name)
+}
 
 func AsString(v interface{}, fallback string) string {
 	return asString(v, fallback)

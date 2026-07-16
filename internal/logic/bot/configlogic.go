@@ -278,7 +278,7 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 	// so missing fields must be merged from the current runtime config instead of
 	// being treated as empty values or overwriting existing config.
 	preserveExisting := hasAnyConfigPayload(req)
-	updateCheckCronReq := requestOrExisting(req.UpdateCheckCron, cfg.Telegram, "update_check_cron", "0 18 * * *")
+	updateCheckCronReq := requestOrExisting(req.UpdateCheckCron, cfg.Telegram, "update_check_cron", "*/30 * * * *")
 	cleanImagesCronReq := requestOrExisting(req.CleanImagesCron, cfg.Telegram, "clean_images_cron", "3 2 * * *")
 	updateContainersCronReq := requestOrExisting(req.UpdateContainersCron, cfg.Telegram, "update_containers_cron", "0 */6 * * *")
 	backupJSONCronReq := requestOrExisting(req.BackupJsonCron, cfg.Telegram, "backup_json_cron", "0 1 * * *")
@@ -592,9 +592,21 @@ func (l *ConfigLogic) SaveConfig(req *types.BotConfigReq) (resp *types.Resp, err
 		resp.Data = cfg
 		return resp, nil
 	}
+	if err := svc.ReloadAutomation(); err != nil {
+		resp.Code = 500
+		resp.Msg = "配置已保存，但重载自动化任务失败: " + err.Error()
+		resp.Data = cfg
+		return resp, nil
+	}
 	if err := botreload.ReloadQQBot(context.Background()); err != nil {
 		resp.Code = 500
 		resp.Msg = "配置已保存，但重载 QQBot 失败: " + err.Error()
+		resp.Data = cfg
+		return resp, nil
+	}
+	if err := botreload.ReloadTelegram(context.Background()); err != nil {
+		resp.Code = 500
+		resp.Msg = "配置已保存，但重载 Telegram Bot 失败: " + err.Error()
 		resp.Data = cfg
 		return resp, nil
 	}

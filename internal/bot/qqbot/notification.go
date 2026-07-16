@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"strings"
 
+	"github.com/onlyLTY/dockerCopilot/internal/domain/botnotify"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/zeromicro/go-zero/core/logx"
 )
@@ -27,7 +28,15 @@ func SendStartupNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, p
 	if !qqCfg.Enabled || len(targets) == 0 {
 		return
 	}
-	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: renderStartupNotificationText(proxySummary, instances, qqCfg.MarkdownEnabled)}, qqCfg.MarkdownEnabled))
+	plain := renderStartupNotificationText(proxySummary, instances, false)
+	var msg Message
+	if qqCfg.MarkdownEnabled {
+		msg = enrichMarkdown(Message{Text: renderStartupNotificationText(proxySummary, instances, true)}, true)
+		msg.PlainText = plain
+	} else {
+		msg = Message{Text: plain}
+	}
+	sendNotificationToTargets(ctx, qqCfg, targets, msg)
 }
 
 func renderStartupNotificationText(proxySummary string, instances []string, markdown bool) string {
@@ -62,13 +71,43 @@ func renderStartupNotificationText(proxySummary string, instances []string, mark
 	return b.String()
 }
 
-func SendUpdateNotification(ctx context.Context, cfg svc.BackupRuntimeConfig, instanceName string, items []NotifyUpdateItem) {
-	qqCfg := ConfigFromRuntime(cfg)
-	targets := notificationTargets(cfg)
-	if !qqCfg.Enabled || len(targets) == 0 || len(items) == 0 {
-		return
+// renderUpdateNotification 生成 QQ 更新通知：合并为一条精简消息，
+// 附带纯文本降级版本，避免富文本失败时露出 markdown 源码。
+func renderUpdateNotification(instanceName string, items []NotifyUpdateItem, cfg Config) Message {
+	plain := renderUpdateNotificationText(instanceName, items, false)
+	if !cfg.MarkdownEnabled {
+		return Message{Text: plain}
 	}
-	sendNotificationToTargets(ctx, qqCfg, targets, enrichMarkdown(Message{Text: renderUpdateNotificationText(instanceName, items, qqCfg.MarkdownEnabled)}, qqCfg.MarkdownEnabled))
+	msg := enrichMarkdown(Message{Text: renderUpdateNotificationText(instanceName, items, true)}, true)
+	msg.PlainText = plain
+	return msg
+}
+
+// renderAutomationNotification 生成 QQ 自动化任务结果通知（自动清理镜像 / 自动更新容器）。
+func renderAutomationNotification(evt botnotify.AutomationEvent, cfg Config) Message {
+	title := "自动清理镜像"
+	if evt.Kind == botnotify.KindUpdateContainers {
+		title = "自动更新容器"
+	}
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	if evt.Err != "" {
+		b.WriteString("任务失败: " + shortenText(evt.Err, 160))
+	} else {
+		b.WriteString(fmt.Sprintf("成功 %d，失败 %d", evt.OK, evt.Failed))
+		limit := len(evt.Details)
+		if limit > 8 {
+			limit = 8
+		}
+		for i := 0; i < limit; i++ {
+			b.WriteString("\n" + shortenText(evt.Details[i], 60))
+		}
+		if len(evt.Details) > limit {
+			b.WriteString(fmt.Sprintf("\n… 还有 %d 条", len(evt.Details)-limit))
+		}
+	}
+	// 自动化结果统一用纯文本，QQ 端最稳、可读性最好。
+	return Message{Text: strings.TrimSpace(b.String())}
 }
 
 func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem, markdown bool) string {
@@ -79,8 +118,6 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 	}
 	if markdown {
 		b.WriteString(fmt.Sprintf("**检测到可更新容器** · %d 个\n\n", len(items)))
-		b.WriteString("- 实例：" + markdownInline(firstNonEmpty(strings.TrimSpace(instanceName), "local")) + "\n")
-		b.WriteString(fmt.Sprintf("- 数量：%d\n\n", len(items)))
 		for i := 0; i < limit; i++ {
 			item := items[i]
 			ref := firstNonEmpty(item.ImageRef, item.CreateRef)
@@ -95,9 +132,7 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 		b.WriteString("\n\n" + renderHintText("发送 `/updates` 查看详情。", true))
 		return strings.TrimSpace(b.String())
 	}
-	b.WriteString("检测到可更新容器\n\n")
-	b.WriteString(fmt.Sprintf("实例: %s\n", strings.TrimSpace(instanceName)))
-	b.WriteString(fmt.Sprintf("数量: %d\n\n", len(items)))
+	b.WriteString(fmt.Sprintf("检测到可更新容器：%d 个\n\n", len(items)))
 	for i := 0; i < limit; i++ {
 		item := items[i]
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Name))
@@ -109,7 +144,7 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 		b.WriteString(fmt.Sprintf("\n还有 %d 个未显示。\n", len(items)-limit))
 	}
 	b.WriteString("\n发送 /updates 查看详情。")
-	return b.String()
+	return strings.TrimSpace(b.String())
 }
 
 func sendNotificationToTargets(ctx context.Context, cfg Config, targets []notifyTarget, msg Message) {

@@ -32,7 +32,7 @@ func Default(secretKey string) Config {
 			"interactive_enabled":       true,
 			"rich_interactions_enabled": false,
 			"parse_mode":                "HTML",
-			"update_check_cron":         "0 18 * * *",
+			"update_check_cron":         "*/30 * * * *",
 			"notify_on_update":          true,
 			"update_blacklist":          []string{},
 			"auto_clean_images":         false,

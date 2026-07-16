@@ -14,11 +14,12 @@ import (
 	"github.com/mymmrac/telego"
 	ta "github.com/mymmrac/telego/telegoapi"
 	tu "github.com/mymmrac/telego/telegoutil"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/botnotify"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/botreload"
 	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
 	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
 	versionlogic "github.com/onlyLTY/dockerCopilot/internal/logic/version"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/logx"
 )
 
@@ -40,11 +41,69 @@ type userState struct {
 	Selected  string
 }
 
+// telegramManager 管理 Telegram 运行时的生命周期，支持配置保存后的热重载：
+// 连接相关配置（bot_token / 代理）变化时重建长轮询；其余配置由运行中的
+// Runtime 在每次处理消息时实时读取，无需重启。
+var telegramManager = &runtimeManager{}
+
+type runtimeManager struct {
+	mu          sync.Mutex
+	initialized bool
+	baseCtx     context.Context
+	svcCtx      *svc.ServiceContext
+	cancel      context.CancelFunc
+	fingerprint string
+}
+
 func Start(ctx context.Context, svcCtx *svc.ServiceContext) error {
+	botreload.RegisterTelegramReloader(func(context.Context) error {
+		return telegramManager.Reload()
+	})
+	telegramManager.mu.Lock()
+	telegramManager.baseCtx = ctx
+	telegramManager.svcCtx = svcCtx
+	telegramManager.initialized = true
+	telegramManager.mu.Unlock()
+	return telegramManager.reload(true)
+}
+
+// Reload 按最新配置重载 Telegram Bot。连接配置未变化时是空操作，
+// 避免打断正在处理的交互。
+func (m *runtimeManager) Reload() error {
+	m.mu.Lock()
+	if !m.initialized {
+		m.mu.Unlock()
+		return nil
+	}
+	m.mu.Unlock()
+	return m.reload(false)
+}
+
+func connectionFingerprint(cfg svc.BackupRuntimeConfig) string {
+	token := strings.TrimSpace(svc.AsString(cfg.Telegram["bot_token"], ""))
+	proxyJSON, _ := svc.MustJSON(svc.ProxyMap(cfg.Telegram["proxy"]))
+	return token + "|" + string(proxyJSON)
+}
+
+func (m *runtimeManager) reload(initial bool) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	cfg, err := svc.LoadRuntimeConfigForRead()
 	if err != nil {
 		return err
 	}
+	fp := connectionFingerprint(cfg)
+	if !initial && fp == m.fingerprint {
+		return nil
+	}
+	if m.cancel != nil {
+		m.cancel()
+		m.cancel = nil
+		logx.Infof("Telegram 运行时已停止，准备按最新配置重载")
+	}
+	botnotify.Unregister("telegram")
+	m.fingerprint = fp
+
 	botToken := strings.TrimSpace(svc.AsString(cfg.Telegram["bot_token"], ""))
 	if botToken == "" {
 		logx.Infof("Telegram bot token 未配置，跳过 telego bot 启动")
@@ -62,7 +121,7 @@ func Start(ctx context.Context, svcCtx *svc.ServiceContext) error {
 	}
 
 	r := &Runtime{
-		svcCtx:         svcCtx,
+		svcCtx:         m.svcCtx,
 		bot:            bot,
 		chatInstance:   map[int64]string{},
 		chatState:      map[int64]userState{},
@@ -70,7 +129,10 @@ func Start(ctx context.Context, svcCtx *svc.ServiceContext) error {
 		updateSessions: newUpdateSessionStore(10 * time.Minute),
 		renderer:       newTelegramRendererFromConfig(cfg),
 	}
-	go r.run(ctx, cfg)
+	runCtx, cancel := context.WithCancel(m.baseCtx)
+	m.cancel = cancel
+	go r.run(runCtx, cfg, initial)
+	botnotify.Register("telegram", r)
 	return nil
 }
 
@@ -82,7 +144,7 @@ func newAPICaller(cfg svc.BackupRuntimeConfig) (ta.Caller, error) {
 	return &ta.HTTPCaller{Client: client}, nil
 }
 
-func (r *Runtime) run(ctx context.Context, cfg svc.BackupRuntimeConfig) {
+func (r *Runtime) run(ctx context.Context, cfg svc.BackupRuntimeConfig, initial bool) {
 	r.authPolicy.logStartupState()
 	if err := r.bot.DeleteWebhook(ctx, (&telego.DeleteWebhookParams{}).WithDropPendingUpdates()); err != nil {
 		logx.Errorf("删除 Telegram webhook 失败: %v", err)
@@ -90,10 +152,12 @@ func (r *Runtime) run(ctx context.Context, cfg svc.BackupRuntimeConfig) {
 	if err := r.setupCommands(ctx); err != nil {
 		logx.Errorf("设置 Telegram bot commands 失败: %v", err)
 	}
-	if err := r.sendStartupNotification(ctx, cfg); err != nil {
-		logx.Errorf("发送 Telegram 启动通知失败: %v", err)
+	// 启动通知只在进程首次启动时发送，避免每次配置保存热重载都刷一条。
+	if initial {
+		if err := r.sendStartupNotification(ctx, cfg); err != nil {
+			logx.Errorf("发送 Telegram 启动通知失败: %v", err)
+		}
 	}
-	r.startUpdateBackgroundJobs(ctx)
 
 	updates, err := r.bot.UpdatesViaLongPolling(
 		ctx,
@@ -213,118 +277,8 @@ func (r *Runtime) proxySummary(cfg svc.BackupRuntimeConfig) string {
 	return fmt.Sprintf("%s://%s:%d", proxyType, host, port)
 }
 
-func (r *Runtime) startUpdateBackgroundJobs(ctx context.Context) {
-	go func() {
-		cfg, err := svc.LoadRuntimeConfigForRead()
-		if err != nil {
-			logx.Errorf("加载 Telegram 定时任务配置失败: %v", err)
-			return
-		}
-		warmSpec := strings.ToLower(strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *")))
-		if warmSpec == "off" || warmSpec == "false" || warmSpec == "0" || warmSpec == "no" {
-			return
-		}
-		warmCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-		defer cancel()
-		if err := r.runUpdateDetectionOnce(warmCtx, true); err != nil {
-			logx.Errorf("Telegram 启动预热更新检测失败: %v", err)
-		}
-	}()
-
-	go func() {
-		var lastTick string
-		for {
-			cfg, err := svc.LoadRuntimeConfigForRead()
-			if err != nil {
-				logx.Errorf("加载 Telegram 定时任务配置失败: %v", err)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(30 * time.Second):
-				}
-				continue
-			}
-			spec := strings.TrimSpace(svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"))
-			if spec == "" {
-				spec = "0 18 * * *"
-			}
-			lowerSpec := strings.ToLower(spec)
-			if lowerSpec == "off" || lowerSpec == "false" || lowerSpec == "0" || lowerSpec == "no" {
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(30 * time.Second):
-				}
-				continue
-			}
-			schedule, err := cron.ParseStandard(spec)
-			if err != nil {
-				logx.Errorf("解析 Telegram 更新检测 cron 失败 [%s]: %v", spec, err)
-				select {
-				case <-ctx.Done():
-					return
-				case <-time.After(30 * time.Second):
-				}
-				continue
-			}
-			now := time.Now()
-			next := schedule.Next(now)
-			wait := time.Until(next)
-			if wait < 0 {
-				wait = time.Second
-			}
-			if wait > 30*time.Second {
-				wait = 30 * time.Second
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case <-time.After(wait):
-			}
-			tickKey := next.Format(time.RFC3339)
-			if tickKey == lastTick {
-				continue
-			}
-			lastTick = tickKey
-			checkCtx, cancel := context.WithTimeout(ctx, 10*time.Minute)
-			if err := r.runUpdateDetectionOnce(checkCtx, false); err != nil {
-				logx.Errorf("Telegram 定时更新检测失败: %v", err)
-			}
-			cancel()
-		}
-	}()
-}
-
-func (r *Runtime) runUpdateDetectionOnce(ctx context.Context, silent bool) error {
-	cfg, err := svc.LoadRuntimeConfigForRead()
-	if err != nil {
-		return err
-	}
-	instances := []instanceConfig{{Name: "local", APIURL: "http://127.0.0.1:12712", SecretKey: "", Timeout: 30, Local: true}}
-	if runtimeCfg, err := r.getConfig(ctx); err == nil {
-		if loaded := parseInstances(runtimeCfg.Dockercopilot["instances"]); len(loaded) > 0 {
-			instances = loaded
-		}
-	}
-	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
-	notifyEnabled := svc.AsBool(cfg.Telegram["notify_on_update"])
-	startedAt := time.Now()
-	logx.Infof("开始后台更新检测: instances=%d silent=%v", len(instances), silent)
-	for _, inst := range instances {
-		instStart := time.Now()
-		updates, err := r.refreshUpdatableContainersForInstance(ctx, inst)
-		if err != nil {
-			logx.Errorf("实例 %s 更新检测失败: %v", inst.Name, err)
-			continue
-		}
-		logx.Infof("实例 %s 更新检测完成: updates=%d duration=%s", inst.Name, len(updates), time.Since(instStart).Round(time.Millisecond))
-		if notifyEnabled && !silent && len(updates) > 0 {
-			r.broadcastUpdateNotification(ctx, chatIDs, inst.Name, updates)
-		}
-	}
-	logx.Infof("后台更新检测结束: duration=%s", time.Since(startedAt).Round(time.Millisecond))
-	return nil
-}
+// 更新检测与通知统一由 internal/automation 调度，Telegram 只作为通知渠道注册
+// （见 runtimeManager.reload 中的 botnotify.Register）。
 
 func (r *Runtime) refreshUpdatableContainersSnapshot(ctx context.Context, inst instanceConfig) ([]containerView, bool, bool, time.Duration, error) {
 	startedAt := time.Now()
@@ -410,29 +364,85 @@ func filterUpdatableContainers(items []containerView) []containerView {
 	return updates
 }
 
-func (r *Runtime) broadcastUpdateNotification(ctx context.Context, chatIDs []string, instanceName string, updates []containerView) {
-	if len(chatIDs) == 0 || len(updates) == 0 {
+// NotifyUpdates 实现 botnotify.Notifier：把“检测到可更新容器”事件渲染为
+// 一条富文本消息广播给所有配置的 chat，并附带一个“查看/更新”按钮直达 /updates 面板。
+func (r *Runtime) NotifyUpdates(ctx context.Context, evt botnotify.UpdatesEvent) {
+	cfg, ok := r.currentConfig()
+	if !ok || !svc.AsBool(cfg.Telegram["notify_on_update"]) {
+		return
+	}
+	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
+	if len(chatIDs) == 0 || len(evt.Items) == 0 {
 		return
 	}
 	var b strings.Builder
 	b.WriteString("🆕 <b>检测到可更新容器</b>\n\n")
-	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(instanceName)))
-	b.WriteString(fmt.Sprintf("数量: <b>%d</b>\n\n", len(updates)))
-	limit := len(updates)
+	if evt.Instance != "" && !strings.EqualFold(evt.Instance, "local") {
+		b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(evt.Instance)))
+	}
+	b.WriteString(fmt.Sprintf("新增可更新: <b>%d</b> 个\n\n", len(evt.Items)))
+	limit := len(evt.Items)
 	if limit > 8 {
 		limit = 8
 	}
 	for i := 0; i < limit; i++ {
-		item := updates[i]
+		item := evt.Items[i]
 		b.WriteString(fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(item.Name)))
-		if ref := strings.TrimSpace(oneLineImageRef(item.UsingImage)); ref != "" {
+		if ref := strings.TrimSpace(oneLineImageRef(item.Image)); ref != "" {
 			b.WriteString(fmt.Sprintf("   📦 %s\n", escapeHTML(shorten(ref, 48))))
 		}
 	}
-	if len(updates) > limit {
-		b.WriteString(fmt.Sprintf("\n… 还有 <b>%d</b> 个\n", len(updates)-limit))
+	if len(evt.Items) > limit {
+		b.WriteString(fmt.Sprintf("\n… 还有 <b>%d</b> 个\n", len(evt.Items)-limit))
 	}
-	b.WriteString("\n💡 发送 /updates 查看详情")
+	markup := tu.InlineKeyboard(
+		tu.InlineKeyboardRow(
+			tu.InlineKeyboardButton("🆙 查看并更新").WithCallbackData("updates_refresh:"),
+		),
+	)
+	msg := b.String()
+	for _, chatID := range chatIDs {
+		id, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
+		if err != nil {
+			continue
+		}
+		if _, err := r.bot.SendMessage(ctx, tu.Message(tu.ID(id), msg).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup)); err != nil {
+			logx.Errorf("发送更新通知失败 [%s]: %v", chatID, err)
+		}
+	}
+}
+
+// NotifyAutomation 实现 botnotify.Notifier：渲染自动清理/自动更新任务的执行结果。
+func (r *Runtime) NotifyAutomation(ctx context.Context, evt botnotify.AutomationEvent) {
+	cfg, ok := r.currentConfig()
+	if !ok || !svc.AsBool(cfg.Telegram["notify_on_update"]) {
+		return
+	}
+	chatIDs := svc.StringList(cfg.Telegram["chat_ids"])
+	if len(chatIDs) == 0 {
+		return
+	}
+	title := "🧹 <b>自动清理镜像</b>"
+	if evt.Kind == botnotify.KindUpdateContainers {
+		title = "🆙 <b>自动更新容器</b>"
+	}
+	var b strings.Builder
+	b.WriteString(title + "\n\n")
+	if evt.Err != "" {
+		b.WriteString("❌ 任务失败: " + escapeHTML(shorten(evt.Err, 200)))
+	} else {
+		b.WriteString(fmt.Sprintf("✅ 成功 <b>%d</b>　❌ 失败 <b>%d</b>\n", evt.OK, evt.Failed))
+		limit := len(evt.Details)
+		if limit > 12 {
+			limit = 12
+		}
+		for i := 0; i < limit; i++ {
+			b.WriteString("\n" + escapeHTML(shorten(evt.Details[i], 120)))
+		}
+		if len(evt.Details) > limit {
+			b.WriteString(fmt.Sprintf("\n… 还有 %d 条", len(evt.Details)-limit))
+		}
+	}
 	msg := b.String()
 	for _, chatID := range chatIDs {
 		id, err := strconv.ParseInt(strings.TrimSpace(chatID), 10, 64)
@@ -440,7 +450,7 @@ func (r *Runtime) broadcastUpdateNotification(ctx context.Context, chatIDs []str
 			continue
 		}
 		if _, err := r.bot.SendMessage(ctx, tu.Message(tu.ID(id), msg).WithParseMode(telego.ModeHTML)); err != nil {
-			logx.Errorf("发送更新通知失败 [%s]: %v", chatID, err)
+			logx.Errorf("发送自动化通知失败 [%s]: %v", chatID, err)
 		}
 	}
 }
@@ -498,10 +508,10 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 		r.sendImages(ctx, msg.Chat.ID)
 	case "/clean_images", "/cleanup":
 		logx.Infof("telegram command /clean_images chat=%d", msg.Chat.ID)
-		r.confirmCleanupImages(ctx, msg.Chat.ID, false)
+		r.confirmCleanupImages(ctx, msg.Chat.ID, 0, false)
 	case "/backup":
 		logx.Infof("telegram command /backup chat=%d", msg.Chat.ID)
-		r.confirmBackup(ctx, msg.Chat.ID)
+		r.confirmBackup(ctx, msg.Chat.ID, 0)
 	case "/backups":
 		logx.Infof("telegram command /backups chat=%d", msg.Chat.ID)
 		r.sendBackups(ctx, msg.Chat.ID)
@@ -512,7 +522,7 @@ func (r *Runtime) handleMessage(ctx context.Context, msg *telego.Message) {
 	case "/settings":
 		r.sendSettingsMenu(ctx, msg.Chat.ID, 0)
 	case "/program_update", "/update_program":
-		r.confirmProgramUpdate(ctx, msg.Chat.ID)
+		r.confirmProgramUpdate(ctx, msg.Chat.ID, 0)
 	case "/status":
 		r.sendStatus(ctx, msg.Chat.ID, 0)
 	case "/version":
@@ -618,7 +628,7 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 			r.replyText(ctx, chatID, "❌ 启动失败: "+err.Error())
 			return
 		}
-		r.replyText(ctx, chatID, "✅ 容器已启动")
+		// 操作结果直接体现在原地刷新的详情页状态上，不再额外发一条“已启动”消息刷屏。
 		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_stop":
 		page := parsePage(arg)
@@ -626,7 +636,6 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 			r.replyText(ctx, chatID, "❌ 停止失败: "+err.Error())
 			return
 		}
-		r.replyText(ctx, chatID, "✅ 容器已停止")
 		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_restart":
 		page := parsePage(arg)
@@ -634,12 +643,11 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 			r.replyText(ctx, chatID, "❌ 重启失败: "+err.Error())
 			return
 		}
-		r.replyText(ctx, chatID, "✅ 容器已重启")
 		r.sendSelectedContainerDetail(ctx, chatID, messageID, page)
 	case "container_update":
 		r.updateSelectedContainer(ctx, chatID)
 	case "show_backup_menu":
-		r.confirmBackup(ctx, chatID)
+		r.confirmBackup(ctx, chatID, messageID)
 	case "backup_json":
 		r.doJSONBackup(ctx, chatID)
 	case "confirm_backup":
@@ -663,9 +671,9 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 	case "delete_backup":
 		r.deleteBackup(ctx, chatID, arg)
 	case "confirm_clean_images":
-		r.confirmCleanupImages(ctx, chatID, false)
+		r.confirmCleanupImages(ctx, chatID, messageID, false)
 	case "confirm_clean_images_force":
-		r.confirmCleanupImages(ctx, chatID, true)
+		r.confirmCleanupImages(ctx, chatID, messageID, true)
 	case "do_clean_images":
 		r.doCleanUnusedImages(ctx, chatID, false)
 	case "do_clean_images_force":
@@ -1658,7 +1666,7 @@ func (r *Runtime) sendVersion(ctx context.Context, chatID int64) {
 	r.replyText(ctx, chatID, text)
 }
 
-func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64, force bool) {
+func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64, messageID int, force bool) {
 	images, inst, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取镜像列表失败: "+err.Error())
@@ -1720,7 +1728,7 @@ func (r *Runtime) confirmCleanupImages(ctx context.Context, chatID int64, force 
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:"),
 		),
 	)
-	_, _ = r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), b.String()).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup))
+	r.editOrReplyText(ctx, chatID, messageID, b.String(), markup)
 }
 
 func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64, force bool) {
@@ -1774,7 +1782,7 @@ func (r *Runtime) doCleanUnusedImages(ctx context.Context, chatID int64, force b
 	r.replyText(ctx, chatID, text)
 }
 
-func (r *Runtime) confirmProgramUpdate(ctx context.Context, chatID int64) {
+func (r *Runtime) confirmProgramUpdate(ctx context.Context, chatID int64, messageID int) {
 	inst, err := r.currentInstance(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 获取当前实例失败: "+err.Error())
@@ -1787,7 +1795,7 @@ func (r *Runtime) confirmProgramUpdate(ctx context.Context, chatID int64) {
 		),
 	)
 	text := fmt.Sprintf("⚠️ <b>即将更新 DockerCopilot 服务</b>\n\n实例: <b>%s</b>\n\n这会更新当前实例上的 DockerCopilot 服务并可能触发服务重启，不再存在单独更新 Telegram Bot 子进程的逻辑。是否继续？", escapeHTML(inst.Name))
-	_, _ = r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup))
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
 }
 
 func (r *Runtime) doProgramUpdate(ctx context.Context, chatID int64) {
@@ -1830,7 +1838,7 @@ func (r *Runtime) doProgramUpdate(ctx context.Context, chatID int64) {
 	r.startTaskProgressWatcher(ctx, chatID, inst, "更新 dockerCopilot", taskID)
 }
 
-func (r *Runtime) confirmBackup(ctx context.Context, chatID int64) {
+func (r *Runtime) confirmBackup(ctx context.Context, chatID int64, messageID int) {
 	containers, inst, err := r.listCurrentContainers(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 操作失败: "+err.Error())
@@ -1850,7 +1858,7 @@ func (r *Runtime) confirmBackup(ctx context.Context, chatID int64) {
 		tu.InlineKeyboardRow(tu.InlineKeyboardButton("📄 Compose格式 (docker-compose.yml)").WithCallbackData("confirm_backup_compose:")),
 		tu.InlineKeyboardRow(tu.InlineKeyboardButton("❌ 取消").WithCallbackData("cancel:")),
 	)
-	_, _ = r.bot.SendMessage(ctx, tu.Message(tu.ID(chatID), text).WithParseMode(telego.ModeHTML).WithReplyMarkup(markup))
+	r.editOrReplyText(ctx, chatID, messageID, text, markup)
 }
 
 func (r *Runtime) doJSONBackupWithMessage(ctx context.Context, chatID int64, messageID int) {
@@ -2128,11 +2136,21 @@ func (r *Runtime) confirmDeleteImage(ctx context.Context, chatID int64, messageI
 	}
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("✅ 确认删除").WithCallbackData(fmt.Sprintf("do_del_image:%d:%d:%s", page, idx, force)),
+			// 回调携带镜像 ID 前缀，执行时按 ID 校验，避免列表变化后按下标误删其它镜像。
+			tu.InlineKeyboardButton("✅ 确认删除").WithCallbackData(fmt.Sprintf("do_del_image:%d:%d:%s:%s", page, idx, force, shortImageID(target.ID))),
 			tu.InlineKeyboardButton("❌ 取消").WithCallbackData(fmt.Sprintf("image:%d:%d", page, idx)),
 		),
 	)
 	r.editOrReplyText(ctx, chatID, messageID, b.String(), markup)
+}
+
+// shortImageID 返回适合放进 callback data 的镜像 ID 前缀。
+func shortImageID(id string) string {
+	id = strings.TrimPrefix(strings.TrimSpace(id), "sha256:")
+	if len(id) > 12 {
+		id = id[:12]
+	}
+	return id
 }
 
 func (r *Runtime) doDeleteImage(ctx context.Context, chatID int64, messageID int, arg string) {
@@ -2148,18 +2166,38 @@ func (r *Runtime) doDeleteImage(ctx context.Context, chatID int64, messageID int
 		return
 	}
 	force := strings.EqualFold(parts[2], "true")
+	wantID := ""
+	if len(parts) > 3 {
+		wantID = strings.TrimSpace(parts[3])
+	}
 	items, _, err := r.listCurrentImages(ctx, chatID)
 	if err != nil {
 		r.replyText(ctx, chatID, "❌ 删除镜像失败: "+err.Error())
 		return
 	}
-	const pageSize = 8
-	_, _, start, end := paginate(len(items), page, pageSize)
-	if idx < start || idx >= end || idx < 0 || idx >= len(items) {
-		r.replyText(ctx, chatID, "❌ 未找到镜像")
-		return
+	var target *imageView
+	if wantID != "" {
+		// 优先按 ID 定位，列表顺序变化也不会删错对象。
+		for i := range items {
+			if shortImageID(items[i].ID) == wantID {
+				target = &items[i]
+				break
+			}
+		}
+		if target == nil {
+			r.replyText(ctx, chatID, "⚠️ 该镜像已不在当前列表中（可能已被删除），请刷新后重试")
+			r.sendImagesPage(ctx, chatID, messageID, page)
+			return
+		}
+	} else {
+		const pageSize = 8
+		_, _, start, end := paginate(len(items), page, pageSize)
+		if idx < start || idx >= end || idx < 0 || idx >= len(items) {
+			r.replyText(ctx, chatID, "❌ 未找到镜像")
+			return
+		}
+		target = &items[idx]
 	}
-	target := items[idx]
 	fullName := target.Name
 	tag := strings.TrimSpace(strings.ToLower(target.Tag))
 	if target.Tag != "" && tag != "none" && tag != "<none>" {
@@ -2211,7 +2249,7 @@ func (r *Runtime) updateContainer(ctx context.Context, chatID int64, id string) 
 	name, taskID, err := r.updateContainerOnCurrent(ctx, chatID, id)
 	if err != nil {
 		if strings.HasPrefix(err.Error(), "SELF_UPDATE_REQUIRED:") {
-			r.confirmProgramUpdate(ctx, chatID)
+			r.confirmProgramUpdate(ctx, chatID, 0)
 			return
 		}
 		r.replyText(ctx, chatID, "❌ 更新容器失败: "+err.Error())

@@ -21,7 +21,7 @@ func (r *Runtime) persistInstancesConfig(ctx context.Context, cfg runtimeConfigV
 	resp, err := logic.SaveConfig(&apptypes.BotConfigReq{
 		BotToken:                svc.AsString(cfg.Telegram["bot_token"], ""),
 		ChatIds:                 strings.Join(svc.StringList(cfg.Telegram["chat_ids"]), ","),
-		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
+		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
 		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),

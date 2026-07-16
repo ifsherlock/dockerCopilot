@@ -227,7 +227,7 @@ func (r *Runtime) sendSettingsMenu(ctx context.Context, chatID int64, messageID 
 	}
 	telegram := cfg.Telegram
 	blacklist := svc.StringList(telegram["update_blacklist"])
-	updateCheckCron := svc.AsString(telegram["update_check_cron"], "0 18 * * *")
+	updateCheckCron := svc.AsString(telegram["update_check_cron"], "*/30 * * * *")
 	updateCheckEnabled := !isDisabledTelegramCron(updateCheckCron)
 	var b strings.Builder
 	b.WriteString("⚙️ <b>定时任务配置</b>\n\n")
@@ -356,7 +356,7 @@ func (r *Runtime) processBlacklistInput(ctx context.Context, msg *telego.Message
 	resp, err := logic.SaveConfig(&apptypes.BotConfigReq{
 		BotToken:                svc.AsString(cfg.Telegram["bot_token"], ""),
 		ChatIds:                 strings.Join(svc.StringList(cfg.Telegram["chat_ids"]), ","),
-		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
+		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
 		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),
@@ -402,7 +402,7 @@ func (r *Runtime) startEditCron(ctx context.Context, chatID int64, messageID int
 		return
 	}
 	current := map[string]string{
-		"update_check":   svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
+		"update_check":   svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *"),
 		"clean_images":   svc.AsString(cfg.Telegram["clean_images_cron"], "3 2 * * *"),
 		"auto_update":    svc.AsString(cfg.Telegram["update_containers_cron"], "0 */6 * * *"),
 		"backup_json":    svc.AsString(cfg.Telegram["backup_json_cron"], "0 1 * * *"),
@@ -443,7 +443,7 @@ func (r *Runtime) processCronInput(ctx context.Context, msg *telego.Message, sta
 	req := &apptypes.BotConfigReq{
 		BotToken:                svc.AsString(cfg.Telegram["bot_token"], ""),
 		ChatIds:                 strings.Join(svc.StringList(cfg.Telegram["chat_ids"]), ","),
-		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
+		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
 		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),
@@ -509,7 +509,7 @@ func (r *Runtime) toggleSetting(ctx context.Context, chatID int64, messageID int
 	req := &apptypes.BotConfigReq{
 		BotToken:                svc.AsString(cfg.Telegram["bot_token"], ""),
 		ChatIds:                 strings.Join(svc.StringList(cfg.Telegram["chat_ids"]), ","),
-		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *"),
+		UpdateCheckCron:         svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *"),
 		NotifyOnUpdate:          svc.AsBool(cfg.Telegram["notify_on_update"]),
 		InteractiveEnabled:      svc.AsBool(cfg.Telegram["interactive_enabled"]),
 		RichInteractionsEnabled: svc.AsBool(cfg.Telegram["rich_interactions_enabled"]),
@@ -537,9 +537,9 @@ func (r *Runtime) toggleSetting(ctx context.Context, chatID int64, messageID int
 	}
 	switch settingName {
 	case "update_check_enabled":
-		current := svc.AsString(cfg.Telegram["update_check_cron"], "0 18 * * *")
+		current := svc.AsString(cfg.Telegram["update_check_cron"], "*/30 * * * *")
 		if isDisabledTelegramCron(current) {
-			req.UpdateCheckCron = "0 18 * * *"
+			req.UpdateCheckCron = "*/30 * * * *"
 		} else {
 			req.UpdateCheckCron = "off"
 		}
@@ -575,6 +575,10 @@ func (r *Runtime) toggleSetting(ctx context.Context, chatID int64, messageID int
 func (r *Runtime) reloadSettings(ctx context.Context, chatID int64, messageID int) {
 	if err := r.svcCtx.ReloadBackupSchedulers(); err != nil {
 		r.replyText(ctx, chatID, "❌ 重载备份任务失败: "+err.Error())
+		return
+	}
+	if err := svc.ReloadAutomation(); err != nil {
+		r.replyText(ctx, chatID, "❌ 重载自动化任务失败: "+err.Error())
 		return
 	}
 	r.sendSettingsMenu(ctx, chatID, messageID)

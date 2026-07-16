@@ -248,7 +248,7 @@ func TestUpdatesCommandRendersKeyboardWhenButtonsEnabled(t *testing.T) {
 	if len(sender.c2c) != 1 || sender.c2c[0].Keyboard == nil || sender.c2c[0].Markdown == nil {
 		t.Fatalf("updates reply = %#v", sender.c2c)
 	}
-	if !strings.Contains(sender.c2c[0].Text, "**可更新容器** · 2 个") || !strings.Contains(sender.c2c[0].Text, "| # | 容器 | 镜像 |") {
+	if !strings.Contains(sender.c2c[0].Text, "**可更新容器** · 2 个") || !strings.Contains(sender.c2c[0].Text, "1. **web**") {
 		t.Fatalf("updates text = %q", sender.c2c[0].Text)
 	}
 }
@@ -348,8 +348,8 @@ func TestContainersCommandRendersSelectableListAndActions(t *testing.T) {
 	if err := dispatcher.Dispatch(ctx, IncomingCommand{Kind: CommandKindMessage, UserOpenID: "user-1", Content: "/containers"}); err != nil {
 		t.Fatalf("containers Dispatch() error = %v", err)
 	}
-	if strings.Contains(sender.c2c[0].Text, "[running]") || !strings.Contains(sender.c2c[0].Text, "| # | 状态 | 容器 | 镜像 |") {
-		t.Fatalf("containers text = %q, want markdown table with emoji status", sender.c2c[0].Text)
+	if strings.Contains(sender.c2c[0].Text, "[running]") || !strings.Contains(sender.c2c[0].Text, "1. 🟢 **api**") {
+		t.Fatalf("containers text = %q, want compact list with emoji status", sender.c2c[0].Text)
 	}
 	callbacks := collectQQCallbackData(sender.c2c[0])
 	if countCallbacksWithPrefix(callbacks, "ctr:") < 5 {
@@ -419,8 +419,8 @@ func TestImagesCommandRendersSelectableListAndDeleteFlow(t *testing.T) {
 	if err := dispatcher.Dispatch(ctx, IncomingCommand{Kind: CommandKindMessage, UserOpenID: "user-1", Content: "/images"}); err != nil {
 		t.Fatalf("images Dispatch() error = %v", err)
 	}
-	if !strings.Contains(sender.c2c[0].Text, "| # | 状态 | 镜像 | 大小 |") || !strings.Contains(sender.c2c[0].Text, "🧹") {
-		t.Fatalf("images text = %q, want markdown table with emoji status", sender.c2c[0].Text)
+	if !strings.Contains(sender.c2c[0].Text, "🧹 **busybox:latest**") || !strings.Contains(sender.c2c[0].Text, "🧹") {
+		t.Fatalf("images text = %q, want compact list with emoji status", sender.c2c[0].Text)
 	}
 	callbacks := collectQQCallbackData(sender.c2c[0])
 	detailAction := firstCallbackWithPrefix(callbacks, "img:", ":item:")

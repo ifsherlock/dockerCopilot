@@ -16,10 +16,10 @@ import (
 
 	qqbotruntime "github.com/onlyLTY/dockerCopilot/internal/bot/qqbot"
 	telegramruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
+	"github.com/onlyLTY/dockerCopilot/internal/automation"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
-	"github.com/robfig/cron/v3"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
 	"github.com/zeromicro/go-zero/rest"
@@ -112,21 +112,10 @@ export const customImageLogos = {
 		}
 	}
 
-	// 镜像更新检测改为容器列表请求时按容器创建镜像实时判断，
-	// 避免启动时全量扫描 registry 导致服务卡顿或 Bot 首次连接超时。
-	corndanmu := cron.New(cron.WithParser(cron.NewParser(
-		cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow,
-	)))
-	_, err = corndanmu.AddFunc("30 * * * *", func() {
-		// 保留定时器占位，更新状态由容器列表按实际 createImage/ImageID 检测。
-	})
-	if err != nil {
-		logx.Errorf("添加内置定时任务失败: %v", err)
-		panic(err)
-	}
-	corndanmu.Start()
-	logx.Infof("内置 cron 调度器已启动")
-	defer corndanmu.Stop()
+	// 更新检测由 internal/automation 统一调度：后台定时检测 + 通知去重，
+	// 前端请求只读缓存，不再承担触发检测/推送的职责。
+	automation.Init(context.Background(), ctx)
+	logx.Infof("自动化调度中心已启动")
 	httpx.SetErrorHandler(func(err error) (int, any) {
 		switch e := err.(type) {
 		case *errors.CodeMsg:

@@ -33,7 +33,7 @@ var homeMenuItems = []homeMenuItem{
 }
 
 func renderHome(cfg Config) Message {
-	msg := Message{Text: homeText(cfg.ButtonsEnabled)}
+	msg := Message{Text: homeText(cfg.ButtonsEnabled), PlainText: homeText(false)}
 	if cfg.MarkdownEnabled && cfg.ButtonsEnabled {
 		msg.Keyboard = homeKeyboard()
 	}
@@ -81,6 +81,7 @@ func homeKeyboard() *Keyboard {
 func renderStaleInteraction(reason string) Message {
 	home := renderHome(Config{MarkdownEnabled: true, ButtonsEnabled: true})
 	home.Text = renderNoticeText("按钮已失效", strings.TrimSpace(reason), "请选择下方按钮重新打开功能。", true)
+	home.PlainText = renderNoticeText("按钮已失效", strings.TrimSpace(reason), "请选择下方按钮重新打开功能。", false)
 	if home.Markdown != nil {
 		home.Markdown.Content = home.Text
 	}
@@ -89,7 +90,8 @@ func renderStaleInteraction(reason string) Message {
 
 func renderStatus(summary StatusSummary, cfg Config) Message {
 	return richMessage(Message{
-		Text: renderStatusText(summary, cfg.MarkdownEnabled),
+		Text:      renderStatusText(summary, cfg.MarkdownEnabled),
+		PlainText: renderStatusText(summary, false),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "查看更新", Command: "/updates", ID: "updates"},
 			{Label: "容器列表", Command: "/containers", ID: "containers"},
@@ -102,14 +104,12 @@ func renderStatusText(summary StatusSummary, markdown bool) string {
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**DockerCopilot 状态**\n\n")
-		b.WriteString("| 项目 | 数量 |\n")
-		b.WriteString("|---|---:|\n")
-		b.WriteString(fmt.Sprintf("| 容器 | %d |\n", summary.Containers))
-		b.WriteString(fmt.Sprintf("| 🟢 运行中 | %d |\n", summary.Running))
-		b.WriteString(fmt.Sprintf("| ⚪ 已停止 | %d |\n", summary.Stopped))
-		b.WriteString(fmt.Sprintf("| ↑ 可更新 | %d |\n", summary.UpdateCount))
+		b.WriteString(markdownKV("容器", fmt.Sprintf("%d", summary.Containers)))
+		b.WriteString(markdownKV("🟢 运行中", fmt.Sprintf("%d", summary.Running)))
+		b.WriteString(markdownKV("⚪ 已停止", fmt.Sprintf("%d", summary.Stopped)))
+		b.WriteString(markdownKV("↑ 可更新", fmt.Sprintf("%d", summary.UpdateCount)))
 		b.WriteString("\n" + renderHintText("点击“查看更新”或发送 `/updates` 查看详情。", true))
-		return b.String()
+		return strings.TrimSpace(b.String())
 	}
 	return fmt.Sprintf(
 		"DockerCopilot 状态\n\n容器: %d\n运行中: %d\n已停止: %d\n可更新: %d\n\n发送 /updates 查看可更新容器。",
@@ -123,18 +123,22 @@ func renderStatusText(summary StatusSummary, markdown bool) string {
 func renderUpdates(items []ContainerUpdateItem, session updateSession, cfg Config) Message {
 	if len(items) == 0 {
 		return richMessage(Message{
-			Text:     renderNoticeText("可更新容器", "当前没有可更新容器。", "可以点击刷新检测重新检查。", cfg.MarkdownEnabled),
-			Keyboard: quickActionKeyboard([]quickAction{{Label: "刷新检测", Command: "/check_updates", ID: "check"}, homeAction()}),
+			Text:      renderNoticeText("可更新容器", "当前没有可更新容器。", "可以点击刷新检测重新检查。", cfg.MarkdownEnabled),
+			PlainText: renderNoticeText("可更新容器", "当前没有可更新容器。", "可以点击刷新检测重新检查。", false),
+			Keyboard:  quickActionKeyboard([]quickAction{{Label: "刷新检测", Command: "/check_updates", ID: "check"}, homeAction()}),
 		}, cfg)
 	}
 	text := renderUpdatesText(items, cfg.MarkdownEnabled, 8)
+	plain := renderUpdatesText(items, false, 8)
 	if !cfg.ButtonsEnabled {
 		text += "\n\n" + renderHintText("按钮未启用，可发送 `/updates` 刷新列表。", cfg.MarkdownEnabled)
-		return richMessage(Message{Text: text}, cfg)
+		plain += "\n\n" + renderHintText("按钮未启用，可发送 /updates 刷新列表。", false)
+		return richMessage(Message{Text: text, PlainText: plain}, cfg)
 	}
 	return richMessage(Message{
-		Text:     text,
-		Keyboard: updatesKeyboard(items, session),
+		Text:      text,
+		PlainText: plain,
+		Keyboard:  updatesKeyboard(items, session),
 	}, cfg)
 }
 
@@ -145,12 +149,13 @@ func renderUpdatesText(items []ContainerUpdateItem, markdown bool, limit int) st
 	if markdown {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("**可更新容器** · %d 个\n\n", len(items)))
-		b.WriteString("| # | 容器 | 镜像 |\n")
-		b.WriteString("|---:|---|---|\n")
 		for i := 0; i < limit; i++ {
 			item := items[i]
 			ref := firstNonEmpty(item.UsingImage, item.CreateImage)
-			b.WriteString(fmt.Sprintf("| %d | %s | %s |\n", i+1, markdownCell(shortenText(item.Name, 24)), markdownCell(shortenText(ref, 34))))
+			b.WriteString(fmt.Sprintf("%d. **%s**\n", i+1, markdownInline(shortenText(item.Name, 24))))
+			if strings.TrimSpace(ref) != "" {
+				b.WriteString("   `" + markdownCodeInline(shortenText(ref, 34)) + "`\n")
+			}
 		}
 		if len(items) > limit {
 			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示，请发送 `/updates` 查看完整交互列表。", len(items)-limit), true))
@@ -182,47 +187,60 @@ func renderContainersPage(items []ContainerInfoLite, session containerSession, p
 		return richMessage(Message{Text: "当前没有容器。", Keyboard: homeKeyboard()}, cfg)
 	}
 	start, end, page, pages := pageBounds(len(items), page, qqListPageSize)
-	var b strings.Builder
-	if cfg.MarkdownEnabled {
-		b.WriteString(fmt.Sprintf("**容器列表** · %d 个 · 第 %d/%d 页\n\n", len(items), page+1, pages))
-		b.WriteString("| # | 状态 | 容器 | 镜像 |\n")
-		b.WriteString("|---:|:---:|---|---|\n")
-		for i := start; i < end; i++ {
-			item := items[i]
-			b.WriteString(fmt.Sprintf(
-				"| %d | %s | %s | %s |\n",
-				i+1,
-				containerStatusEmoji(item.Status),
-				markdownCell(shortenText(item.Name+containerUpdateBadge(item), 24)),
-				markdownCell(shortenText(item.Image, 30)),
-			))
-		}
-	} else {
-		b.WriteString(fmt.Sprintf("容器列表：%d 个（第 %d/%d 页）\n\n", len(items), page+1, pages))
-		for i := start; i < end; i++ {
-			item := items[i]
-			b.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, containerStatusEmoji(item.Status), item.Name, containerUpdateBadge(item)))
-			if image := strings.TrimSpace(item.Image); image != "" {
-				b.WriteString("   镜像: " + shortenText(image, 54) + "\n")
-			}
-		}
-	}
+	text := containersPageText(items, start, end, page, pages, true)
+	plain := containersPageText(items, start, end, page, pages, false)
 	if !cfg.ButtonsEnabled {
-		b.WriteString("\n\n按钮未启用，可发送 /containers 重新查看。")
-		return richMessage(Message{Text: strings.TrimSpace(b.String())}, cfg)
+		text += "\n\n按钮未启用，可发送 /containers 重新查看。"
+		plain += "\n\n按钮未启用，可发送 /containers 重新查看。"
+		return richMessage(Message{Text: strings.TrimSpace(text), PlainText: strings.TrimSpace(plain)}, cfg)
 	}
 	return richMessage(Message{
-		Text:     strings.TrimSpace(b.String()),
-		Keyboard: containersPageKeyboard(items, session, page),
+		Text:      strings.TrimSpace(text),
+		PlainText: strings.TrimSpace(plain),
+		Keyboard:  containersPageKeyboard(items, session, page),
 	}, cfg)
 }
 
-func renderContainerDetail(item ContainerInfoLite, sessionID string, index int, page int, cfg Config) Message {
+func containersPageText(items []ContainerInfoLite, start, end, page, pages int, markdown bool) string {
 	var b strings.Builder
-	if cfg.MarkdownEnabled {
+	if markdown {
+		b.WriteString(fmt.Sprintf("**容器列表** · %d 个 · 第 %d/%d 页\n\n", len(items), page+1, pages))
+		for i := start; i < end; i++ {
+			item := items[i]
+			b.WriteString(fmt.Sprintf("%d. %s **%s**\n", i+1, containerStatusEmoji(item.Status), markdownInline(shortenText(item.Name+containerUpdateBadge(item), 24))))
+			if image := strings.TrimSpace(item.Image); image != "" {
+				b.WriteString("   `" + markdownCodeInline(shortenText(image, 30)) + "`\n")
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString(fmt.Sprintf("容器列表：%d 个（第 %d/%d 页）\n\n", len(items), page+1, pages))
+	for i := start; i < end; i++ {
+		item := items[i]
+		b.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, containerStatusEmoji(item.Status), item.Name, containerUpdateBadge(item)))
+		if image := strings.TrimSpace(item.Image); image != "" {
+			b.WriteString("   镜像: " + shortenText(image, 54) + "\n")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderContainerDetail(item ContainerInfoLite, sessionID string, index int, page int, cfg Config) Message {
+	keyboard := containerDetailKeyboard(item, sessionID, index, page)
+	if !cfg.ButtonsEnabled {
+		keyboard = nil
+	}
+	return richMessage(Message{
+		Text:      containerDetailText(item, cfg.MarkdownEnabled),
+		PlainText: containerDetailText(item, false),
+		Keyboard:  keyboard,
+	}, cfg)
+}
+
+func containerDetailText(item ContainerInfoLite, markdown bool) string {
+	var b strings.Builder
+	if markdown {
 		b.WriteString("**容器详情**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("名称", firstNonEmpty(item.Name, "未知")))
 		b.WriteString(markdownKV("状态", containerStatusEmoji(item.Status)+" "+containerStatusLabel(item.Status)))
 		if image := strings.TrimSpace(item.Image); image != "" {
@@ -257,15 +275,12 @@ func renderContainerDetail(item ContainerInfoLite, sessionID string, index int, 
 	if item.IsSelf {
 		b.WriteString("\n当前容器是 DockerCopilot 自身，已隐藏停止和重启按钮。")
 	}
-	keyboard := containerDetailKeyboard(item, sessionID, index, page)
-	if !cfg.ButtonsEnabled {
-		keyboard = nil
-	}
-	return richMessage(Message{Text: strings.TrimSpace(b.String()), Keyboard: keyboard}, cfg)
+	return strings.TrimSpace(b.String())
 }
 
 func renderContainerActionResult(item ContainerInfoLite, msg string, sessionID string, index int, page int, cfg Config) Message {
 	text := renderActionResultText("容器操作", firstNonEmpty(msg, "容器操作已提交"), "容器", firstNonEmpty(item.Name, "未知"), cfg.MarkdownEnabled)
+	plain := renderActionResultText("容器操作", firstNonEmpty(msg, "容器操作已提交"), "容器", firstNonEmpty(item.Name, "未知"), false)
 	keyboard := &Keyboard{Raw: map[string]interface{}{
 		"content": map[string]interface{}{
 			"rows": []interface{}{
@@ -279,7 +294,7 @@ func renderContainerActionResult(item ContainerInfoLite, msg string, sessionID s
 			},
 		},
 	}}
-	return richMessage(Message{Text: text, Keyboard: keyboard}, cfg)
+	return richMessage(Message{Text: text, PlainText: plain, Keyboard: keyboard}, cfg)
 }
 
 func renderImagesPage(items []ImageInfoLite, session imageSession, page int, cfg Config) Message {
@@ -287,47 +302,60 @@ func renderImagesPage(items []ImageInfoLite, session imageSession, page int, cfg
 		return richMessage(Message{Text: "当前没有镜像。", Keyboard: homeKeyboard()}, cfg)
 	}
 	start, end, page, pages := pageBounds(len(items), page, qqListPageSize)
-	var b strings.Builder
-	if cfg.MarkdownEnabled {
-		b.WriteString(fmt.Sprintf("**镜像列表** · %d 个 · 第 %d/%d 页\n\n", len(items), page+1, pages))
-		b.WriteString("| # | 状态 | 镜像 | 大小 |\n")
-		b.WriteString("|---:|:---:|---|---|\n")
-		for i := start; i < end; i++ {
-			item := items[i]
-			b.WriteString(fmt.Sprintf(
-				"| %d | %s | %s | %s |\n",
-				i+1,
-				imageUsageEmoji(item),
-				markdownCell(shortenText(imageDisplayName(item)+imageUpdateBadge(item), 30)),
-				markdownCell(shortenText(item.Size, 14)),
-			))
-		}
-	} else {
-		b.WriteString(fmt.Sprintf("镜像列表：%d 个（第 %d/%d 页）\n\n", len(items), page+1, pages))
-		for i := start; i < end; i++ {
-			item := items[i]
-			b.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, imageUsageEmoji(item), imageDisplayName(item), imageUpdateBadge(item)))
-			if size := strings.TrimSpace(item.Size); size != "" {
-				b.WriteString("   大小: " + size + "\n")
-			}
-		}
-	}
+	text := imagesPageText(items, start, end, page, pages, true)
+	plain := imagesPageText(items, start, end, page, pages, false)
 	if !cfg.ButtonsEnabled {
-		b.WriteString("\n\n按钮未启用，可发送 /images 重新查看。")
-		return richMessage(Message{Text: strings.TrimSpace(b.String())}, cfg)
+		text += "\n\n按钮未启用，可发送 /images 重新查看。"
+		plain += "\n\n按钮未启用，可发送 /images 重新查看。"
+		return richMessage(Message{Text: strings.TrimSpace(text), PlainText: strings.TrimSpace(plain)}, cfg)
 	}
 	return richMessage(Message{
-		Text:     strings.TrimSpace(b.String()),
-		Keyboard: imagesPageKeyboard(items, session, page),
+		Text:      strings.TrimSpace(text),
+		PlainText: strings.TrimSpace(plain),
+		Keyboard:  imagesPageKeyboard(items, session, page),
 	}, cfg)
 }
 
-func renderImageDetail(item ImageInfoLite, sessionID string, index int, page int, cfg Config) Message {
+func imagesPageText(items []ImageInfoLite, start, end, page, pages int, markdown bool) string {
 	var b strings.Builder
-	if cfg.MarkdownEnabled {
+	if markdown {
+		b.WriteString(fmt.Sprintf("**镜像列表** · %d 个 · 第 %d/%d 页\n\n", len(items), page+1, pages))
+		for i := start; i < end; i++ {
+			item := items[i]
+			b.WriteString(fmt.Sprintf("%d. %s **%s**\n", i+1, imageUsageEmoji(item), markdownInline(shortenText(imageDisplayName(item)+imageUpdateBadge(item), 30))))
+			if size := strings.TrimSpace(item.Size); size != "" {
+				b.WriteString("   大小 " + markdownInline(shortenText(size, 14)) + "\n")
+			}
+		}
+		return strings.TrimSpace(b.String())
+	}
+	b.WriteString(fmt.Sprintf("镜像列表：%d 个（第 %d/%d 页）\n\n", len(items), page+1, pages))
+	for i := start; i < end; i++ {
+		item := items[i]
+		b.WriteString(fmt.Sprintf("%d. %s %s%s\n", i+1, imageUsageEmoji(item), imageDisplayName(item), imageUpdateBadge(item)))
+		if size := strings.TrimSpace(item.Size); size != "" {
+			b.WriteString("   大小: " + size + "\n")
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func renderImageDetail(item ImageInfoLite, sessionID string, index int, page int, cfg Config) Message {
+	keyboard := imageDetailKeyboard(item, sessionID, index, page)
+	if !cfg.ButtonsEnabled {
+		keyboard = nil
+	}
+	return richMessage(Message{
+		Text:      imageDetailText(item, cfg.MarkdownEnabled),
+		PlainText: imageDetailText(item, false),
+		Keyboard:  keyboard,
+	}, cfg)
+}
+
+func imageDetailText(item ImageInfoLite, markdown bool) string {
+	var b strings.Builder
+	if markdown {
 		b.WriteString("**镜像详情**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("名称", imageDisplayName(item)))
 		b.WriteString(markdownKV("状态", imageUsageEmoji(item)+" "+imageUsageLabel(item)))
 		if size := strings.TrimSpace(item.Size); size != "" {
@@ -356,15 +384,12 @@ func renderImageDetail(item ImageInfoLite, sessionID string, index int, page int
 	if item.InUse {
 		b.WriteString("\n镜像仍在使用中，已隐藏删除按钮。")
 	}
-	keyboard := imageDetailKeyboard(item, sessionID, index, page)
-	if !cfg.ButtonsEnabled {
-		keyboard = nil
-	}
-	return richMessage(Message{Text: strings.TrimSpace(b.String()), Keyboard: keyboard}, cfg)
+	return strings.TrimSpace(b.String())
 }
 
 func renderImageDeleteConfirm(item ImageInfoLite, sessionID string, index int, page int, cfg Config) Message {
 	text := renderConfirmDeleteImageText(item, cfg.MarkdownEnabled)
+	plain := renderConfirmDeleteImageText(item, false)
 	keyboard := &Keyboard{Raw: map[string]interface{}{
 		"content": map[string]interface{}{
 			"rows": []interface{}{
@@ -379,11 +404,12 @@ func renderImageDeleteConfirm(item ImageInfoLite, sessionID string, index int, p
 			},
 		},
 	}}
-	return richMessage(Message{Text: text, Keyboard: keyboard}, cfg)
+	return richMessage(Message{Text: text, PlainText: plain, Keyboard: keyboard}, cfg)
 }
 
 func renderImageActionResult(item ImageInfoLite, msg string, sessionID string, page int, cfg Config) Message {
 	text := renderActionResultText("镜像操作", firstNonEmpty(msg, "镜像操作已完成"), "镜像", imageDisplayName(item), cfg.MarkdownEnabled)
+	plain := renderActionResultText("镜像操作", firstNonEmpty(msg, "镜像操作已完成"), "镜像", imageDisplayName(item), false)
 	keyboard := &Keyboard{Raw: map[string]interface{}{
 		"content": map[string]interface{}{
 			"rows": []interface{}{
@@ -394,13 +420,14 @@ func renderImageActionResult(item ImageInfoLite, msg string, sessionID string, p
 			},
 		},
 	}}
-	return richMessage(Message{Text: text, Keyboard: keyboard}, cfg)
+	return richMessage(Message{Text: text, PlainText: plain, Keyboard: keyboard}, cfg)
 }
 
 func renderBackups(summary BackupSummary, cfg Config) Message {
 	if len(summary.Files) == 0 {
 		return richMessage(Message{
-			Text: renderNoticeText("备份列表", "当前没有备份文件。", "可以点击下方按钮创建备份。", cfg.MarkdownEnabled),
+			Text:      renderNoticeText("备份列表", "当前没有备份文件。", "可以点击下方按钮创建备份。", cfg.MarkdownEnabled),
+			PlainText: renderNoticeText("备份列表", "当前没有备份文件。", "可以点击下方按钮创建备份。", false),
 			Keyboard: quickActionKeyboard([]quickAction{
 				{Label: "JSON备份", Command: "/backup", ID: "backup"},
 				{Label: "Compose备份", Command: "/backup_compose", ID: "compose"},
@@ -409,7 +436,8 @@ func renderBackups(summary BackupSummary, cfg Config) Message {
 		}, cfg)
 	}
 	return richMessage(Message{
-		Text: renderBackupsText(summary, cfg.MarkdownEnabled),
+		Text:      renderBackupsText(summary, cfg.MarkdownEnabled),
+		PlainText: renderBackupsText(summary, false),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "JSON备份", Command: "/backup", ID: "backup"},
 			{Label: "Compose备份", Command: "/backup_compose", ID: "compose"},
@@ -426,10 +454,8 @@ func renderBackupsText(summary BackupSummary, markdown bool) string {
 	if markdown {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("**备份列表** · %d 个\n\n", len(summary.Files)))
-		b.WriteString("| # | 文件 |\n")
-		b.WriteString("|---:|---|\n")
 		for i := 0; i < limit; i++ {
-			b.WriteString(fmt.Sprintf("| %d | %s |\n", i+1, markdownCell(shortenText(summary.Files[i], 58))))
+			b.WriteString(fmt.Sprintf("%d. `%s`\n", i+1, markdownCodeInline(shortenText(summary.Files[i], 58))))
 		}
 		if len(summary.Files) > limit {
 			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示。", len(summary.Files)-limit), true))
@@ -453,7 +479,8 @@ func renderVersion(summary VersionSummary, cfg Config) Message {
 	status := firstNonEmpty(summary.RemoteStatus, "未知")
 	buildDate := firstNonEmpty(summary.BuildDate, "未知")
 	return richMessage(Message{
-		Text: renderVersionText(local, buildDate, remote, status, cfg.MarkdownEnabled),
+		Text:      renderVersionText(local, buildDate, remote, status, cfg.MarkdownEnabled),
+		PlainText: renderVersionText(local, buildDate, remote, status, false),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "刷新检测", Command: "/check_updates", ID: "check"},
 			homeAction(),
@@ -465,8 +492,6 @@ func renderVersionText(local string, buildDate string, remote string, status str
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**版本信息**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("本地版本", local))
 		b.WriteString(markdownKV("构建时间", buildDate))
 		b.WriteString(markdownKV("远端版本", remote))
@@ -478,11 +503,16 @@ func renderVersionText(local string, buildDate string, remote string, status str
 
 func renderConfirm(item ContainerUpdateItem, sessionID string, index int, cfg Config) Message {
 	text := renderConfirmUpdateText(item, cfg.MarkdownEnabled)
+	plain := renderConfirmUpdateText(item, false)
 	if !cfg.ButtonsEnabled {
-		return richMessage(Message{Text: text + "\n\n" + renderHintText("按钮未启用，请发送 `/updates` 重新查看。", cfg.MarkdownEnabled)}, cfg)
+		return richMessage(Message{
+			Text:      text + "\n\n" + renderHintText("按钮未启用，请发送 `/updates` 重新查看。", cfg.MarkdownEnabled),
+			PlainText: plain + "\n\n" + renderHintText("按钮未启用，请发送 /updates 重新查看。", false),
+		}, cfg)
 	}
 	return richMessage(Message{
-		Text: text,
+		Text:      text,
+		PlainText: plain,
 		Keyboard: &Keyboard{Raw: map[string]interface{}{
 			"content": map[string]interface{}{
 				"rows": []interface{}{
@@ -498,11 +528,16 @@ func renderConfirm(item ContainerUpdateItem, sessionID string, index int, cfg Co
 
 func renderConfirmAll(items []ContainerUpdateItem, sessionID string, cfg Config) Message {
 	text := renderConfirmAllText(items, cfg.MarkdownEnabled)
+	plain := renderConfirmAllText(items, false)
 	if !cfg.ButtonsEnabled {
-		return richMessage(Message{Text: text + "\n\n" + renderHintText("按钮未启用，请发送 `/updates` 重新查看。", cfg.MarkdownEnabled)}, cfg)
+		return richMessage(Message{
+			Text:      text + "\n\n" + renderHintText("按钮未启用，请发送 `/updates` 重新查看。", cfg.MarkdownEnabled),
+			PlainText: plain + "\n\n" + renderHintText("按钮未启用，请发送 /updates 重新查看。", false),
+		}, cfg)
 	}
 	return richMessage(Message{
-		Text: text,
+		Text:      text,
+		PlainText: plain,
 		Keyboard: &Keyboard{Raw: map[string]interface{}{
 			"content": map[string]interface{}{
 				"rows": []interface{}{
@@ -521,8 +556,6 @@ func renderConfirmUpdateText(item ContainerUpdateItem, markdown bool) string {
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**确认更新容器？**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("容器", item.Name))
 		if ref != "" {
 			b.WriteString(markdownKV("镜像", ref))
@@ -540,10 +573,8 @@ func renderConfirmAllText(items []ContainerUpdateItem, markdown bool) string {
 		if limit > 8 {
 			limit = 8
 		}
-		b.WriteString("| # | 容器 |\n")
-		b.WriteString("|---:|---|\n")
 		for i := 0; i < limit; i++ {
-			b.WriteString(fmt.Sprintf("| %d | %s |\n", i+1, markdownCell(shortenText(items[i].Name, 32))))
+			b.WriteString(fmt.Sprintf("%d. **%s**\n", i+1, markdownInline(shortenText(items[i].Name, 32))))
 		}
 		if len(items) > limit {
 			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示。", len(items)-limit), true))
@@ -557,8 +588,6 @@ func renderConfirmDeleteImageText(item ImageInfoLite, markdown bool) string {
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**确认删除镜像？**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("镜像", imageDisplayName(item)))
 		b.WriteString(markdownKV("状态", imageUsageEmoji(item)+" "+imageUsageLabel(item)))
 		return strings.TrimSpace(b.String())
@@ -570,8 +599,6 @@ func renderActionResultText(title string, message string, key string, value stri
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**" + markdownInline(title) + "**\n\n")
-		b.WriteString("| 项目 | 内容 |\n")
-		b.WriteString("|---|---|\n")
 		b.WriteString(markdownKV("结果", message))
 		b.WriteString(markdownKV(key, value))
 		return strings.TrimSpace(b.String())
@@ -934,17 +961,7 @@ func shortenID(id string) string {
 }
 
 func markdownKV(key string, value string) string {
-	return fmt.Sprintf("| %s | %s |\n", markdownCell(key), markdownCell(value))
-}
-
-func markdownCell(value string) string {
-	value = strings.TrimSpace(value)
-	if value == "" {
-		return "-"
-	}
-	value = strings.ReplaceAll(value, "|", "\\|")
-	value = strings.ReplaceAll(value, "\n", "<br>")
-	return value
+	return fmt.Sprintf("**%s**：%s\n", markdownInline(key), markdownInline(value))
 }
 
 func markdownInline(value string) string {
@@ -979,7 +996,7 @@ func renderNoticeText(title string, message string, hint string, markdown bool) 
 	var b strings.Builder
 	b.WriteString("**" + markdownInline(title) + "**\n\n")
 	if strings.TrimSpace(message) != "" {
-		b.WriteString(markdownCell(message))
+		b.WriteString(markdownInline(message))
 	}
 	if strings.TrimSpace(hint) != "" {
 		b.WriteString("\n\n" + renderHintText(hint, true))

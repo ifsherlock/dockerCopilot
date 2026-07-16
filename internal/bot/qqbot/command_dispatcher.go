@@ -298,11 +298,10 @@ func (d *CommandDispatcher) runImageDelete(ctx context.Context, cmd IncomingComm
 }
 
 func (d *CommandDispatcher) runOne(ctx context.Context, cmd IncomingCommand, item ContainerUpdateItem) error {
-	taskID, err := d.actions.UpdateContainer(ctx, item)
-	if err != nil {
+	if _, err := d.actions.UpdateContainer(ctx, item); err != nil {
 		return d.reply(ctx, cmd, d.renderError("提交更新失败："+err.Error()))
 	}
-	return d.reply(ctx, cmd, d.renderSuccess(fmt.Sprintf("已提交更新：%s\nTaskID: %s", item.Name, taskID)))
+	return d.reply(ctx, cmd, d.renderSuccess(fmt.Sprintf("已提交更新：%s\n更新在后台进行，稍后发送 /updates 或 /status 查看结果。", item.Name)))
 }
 
 func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, items []ContainerUpdateItem) error {
@@ -316,40 +315,31 @@ func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, ite
 		started = append(started, item.Name)
 	}
 	var b strings.Builder
-	if d.cfg.MarkdownEnabled {
-		b.WriteString("**批量更新已提交**\n\n")
-		b.WriteString("| 状态 | 容器 |\n")
-		b.WriteString("|---|---|\n")
-		for _, name := range started {
-			b.WriteString(fmt.Sprintf("| 成功 | %s |\n", markdownCell(name)))
-		}
-		for _, name := range failed {
-			b.WriteString(fmt.Sprintf("| 失败 | %s |\n", markdownCell(name)))
-		}
-		return d.reply(ctx, cmd, d.renderSuccess(strings.TrimSpace(b.String())))
-	}
-	b.WriteString("批量更新已提交\n")
+	b.WriteString(fmt.Sprintf("批量更新已提交：成功 %d，失败 %d\n", len(started), len(failed)))
 	if len(started) > 0 {
-		b.WriteString("\n成功:\n")
+		b.WriteString("\n已提交:\n")
 		for _, name := range started {
 			b.WriteString("- " + name + "\n")
 		}
 	}
 	if len(failed) > 0 {
-		b.WriteString("\n失败:\n")
+		b.WriteString("\n提交失败:\n")
 		for _, name := range failed {
 			b.WriteString("- " + name + "\n")
 		}
 	}
-	return d.reply(ctx, cmd, d.renderSuccess(b.String()))
+	b.WriteString("\n更新在后台进行，稍后发送 /updates 查看结果。")
+	return d.reply(ctx, cmd, d.renderSuccess(strings.TrimSpace(b.String())))
 }
 
 func (d *CommandDispatcher) renderError(text string) Message {
-	return richMessage(Message{Text: renderErrorText(text, d.cfg.MarkdownEnabled), Keyboard: homeKeyboard()}, d.cfg)
+	msg := richMessage(Message{Text: renderErrorText(text, d.cfg.MarkdownEnabled), Keyboard: homeKeyboard()}, d.cfg)
+	msg.PlainText = renderErrorText(text, false)
+	return msg
 }
 
 func (d *CommandDispatcher) renderSuccess(text string) Message {
-	return richMessage(Message{
+	msg := richMessage(Message{
 		Text: renderSuccessText(text, d.cfg.MarkdownEnabled),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "查看备份", Command: "/backups", ID: "backups"},
@@ -357,6 +347,8 @@ func (d *CommandDispatcher) renderSuccess(text string) Message {
 			homeAction(),
 		}),
 	}, d.cfg)
+	msg.PlainText = renderSuccessText(text, false)
+	return msg
 }
 
 func (d *CommandDispatcher) reply(ctx context.Context, cmd IncomingCommand, msg Message) error {

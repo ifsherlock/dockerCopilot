@@ -38,7 +38,9 @@ type IncomingCommand struct {
 	GroupOpenID string
 	Content     string
 	Action      string
-	RawData     json.RawMessage
+	// InteractionID 是按钮回调事件的 interaction id，用于 PUT /interactions/{id} 回执。
+	InteractionID string
+	RawData       json.RawMessage
 }
 
 func ParsePayload(data []byte) (Payload, error) {
@@ -126,6 +128,14 @@ func mapInteraction(payload Payload) (IncomingCommand, bool, error) {
 		EventType: payload.Type,
 		RawData:   payload.Data,
 	}
+	cmd.InteractionID = firstNonEmpty(stringValue(raw["id"]), payload.ID, stringValue(raw["event_id"]))
+	// 尽量提取按钮所在消息的 msg_id，用于被动回复；拿不到时回复走主动消息通道。
+	cmd.MessageID = firstNonEmpty(
+		stringValue(raw["message_id"]),
+		nestedString(raw, "data", "resolved", "message_id"),
+		nestedString(raw, "data", "message_id"),
+		nestedString(raw, "resolved", "message_id"),
+	)
 	cmd.UserOpenID = firstNonEmpty(
 		stringValue(raw["user_openid"]),
 		stringValue(raw["group_member_openid"]),

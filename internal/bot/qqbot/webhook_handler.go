@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
@@ -19,6 +20,12 @@ const WebhookPath = "/api/bot/qqbot/webhook"
 type webhookRuntime struct {
 	svcCtx       *svc.ServiceContext
 	loadConfigFn func() (Config, svc.BackupRuntimeConfig, error)
+
+	// dispatcher 常驻以保留交互会话；仅在 app_id 变化时重建。
+	mu          sync.Mutex
+	dispatcher  *CommandDispatcher
+	sender      *Sender
+	dispatchKey string
 }
 
 func RegisterWebhookRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
@@ -33,6 +40,19 @@ func RegisterWebhookRoutes(server *rest.Server, svcCtx *svc.ServiceContext) {
 		},
 		rest.WithPrefix("/api"),
 	)
+}
+
+// dispatcherFor 返回与当前配置匹配的常驻 dispatcher，配置身份变化时重建。
+func (rt *webhookRuntime) dispatcherFor(cfg Config) (*CommandDispatcher, *Sender) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	key := cfg.AppID + "|" + cfg.AppSecret
+	if rt.dispatcher == nil || rt.dispatchKey != key {
+		rt.sender = NewSender(cfg, nil, nil)
+		rt.dispatcher = NewCommandDispatcher(cfg, rt.sender, NewActionService(rt.svcCtx))
+		rt.dispatchKey = key
+	}
+	return rt.dispatcher, rt.sender
 }
 
 func (rt *webhookRuntime) Handle(w http.ResponseWriter, r *http.Request) {
@@ -92,14 +112,15 @@ func (rt *webhookRuntime) Handle(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, HTTPCallbackACK())
 
-	dispatcher := NewCommandDispatcher(
-		cfg,
-		NewSender(cfg, nil, nil),
-		NewActionService(rt.svcCtx),
-	)
+	dispatcher, sender := rt.dispatcherFor(cfg)
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 		defer cancel()
+		if cmd.Kind == CommandKindInteraction {
+			if err := sender.AckInteraction(ctx, cmd); err != nil {
+				logx.Errorf("QQBot Webhook 回执 interaction 失败: %v", err)
+			}
+		}
 		if err := dispatcher.Dispatch(ctx, cmd); err != nil {
 			logx.Errorf("QQBot Webhook 命令处理失败: %v", err)
 		}
