@@ -39,25 +39,22 @@ export function Auth({ onLogin }) {
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-primary-50 to-blue-100 dark:from-gray-900 dark:to-gray-800 p-4">
-      <div className="max-w-md w-full space-y-6">
+    <div className="min-h-screen flex items-center justify-center bg-slate-50 dark:bg-slate-950 p-4">
+      <div className="w-full max-w-sm space-y-6 rounded-2xl border border-slate-200 bg-white p-8 shadow-sm dark:border-slate-800 dark:bg-slate-900">
         {/* 头部 */}
         <div className="text-center">
           <div className="flex justify-center mb-4">
             <img
               src={logoImg}
               alt="Docker Copilot"
-              className="h-32 w-32 rounded-2xl object-cover"
+              className="h-20 w-20 rounded-2xl object-cover"
             />
           </div>
-          <h2 className="text-3xl font-bold text-gray-900 dark:text-white">Docker Copilot</h2>
-          <p className="mt-2 text-gray-600 dark:text-gray-400">
-            请输入密钥进行认证
-          </p>
+          <h2 className="text-2xl font-semibold text-slate-950 dark:text-white">Docker Copilot</h2>
         </div>
 
         {/* 表单 */}
-        <form className="mt-4 space-y-4" onSubmit={handleSubmit}>
+        <form className="mt-2 space-y-4" onSubmit={handleSubmit}>
           <div>
             <label htmlFor="secretKey" className="sr-only">
               密钥
@@ -69,7 +66,7 @@ export function Auth({ onLogin }) {
                 type={showPassword ? 'text' : 'password'}
                 required
                 className="input pl-10 pr-10"
-                placeholder="请输入您的密钥"
+                placeholder="访问密钥"
                 value={secretKey}
                 onChange={(e) => setSecretKey(e.target.value)}
               />

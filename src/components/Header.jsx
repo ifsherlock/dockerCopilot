@@ -199,7 +199,6 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
                   {!isCollapsed && isMobileSize === false && (
                     <div className="text-left transition-all duration-300 min-w-0 flex-1">
                       <h1 className="text-base sm:text-lg font-bold text-gray-900 dark:text-white">Docker Copilot</h1>
-                      <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">容器管理平台</p>
                     </div>
                   )}
                 </div>
@@ -224,7 +223,7 @@ export function Sidebar({ activeTab, onTabChange, onLogout, isCollapsed = false,
 
           {/* 分割线 */}
           <div className="px-4 sm:px-5">
-            <div className="h-px bg-gradient-to-r from-transparent via-gray-200 dark:via-gray-700 to-transparent" />
+            <div className="h-px bg-gray-200 dark:bg-gray-700" />
           </div>
 
           {/* 导航菜单 */}

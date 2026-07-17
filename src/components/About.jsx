@@ -114,14 +114,7 @@ export function About() {
             <div className="rounded-2xl border border-amber-200 dark:border-amber-800/60 bg-amber-50/70 dark:bg-amber-900/10 p-4 sm:p-5">
               <div className="flex items-start gap-3 text-xs sm:text-sm text-amber-900 dark:text-amber-100">
                 <AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />
-                <div>
-                  <div className="font-semibold">使用提示</div>
-                  <ul className="mt-2 space-y-1.5 text-amber-800/90 dark:text-amber-200/80 list-disc pl-4">
-                    <li>先确认机器架构。</li>
-                    <li>建议先备份配置。</li>
-                    <li>更新时服务会短暂重启。</li>
-                  </ul>
-                </div>
+                <div>更新会短暂重启服务，请确认架构匹配并提前备份配置。</div>
               </div>
             </div>
           </div>
@@ -139,7 +132,7 @@ export function About() {
                   </div>
                   <div className="h-2 rounded-full bg-gray-200 dark:bg-slate-700 overflow-hidden">
                     <div
-                      className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500"
+                      className="h-full bg-primary-500 transition-all duration-500"
                       style={{ width: `${Math.max(0, Math.min(100, Number(updateProgress) || 0))}%` }}
                     />
                   </div>

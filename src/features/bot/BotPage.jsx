@@ -975,7 +975,7 @@ export function Bot() {
             />
             <div className="space-y-4">
               <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50 p-4 text-sm text-gray-600 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-300">
-                下载时：未配置项会按空值导出；已配置项会按当前页面内容导出。上传后会先写回表单，再由你点击“保存配置”同步到后端。
+                导出为当前页面内容；导入后需点击“保存配置”生效。
               </div>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <button
@@ -1105,7 +1105,7 @@ export function Bot() {
                     <span>保存</span>
                   </button>
                 </div>
-                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">容器页的 Web 链接、详情页 ip:port 会优先使用这里的值。保存位置：/app/config/config.json → dockercopilot.host_lan_ip</p>
+                <p className="mt-1 text-xs text-gray-500 dark:text-gray-400">容器页 Web 链接优先使用此地址。</p>
               </Field>
             </div>
           </div>

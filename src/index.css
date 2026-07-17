@@ -46,7 +46,7 @@
   }
 
   .card {
-    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700 transition-all duration-200 hover:shadow-md;
+    @apply bg-white dark:bg-gray-800 rounded-xl shadow-sm border border-gray-200 dark:border-gray-700;
   }
 
   .input {
@@ -91,24 +91,3 @@
   }
 }
 
-@layer utilities {
-  @keyframes flow-light {
-    0% {
-      transform: translateX(-100%) skewX(-15deg);
-    }
-
-    100% {
-      transform: translateX(200%) skewX(-15deg);
-    }
-  }
-
-  .animate-flow-light {
-    animation: flow-light 2.5s infinite linear;
-    width: 50%;
-    height: 100%;
-    background: linear-gradient(90deg,
-        transparent,
-        rgba(255, 255, 255, 0.6),
-        transparent);
-  }
-}

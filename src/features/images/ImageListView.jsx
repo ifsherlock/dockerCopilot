@@ -226,10 +226,10 @@ export function ImageListView({
                     {/* 竖线状态指示器 */}
                     <div className="flex flex-col items-center justify-center h-9 sm:h-10">
                       {image.usageState === 'running' && (
-                        <div className="w-1 h-5 sm:h-6 bg-gradient-to-b from-green-500 to-green-600 rounded-full flex-shrink-0" />
+                        <div className="w-1 h-5 sm:h-6 bg-green-500 rounded-full flex-shrink-0" />
                       )}
                       {image.usageState === 'stopped' && (
-                        <div className="w-1 h-5 sm:h-6 bg-gradient-to-b from-amber-400 to-amber-500 rounded-full flex-shrink-0" />
+                        <div className="w-1 h-5 sm:h-6 bg-amber-500 rounded-full flex-shrink-0" />
                       )}
                       {(!image.usageState || image.usageState === 'unused') && (
                         <div className="w-1 h-5 sm:h-6 bg-gray-300 dark:bg-gray-600 rounded-full flex-shrink-0" />
@@ -273,10 +273,9 @@ export function ImageListView({
                   {!isBatchMode && image.haveUpdate && (
                     <div className="absolute -top-[2px] -right-[2px] z-[1] h-[80px] w-[80px] pointer-events-none overflow-hidden rounded-tr-2xl">
                       <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
-                        <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-gradient-to-r from-yellow-400 to-yellow-500 dark:from-yellow-500 dark:to-yellow-600 shadow-sm flex items-center justify-center">
+                        <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-amber-500 dark:bg-amber-600 shadow-sm flex items-center justify-center">
                           <span className="relative text-[10px] font-bold text-white tracking-widest uppercase w-full text-center">
                             NEW
-                            <div className="absolute top-0 left-0 animate-flow-light"></div>
                           </span>
                         </div>
                       </div>
@@ -286,7 +285,7 @@ export function ImageListView({
                   {!isBatchMode && isImageUpdateIgnored(image) && (
                     <div className="absolute -top-[2px] -right-[2px] z-[1] h-[86px] w-[86px] pointer-events-none overflow-hidden rounded-tr-2xl">
                       <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
-                        <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gradient-to-r from-gray-400 to-gray-500 dark:from-gray-600 dark:to-gray-700 shadow-sm flex items-center justify-center">
+                        <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gray-500 dark:bg-gray-600 shadow-sm flex items-center justify-center">
                           <span className="relative text-[10px] font-bold text-white tracking-widest w-full text-center">忽略</span>
                         </div>
                       </div>

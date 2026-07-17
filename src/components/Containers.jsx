@@ -797,7 +797,7 @@ export function Containers() {
         setConfirmModal({
           isOpen: true,
           title: '更新 DockerCopilot',
-          message: '这是当前正在运行的 DockerCopilot 容器。普通容器重建流程会先停止自身，导致更新中断，所以这里会改走程序自身更新流程。执行后当前页面可能会短暂断开，请稍后刷新重连。',
+          message: '这是 DockerCopilot 自身容器，将改走程序自更新流程。期间页面可能短暂断开，稍后刷新即可。',
           onConfirm: async () => {
             setConfirmModal({ isOpen: false })
             pinContainerInUpdateFilter(container, containerId)
@@ -1314,7 +1314,7 @@ export function Containers() {
 
   const renderContainerIcon = (container, sizeClass = 'h-9 w-9') => {
     const fallback = (
-      <div className={`${sizeClass} bg-gradient-to-r from-blue-500 to-purple-600 rounded-lg flex items-center justify-center shadow-sm flex-shrink-0`}>
+      <div className={`${sizeClass} bg-primary-600 rounded-lg flex items-center justify-center flex-shrink-0`}>
         <Package className="h-5 w-5 text-white" />
       </div>
     )
@@ -1640,9 +1640,8 @@ export function Containers() {
               filterStatus === null ? "bg-primary-50 dark:bg-primary-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
                 {containers.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">容器</div>
@@ -1657,9 +1656,8 @@ export function Containers() {
               filterStatus === 'running' ? "bg-green-50 dark:bg-green-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-green-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-green-600 dark:text-green-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-green-600 dark:text-green-400">
                 {containers.filter(c => c.status === 'running').length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">运行</div>
@@ -1674,9 +1672,8 @@ export function Containers() {
               filterStatus === 'stopped' ? "bg-red-50 dark:bg-red-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-red-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-red-600 dark:text-red-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-red-600 dark:text-red-400">
                 {containers.filter(c => c.status && c.status.toLowerCase() !== 'running').length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">停止</div>
@@ -1691,9 +1688,8 @@ export function Containers() {
               filterStatus === 'update' ? "bg-yellow-50 dark:bg-yellow-900/20" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-yellow-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-yellow-600 dark:text-yellow-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-yellow-600 dark:text-yellow-400">
                 {containers.filter(c => visibleInUpdateFilter(c)).length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">更新</div>
@@ -1708,9 +1704,8 @@ export function Containers() {
               filterStatus === 'ignored' ? "bg-gray-100 dark:bg-gray-700/50" : "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-gray-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-gray-600 dark:text-gray-300 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-gray-600 dark:text-gray-300">
                 {ignoredContainerCount}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">黑名单</div>
@@ -1966,11 +1961,9 @@ export function Containers() {
                       {!isBatchMode && selectedContainers.length === 0 && displayedHaveUpdate(container) && (
                         <div className="absolute -top-[2px] -right-[2px] z-[1] h-[80px] w-[80px] pointer-events-none overflow-hidden rounded-tr-2xl">
                           <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
-                            <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-gradient-to-r from-yellow-400 to-yellow-500 dark:from-yellow-500 dark:to-yellow-600 shadow-sm flex items-center justify-center">
+                            <div className="absolute transform rotate-45 translate-x-[26px] -translate-y-[26px] w-[120px] h-[24px] bg-amber-500 dark:bg-amber-600 shadow-sm flex items-center justify-center">
                               <span className="relative text-[10px] font-bold text-white tracking-widest uppercase w-full text-center">
                                 NEW
-                                {/* 流光效果 */}
-                                <div className="absolute top-0 left-0 animate-flow-light"></div>
                               </span>
                             </div>
                           </div>
@@ -1980,7 +1973,7 @@ export function Containers() {
                       {!isBatchMode && selectedContainers.length === 0 && isUpdateIgnored(container) && (
                         <div className="absolute -top-[2px] -right-[2px] z-[1] h-[86px] w-[86px] pointer-events-none overflow-hidden rounded-tr-2xl">
                           <div className="absolute top-0 right-0 w-full h-full flex items-center justify-center">
-                            <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gradient-to-r from-gray-400 to-gray-500 dark:from-gray-600 dark:to-gray-700 shadow-sm flex items-center justify-center">
+                            <div className="absolute transform rotate-45 translate-x-[28px] -translate-y-[28px] w-[128px] h-[24px] bg-gray-500 dark:bg-gray-600 shadow-sm flex items-center justify-center">
                               <span className="relative text-[10px] font-bold text-white tracking-widest w-full text-center">忽略</span>
                             </div>
                           </div>
@@ -2585,7 +2578,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     };
 
     const FallbackIcon = () => (
-      <div className="h-12 w-12 bg-gradient-to-r from-blue-500 to-purple-600 rounded-xl flex items-center justify-center text-white">
+      <div className="h-12 w-12 bg-primary-600 rounded-xl flex items-center justify-center text-white">
         <Package className="h-6 w-6" />
       </div>
     );

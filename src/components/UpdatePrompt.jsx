@@ -44,7 +44,7 @@ export function UpdatePrompt({
 
       <div className="fixed left-1/2 top-1/2 z-50 w-[calc(100%-2rem)] max-w-lg -translate-x-1/2 -translate-y-1/2">
         <div className="overflow-hidden rounded-2xl border border-gray-200 bg-white shadow-2xl dark:border-slate-700 dark:bg-slate-900">
-          <div className="flex items-center justify-between border-b border-gray-200 bg-gradient-to-r from-blue-50 to-indigo-50 px-4 py-3 dark:border-slate-700 dark:from-blue-900/20 dark:to-indigo-800/20">
+          <div className="flex items-center justify-between border-b border-gray-200 px-4 py-3 dark:border-slate-700">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-100 text-blue-600 dark:bg-blue-900/30 dark:text-blue-300">
                 <AlertCircle className="h-4 w-4" />
@@ -219,7 +219,7 @@ export function UpdatePrompt({
                 </div>
                 <div className="h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-slate-700">
                   <div
-                    className="h-full bg-gradient-to-r from-blue-500 via-indigo-500 to-purple-500 transition-all duration-500"
+                    className="h-full bg-primary-500 transition-all duration-500"
                     style={{ width: `${Math.max(0, Math.min(100, Number(updateProgress) || 0))}%` }}
                   />
                 </div>
@@ -244,8 +244,8 @@ export function UpdatePrompt({
                   isUpdating
                     ? 'cursor-not-allowed bg-gray-300 text-gray-500 dark:bg-gray-600 dark:text-gray-400'
                     : postUpdateNeedsRefresh
-                      ? 'bg-gradient-to-r from-blue-500 to-indigo-500 text-white hover:shadow-lg active:scale-95'
-                      : 'bg-gradient-to-r from-yellow-500 to-amber-500 text-white hover:shadow-lg active:scale-95'
+                      ? 'bg-primary-600 text-white hover:bg-primary-700'
+                      : 'bg-amber-500 text-white hover:bg-amber-600'
                 )}
               >
                 {isUpdating ? (

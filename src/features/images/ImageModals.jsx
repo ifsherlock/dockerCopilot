@@ -43,44 +43,28 @@ export function ImageModals({
     <>
       {/* 成功弹窗 */}
       {successModal.isOpen && (
-        <div className="fixed inset-0 z-[10000] bg-black/40 backdrop-blur-sm flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden transform transition-all duration-300 scale-100 hover:scale-105">
-            {/* 顶部装饰条 */}
-            <div className="h-1 bg-gradient-to-r from-green-400 via-emerald-500 to-green-600"></div>
-
+        <div className="fixed inset-0 z-[10000] bg-black/40 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl max-w-md w-full overflow-hidden">
             <div className="p-8 flex flex-col items-center text-center">
-              {/* 成功图标容器 - 带脉冲动画 */}
-              <div className="relative mb-6">
-                <div className="absolute inset-0 bg-green-400/20 rounded-full blur-xl animate-pulse"></div>
-                <div className="relative h-16 w-16 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 rounded-full flex items-center justify-center border border-green-200 dark:border-green-700">
-                  <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400 animate-bounceIn" />
-                </div>
+              <div className="mb-5 h-14 w-14 rounded-full bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 flex items-center justify-center">
+                <CheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
               </div>
 
-              {/* 标题 */}
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 操作成功
               </h3>
 
-              {/* 分隔线 */}
-              <div className="w-12 h-1 bg-gradient-to-r from-transparent via-green-400 to-transparent rounded-full mb-4"></div>
-
-              {/* 消息内容 */}
-              <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-8">
+              <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-6">
                 {successModal.message}
               </p>
 
-              {/* 按钮 */}
               <button
                 onClick={() => setSuccessModal({ isOpen: false, message: '' })}
-                className="w-full px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-semibold rounded-xl transition-all duration-300 transform hover:shadow-lg hover:scale-105 active:scale-95 shadow-lg"
+                className="w-full px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl transition-colors"
               >
                 完成
               </button>
             </div>
-
-            {/* 底部装饰 */}
-            <div className="h-0.5 bg-gradient-to-r from-transparent via-green-200 dark:via-green-800 to-transparent"></div>
           </div>
         </div>
       )}

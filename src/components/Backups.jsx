@@ -718,51 +718,35 @@ export function Backups() {
 
       {/* 成功弹窗 */}
       {successModal.isOpen && (
-        <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-50 flex items-center justify-center p-4 animate-fadeIn">
-          <div className="bg-white dark:bg-gray-800 rounded-3xl shadow-2xl max-w-md w-full overflow-hidden transform transition-all duration-300 scale-100 hover:scale-105">
-            {/* 顶部装饰条 */}
-            <div className="h-1 bg-gradient-to-r from-green-400 via-emerald-500 to-green-600"></div>
-
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4 animate-fadeIn">
+          <div className="bg-white dark:bg-gray-800 rounded-2xl border border-gray-200 dark:border-gray-700 shadow-xl max-w-md w-full overflow-hidden">
             <div className="p-8 flex flex-col items-center text-center">
-              {/* 成功图标容器 - 带脉冲动画 */}
-              <div className="relative mb-6">
-                <div className="absolute inset-0 bg-green-400/20 rounded-full blur-xl animate-pulse"></div>
-                <div className="relative h-16 w-16 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-900/30 dark:to-emerald-900/30 rounded-full flex items-center justify-center border border-green-200 dark:border-green-700">
-                  <CheckCircle className="h-8 w-8 text-green-600 dark:text-green-400 animate-bounceIn" />
-                </div>
+              <div className="mb-5 h-14 w-14 rounded-full bg-green-50 dark:bg-green-900/30 border border-green-200 dark:border-green-700 flex items-center justify-center">
+                <CheckCircle className="h-7 w-7 text-green-600 dark:text-green-400" />
               </div>
 
-              {/* 标题 */}
-              <h3 className="text-xl font-bold text-gray-900 dark:text-white mb-2">
+              <h3 className="text-lg font-semibold text-gray-900 dark:text-white mb-2">
                 操作成功
               </h3>
 
-              {/* 分隔线 */}
-              <div className="w-12 h-1 bg-gradient-to-r from-transparent via-green-400 to-transparent rounded-full mb-4"></div>
-
-              {/* 消息内容 */}
-              <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-8">
+              <p className="text-gray-600 dark:text-gray-300 text-sm leading-relaxed mb-6">
                 {successModal.message}
               </p>
 
-              {/* 按钮 */}
               <button
                 onClick={() => setSuccessModal({ isOpen: false, message: '' })}
-                className="w-full px-6 py-3 bg-gradient-to-r from-green-500 to-emerald-500 hover:from-green-600 hover:to-emerald-600 text-white font-semibold rounded-xl transition-all duration-300 transform hover:shadow-lg hover:scale-105 active:scale-95 shadow-lg"
+                className="w-full px-6 py-2.5 bg-green-600 hover:bg-green-700 text-white font-medium rounded-xl transition-colors"
               >
                 完成
               </button>
             </div>
-
-            {/* 底部装饰 */}
-            <div className="h-0.5 bg-gradient-to-r from-transparent via-green-200 dark:via-green-800 to-transparent"></div>
           </div>
         </div>
       )}
 
       {/* 统计信息 */}
       <div className="px-2 sm:px-6 py-4">
-        <div className="grid grid-cols-3 gap-0 rounded-3xl overflow-hidden shadow-lg border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
+        <div className="grid grid-cols-3 gap-0 rounded-2xl overflow-hidden shadow-sm border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800">
           {/* 总备份数 */}
           <button
             className={cn(
@@ -770,9 +754,8 @@ export function Backups() {
               "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-primary-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-primary-600 dark:text-primary-400">
                 {backups.length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">总备份</div>
@@ -786,9 +769,8 @@ export function Backups() {
               "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-blue-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-blue-600 dark:text-blue-400">
                 {backups.filter(b => b.endsWith('.json')).length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">JSON</div>
@@ -802,9 +784,8 @@ export function Backups() {
               "hover:bg-gray-50 dark:hover:bg-gray-700/50"
             )}
           >
-            <div className="absolute inset-0 bg-gradient-to-br from-purple-500/5 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"></div>
             <div className="relative">
-              <div className="text-2xl sm:text-3xl font-bold text-purple-600 dark:text-purple-400 transition-transform duration-300 group-hover:scale-110">
+              <div className="text-2xl sm:text-3xl font-bold text-purple-600 dark:text-purple-400">
                 {backups.filter(b => b.endsWith('.yaml') || b.endsWith('.yml')).length}
               </div>
               <div className="text-xs sm:text-sm text-gray-600 dark:text-gray-400 mt-1">YAML</div>
@@ -838,7 +819,7 @@ export function Backups() {
                   {dateBackups.map((backup) => (
                     <div key={backup} className="group card p-4 rounded-2xl hover:shadow-lg transition-all">
                       <div className="flex items-start gap-3 mb-4">
-                        <div className="h-10 w-10 bg-gradient-to-br from-teal-500 to-teal-600 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <div className="h-10 w-10 bg-teal-600 rounded-lg flex items-center justify-center flex-shrink-0">
                           <HardDrive className="h-5 w-5 text-white" />
                         </div>
                         <div className="flex-1 min-w-0">
