@@ -4,18 +4,27 @@
   <img alt="License: AGPLv3" src="https://shields.io/badge/License-AGPL%20v3-blue.svg">
 </a>
 
-> 🛠️ 维护版：`2.1.12`  
+> 🛠️ 维护版：`2.1.28`  
 > ❤️ 基于原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 持续演进，感谢原作者开源贡献。
 
-DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥️ **Web 面板** + 📱 **Mobile 面板** + 🤖 **Telegram Bot**，适合 NAS、Linux 主机和家庭服务器统一管理容器、镜像、日志、备份与更新。
+DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥️ **Web 面板** + 📱 **Mobile 面板** + 🤖 **Telegram Bot** + 🐧 **QQ Bot**，适合 NAS、Linux 主机和家庭服务器统一管理容器、镜像、日志、备份与更新。
 
-## ✨ 2.1.12 看点
-- 🖥️ PC 与 📱 Mobile 双端统一体验
-- 🔁 移动端 About 页支持程序更新：远端拉取、上传更新、强制覆盖、进度轮询、重连恢复
-- 🔐 PC / Mobile 共用登录态
+## ✨ 2.1.28 看点
+- 🧭 **概览页新增容器 Web 快捷导航**：自动识别容器暴露的端口并生成快捷入口，一键直达各容器 WebUI
+- 🎨 **自动读取 favicon 图标**：容器与快捷导航自动抓取站点 favicon 作为图标，面板一眼可辨
+- 🐧 **初步支持 QQ Bot**：容器/镜像查询、更新检测与通知，交互按 QQ 官方机器人特性适配
+- 🔁 更新检测改为后台定时执行（默认每 30 分钟），前端打开不再触发误推送
+- 🖥️ PC 与 📱 Mobile 双端统一体验，共用登录态
 - 🐳 容器管理、镜像管理、日志查看、备份恢复、定时任务一站式完成
 - 🤖 Telegram Bot 支持多实例管理、自动更新、自动清理与通知
-- 📱 `/manager` 已初步适配移动端访问，触屏场景也可直接使用
+
+## 🖼️ 界面预览
+| 概览 · 容器快捷导航 | 概览 · 运行中容器 | 容器列表 · 自动 favicon |
+| --- | --- | --- |
+| ![概览快捷导航](docs/screenshots/overview-quick-nav.png) | ![运行中容器](docs/screenshots/overview-running.png) | ![容器列表 favicon](docs/screenshots/containers-favicon.png) |
+
+- **容器 Web 快捷导航**：概览页宫格式罗列已暴露 WebUI 的容器，点击直接在新标签打开对应服务。
+- **自动 favicon 图标**：无需手动配置，面板会自动抓取各容器站点的 favicon 作为图标，也支持自定义覆盖。
 
 ## 🚀 推荐镜像
 ```text
@@ -119,6 +128,10 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 - 记得映射 `12712:12712`
 - 建议补充 `HOST_LAN_IP`
 - 容器 WebUI 链接会更准确
+
+## 🤖 机器人
+- **Telegram Bot**：inline 键盘菜单交互，支持容器/镜像管理、批量更新、备份、多实例切换，更新检测结果去重推送。
+- **QQ Bot（初步支持）**：接入 QQ 官方机器人（WebSocket / Webhook 双模式），支持容器与镜像查询、更新检测与通知；消息与按钮交互按 QQ 渠道特性适配，通知精简合并以贴合官方主动消息限制。在设置页填入 AppID / AppSecret 并配置可用会话即可启用。
 
 ## 📦 更新说明
 - 容器更新：支持 Web / Bot / 批量更新
