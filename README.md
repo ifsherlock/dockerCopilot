@@ -19,12 +19,24 @@ DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥�
 - 🤖 Telegram Bot 支持多实例管理、自动更新、自动清理与通知
 
 ## 🖼️ 界面预览
-| 概览 · 容器快捷导航 | 概览 · 运行中容器 | 容器列表 · 自动 favicon |
-| --- | --- | --- |
-| ![概览快捷导航](docs/screenshots/overview-quick-nav.png) | ![运行中容器](docs/screenshots/overview-running.png) | ![容器列表 favicon](docs/screenshots/containers-favicon.png) |
 
-- **容器 Web 快捷导航**：概览页宫格式罗列已暴露 WebUI 的容器，点击直接在新标签打开对应服务。
-- **自动 favicon 图标**：无需手动配置，面板会自动抓取各容器站点的 favicon 作为图标，也支持自定义覆盖。
+**概览 · 容器 Web 快捷导航**
+
+宫格式罗列已暴露 WebUI 的容器，点击直接在新标签打开对应服务。
+
+![概览快捷导航](docs/screenshots/overview-quick-nav.png)
+
+**概览 · 运行中容器**
+
+一屏总览运行状态、资源占用与快捷操作。
+
+![运行中容器](docs/screenshots/overview-running.png)
+
+**容器列表 · 自动 favicon 图标**
+
+无需手动配置，面板自动抓取各容器站点的 favicon 作为图标，也支持自定义覆盖。
+
+![容器列表 favicon](docs/screenshots/containers-favicon.png)
 
 ## 🚀 推荐镜像
 ```text
