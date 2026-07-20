@@ -1,6 +1,6 @@
 "use client"
 
-import { Eye, EyeOff, Github, Globe, LoaderCircle, Package, RefreshCw, Search, Trash2, Zap } from "lucide-react"
+import { ArrowUp, Eye, EyeOff, Github, Globe, LoaderCircle, Package, Search, Trash2, Zap } from "lucide-react"
 
 import { cn } from "@/lib/utils"
 import type { ImageInfo } from "@/lib/api"
@@ -158,17 +158,17 @@ export function ImagesView(props: ImagesViewProps) {
                         <button
                           type="button"
                           onClick={() => handleImageUpdate(img)}
-                          disabled={!img.haveUpdate || isIgnored || pendingAction === `update-image-${img.id}`}
-                          title={isIgnored ? "该镜像已在更新黑名单中" : img.haveUpdate ? "更新镜像" : "当前没有可用更新"}
+                          disabled={isIgnored || pendingAction === `update-image-${img.id}`}
+                          title={isIgnored ? "该镜像已在更新黑名单中" : img.haveUpdate ? "更新镜像" : "未检测到更新，可强制拉取最新镜像"}
                           aria-label="更新镜像"
                           className={cn(
                             "flex h-10 w-full items-center justify-center rounded-xl border transition-colors disabled:cursor-not-allowed disabled:opacity-50",
-                            img.haveUpdate && !isIgnored
+                            !isIgnored
                               ? "border-blue-200 bg-blue-50 text-blue-600 hover:bg-blue-100 dark:border-blue-900/50 dark:bg-blue-900/20 dark:text-blue-400 dark:hover:bg-blue-900/30"
                               : "border-slate-200 bg-slate-100 text-slate-400 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-500"
                           )}
                         >
-                          {pendingAction === `update-image-${img.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+                          {pendingAction === `update-image-${img.id}` ? <LoaderCircle className="h-4 w-4 animate-spin" /> : <ArrowUp className="h-4 w-4" />}
                         </button>
                         <button
                           type="button"
