@@ -73,8 +73,8 @@ export function ImagesView(props: ImagesViewProps) {
               <StatCard label="更新" value={imageStats.updatable} accent="bg-blue-500" active={imageFilter === "updatable"} onClick={() => setImageFilter((prev) => (prev === "updatable" ? "all" : "updatable"))} />
             </div>
 
-            {/* 列表 */}
-            {refreshing ? (
+            {/* 列表：仅首次加载（尚无数据）时整页转圈，刷新时保留旧列表避免闪烁 */}
+            {refreshing && filteredImages.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <LoaderCircle className="h-6 w-6 animate-spin text-blue-500" />
               </div>

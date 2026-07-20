@@ -176,77 +176,70 @@ export function useMobileDashboardData() {
       clearNotice?.()
       setRefreshing(true)
       try {
-        const [cRes, iRes, oRes, cfgRes, blRes, iconRes] = await Promise.allSettled([
-          mobileApi.getContainers(),
-          mobileApi.getImages(),
-          mobileApi.getOperationLogs(),
-          mobileApi.getConfig(),
-          mobileApi.getUpdateBlacklist(),
-          mobileApi.getIcons(),
-        ])
-
-        if (cRes.status === "fulfilled") setContainers(cRes.value)
-        if (iRes.status === "fulfilled") setImages(iRes.value)
-        if (oRes.status === "fulfilled") setOperationLogs(oRes.value)
-        if (cfgRes.status === "fulfilled") {
-          const cfg = cfgRes.value
-          setConfig(cfg)
-          const updateCheckCronRaw = String(cfg.telegram?.update_check_cron ?? "").trim()
-          const updateCheckDisabled = ["off", "false", "0", "no"].includes(updateCheckCronRaw.toLowerCase())
-          const accelerators = Array.from(
-            new Set(
-              [...builtInImageAccelerators, ...(cfg.telegram?.image_accelerators ?? [])]
-                .map(normalizeAcceleratorValue)
-                .filter(Boolean)
+        // 每个请求返回后立即写入状态，先到先渲染，容器列表不用等最慢的接口。
+        await Promise.allSettled([
+          mobileApi.getContainers().then(setContainers),
+          mobileApi.getImages().then(setImages),
+          mobileApi.getOperationLogs().then(setOperationLogs),
+          mobileApi.getConfig().then((cfg) => {
+            setConfig(cfg)
+            const updateCheckCronRaw = String(cfg.telegram?.update_check_cron ?? "").trim()
+            const updateCheckDisabled = ["off", "false", "0", "no"].includes(updateCheckCronRaw.toLowerCase())
+            const accelerators = Array.from(
+              new Set(
+                [...builtInImageAccelerators, ...(cfg.telegram?.image_accelerators ?? [])]
+                  .map(normalizeAcceleratorValue)
+                  .filter(Boolean)
+              )
             )
-          )
 
-          setImageAccelerators(accelerators)
-          setNewImageAccelerator("")
-          setConfigForm({
-            botToken: cfg.telegram?.bot_token ?? "",
-            chatIds: (cfg.telegram?.chat_ids ?? []).join(", "),
-            interactiveEnabled: cfg.telegram?.interactive_enabled ?? true,
-            richInteractionsEnabled: cfg.telegram?.rich_interactions_enabled ?? false,
-            parseMode: ["HTML", "MarkdownV2"].includes(cfg.telegram?.parse_mode ?? "") ? cfg.telegram?.parse_mode ?? "HTML" : "HTML",
-            hostLanIP: cfg.dockercopilot?.host_lan_ip ?? "",
-            defaultImageAccelerator: normalizeAcceleratorValue(cfg.telegram?.default_image_accelerator ?? "") || "docker.io",
-            enableUpdateCheck: Boolean(updateCheckCronRaw) && !updateCheckDisabled,
-            notifyOnUpdate: cfg.telegram?.notify_on_update ?? true,
-            updateCheckCron: updateCheckDisabled ? "0 18 * * *" : updateCheckCronRaw || "0 18 * * *",
-            proxyType: cfg.telegram?.proxy?.type ?? "none",
-            proxyHost: cfg.telegram?.proxy?.host ?? "",
-            proxyPort: cfg.telegram?.proxy?.port ? String(cfg.telegram.proxy.port) : "",
-            proxyUsername: cfg.telegram?.proxy?.username ?? "",
-            proxyPassword: cfg.telegram?.proxy?.password ?? "",
-            autoCleanImages: cfg.telegram?.auto_clean_images ?? false,
-            cleanImagesCron: cfg.telegram?.clean_images_cron ?? "3 2 * * *",
-            autoUpdateContainers: cfg.telegram?.auto_update_containers ?? false,
-            updateContainersCron: cfg.telegram?.update_containers_cron ?? "0 */6 * * *",
-            autoBackupJson: cfg.telegram?.auto_backup_json ?? false,
-            backupJsonCron: cfg.telegram?.backup_json_cron ?? "0 1 * * *",
-            autoBackupCompose: cfg.telegram?.auto_backup_compose ?? false,
-            backupComposeCron: cfg.telegram?.backup_compose_cron ?? "30 1 * * *",
-            backupMaxFiles: cfg.telegram?.backup_max_files ? String(cfg.telegram.backup_max_files) : "20",
-            qqbotEnabled: cfg.qqbot?.enabled ?? false,
-            qqbotAppId: cfg.qqbot?.app_id ?? "",
-            qqbotAppSecret: cfg.qqbot?.app_secret ?? "",
-            qqbotAllowedUserOpenids: (cfg.qqbot?.allowed_user_openids ?? []).join("\n"),
-            qqbotAllowedGroupOpenids: (cfg.qqbot?.allowed_group_openids ?? []).join("\n"),
-            qqbotRecentIdentities: Array.isArray(cfg.qqbot?.recent_identities) ? cfg.qqbot.recent_identities : [],
-            qqbotMarkdownEnabled: cfg.qqbot?.markdown_enabled ?? false,
-            qqbotButtonsEnabled: cfg.qqbot?.buttons_enabled ?? false,
-          })
-        }
-        if (blRes.status === "fulfilled") setUpdateBlacklist(blRes.value)
-        if (iconRes.status === "fulfilled") setIcons(iconRes.value)
-        await loadVersionStatus()
-        await loadAcceleratorLatency()
-      } catch {
-        // Individual request failures are tolerated; authenticated callers keep the last successful snapshot.
+            setImageAccelerators(accelerators)
+            setNewImageAccelerator("")
+            setConfigForm({
+              botToken: cfg.telegram?.bot_token ?? "",
+              chatIds: (cfg.telegram?.chat_ids ?? []).join(", "),
+              interactiveEnabled: cfg.telegram?.interactive_enabled ?? true,
+              richInteractionsEnabled: cfg.telegram?.rich_interactions_enabled ?? false,
+              parseMode: ["HTML", "MarkdownV2"].includes(cfg.telegram?.parse_mode ?? "") ? cfg.telegram?.parse_mode ?? "HTML" : "HTML",
+              hostLanIP: cfg.dockercopilot?.host_lan_ip ?? "",
+              defaultImageAccelerator: normalizeAcceleratorValue(cfg.telegram?.default_image_accelerator ?? "") || "docker.io",
+              enableUpdateCheck: Boolean(updateCheckCronRaw) && !updateCheckDisabled,
+              notifyOnUpdate: cfg.telegram?.notify_on_update ?? true,
+              updateCheckCron: updateCheckDisabled ? "*/30 * * * *" : updateCheckCronRaw || "*/30 * * * *",
+              proxyType: cfg.telegram?.proxy?.type ?? "none",
+              proxyHost: cfg.telegram?.proxy?.host ?? "",
+              proxyPort: cfg.telegram?.proxy?.port ? String(cfg.telegram.proxy.port) : "",
+              proxyUsername: cfg.telegram?.proxy?.username ?? "",
+              proxyPassword: cfg.telegram?.proxy?.password ?? "",
+              autoCleanImages: cfg.telegram?.auto_clean_images ?? false,
+              cleanImagesCron: cfg.telegram?.clean_images_cron ?? "3 2 * * *",
+              autoUpdateContainers: cfg.telegram?.auto_update_containers ?? false,
+              updateContainersCron: cfg.telegram?.update_containers_cron ?? "0 */6 * * *",
+              autoBackupJson: cfg.telegram?.auto_backup_json ?? false,
+              backupJsonCron: cfg.telegram?.backup_json_cron ?? "0 1 * * *",
+              autoBackupCompose: cfg.telegram?.auto_backup_compose ?? false,
+              backupComposeCron: cfg.telegram?.backup_compose_cron ?? "30 1 * * *",
+              backupMaxFiles: cfg.telegram?.backup_max_files ? String(cfg.telegram.backup_max_files) : "20",
+              qqbotEnabled: cfg.qqbot?.enabled ?? false,
+              qqbotAppId: cfg.qqbot?.app_id ?? "",
+              qqbotAppSecret: cfg.qqbot?.app_secret ?? "",
+              qqbotAllowedUserOpenids: (cfg.qqbot?.allowed_user_openids ?? []).join("\n"),
+              qqbotAllowedGroupOpenids: (cfg.qqbot?.allowed_group_openids ?? []).join("\n"),
+              qqbotRecentIdentities: Array.isArray(cfg.qqbot?.recent_identities) ? cfg.qqbot.recent_identities : [],
+              qqbotMarkdownEnabled: cfg.qqbot?.markdown_enabled ?? false,
+              qqbotButtonsEnabled: cfg.qqbot?.buttons_enabled ?? false,
+            })
+          }),
+          mobileApi.getUpdateBlacklist().then(setUpdateBlacklist),
+          mobileApi.getIcons().then(setIcons),
+        ])
       } finally {
         setRefreshing(false)
       }
+      // 版本检查（GitHub）与加速器测速属于外部网络请求，可能耗时数秒，
+      // 放到后台执行，不阻塞首屏数据展示。
+      void loadVersionStatus().catch(() => {})
+      void loadAcceleratorLatency()
     },
     [loadAcceleratorLatency]
   )

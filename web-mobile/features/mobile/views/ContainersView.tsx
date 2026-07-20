@@ -74,8 +74,8 @@ export function ContainersView(props: ContainersViewProps) {
               <StatCard label="暂停" value={containerStats.paused} accent="bg-amber-500" active={containerFilter === "paused"} onClick={() => setContainerFilter((prev) => (prev === "paused" ? "all" : "paused"))} />
             </div>
 
-            {/* 列表 */}
-            {refreshing ? (
+            {/* 列表：仅首次加载（尚无数据）时整页转圈，刷新时保留旧列表避免闪烁 */}
+            {refreshing && filteredContainers.length === 0 ? (
               <div className="flex items-center justify-center py-12">
                 <LoaderCircle className="h-6 w-6 animate-spin text-blue-500" />
               </div>
