@@ -168,4 +168,16 @@ npm run build:front
 再次感谢原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 的优秀工作与持续维护。
 
 ## 📄 License
-AGPL-3.0
+
+本项目遵循 **GNU AGPL v3.0** 协议开源，与原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 保持一致。本仓库为其衍生作品，同样以 AGPL v3.0 授权。
+
+AGPL v3.0 的主要要求：
+- **保留版权与许可声明**：分发或修改时须保留原作者版权信息及本许可证副本（见 [LICENSE](LICENSE)）。
+- **衍生作品同样开源**：基于本项目的修改和二次开发必须以 AGPL v3.0 继续开源，不得闭源。
+- **网络使用也需提供源码**（AGPL 相较 GPL 的核心条款）：即使不分发二进制，只要通过网络向用户提供本软件的服务，也必须向这些用户提供对应的完整源代码。
+- **标注改动**：对源码的修改需注明修改者与修改说明。
+
+完整源代码：<https://github.com/ifsherlock/dockerCopilot>
+上游项目：<https://github.com/onlyLTY/dockerCopilot>
+
+许可证全文见 [LICENSE](LICENSE)。
