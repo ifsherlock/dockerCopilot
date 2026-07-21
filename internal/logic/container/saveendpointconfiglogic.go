@@ -10,6 +10,7 @@ import (
 	"strings"
 
 	dockerTypes "github.com/docker/docker/api/types"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
@@ -33,10 +34,7 @@ type endpointConfigRuntime struct {
 }
 
 func endpointConfigPath() string {
-	if p := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG")); p != "" {
-		return p
-	}
-	return "/app/config/config.json"
+	return runtimeconfig.EnvPath()
 }
 
 func readEndpointRuntimeConfig() (endpointConfigRuntime, error) {

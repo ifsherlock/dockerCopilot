@@ -7,28 +7,11 @@ services:
     network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # /data 为唯一持久化目录：Bot 配置、备份、图标均在其中，必须挂载
       - ./data:/data
-      - ./config:/app/config
     environment:
       TZ: Asia/Shanghai
       DOCKER_HOST: unix:///var/run/docker.sock
       secretKey: please-change-me
       BACKUP_DIR: /data/backups
       WORKDIR: /app
-
-      # 🤖 Telegram Bot（可选）
-      TELEGRAM_BOT_TOKEN: ""
-      TELEGRAM_CHAT_IDS: ""
-      TELEGRAM_UPDATE_CHECK_CRON: "0 18 * * *"
-      TELEGRAM_NOTIFY_ON_UPDATE: "true"
-      TELEGRAM_AUTO_CLEAN_IMAGES: "false"
-      TELEGRAM_CLEAN_IMAGES_CRON: "3 2 * * *"
-      TELEGRAM_AUTO_UPDATE_CONTAINERS: "false"
-      TELEGRAM_UPDATE_CONTAINERS_CRON: "0 */6 * * *"
-
-      # 🌐 代理（可选）
-      TELEGRAM_PROXY_TYPE: none
-      TELEGRAM_PROXY_HOST: ""
-      TELEGRAM_PROXY_PORT: ""
-      TELEGRAM_PROXY_USERNAME: ""
-      TELEGRAM_PROXY_PASSWORD: ""

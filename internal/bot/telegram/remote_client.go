@@ -9,13 +9,13 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"os"
 	"sort"
 	"strings"
 	"sync"
 	"time"
 
 	jwt "github.com/golang-jwt/jwt"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 )
 
 type instanceConfig struct {
@@ -282,8 +282,5 @@ func (c *remoteClient) simpleAction(ctx context.Context, method string, path str
 }
 
 func (c *remoteClient) configPath() string {
-	if p := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG")); p != "" {
-		return p
-	}
-	return "/app/config/config.json"
+	return runtimeconfig.EnvPath()
 }

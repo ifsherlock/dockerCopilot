@@ -62,32 +62,17 @@ services:
     network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
+      # /data 为唯一持久化目录：Bot 配置、备份、图标均在其中，必须挂载
       - ./data:/data
-      - ./config:/app/config
     environment:
       TZ: Asia/Shanghai
       DOCKER_HOST: unix:///var/run/docker.sock
       secretKey: please-change-me
       BACKUP_DIR: /data/backups
       WORKDIR: /app
-
-      # 🤖 Telegram Bot（可选）
-      TELEGRAM_BOT_TOKEN: ""
-      TELEGRAM_CHAT_IDS: ""
-      TELEGRAM_UPDATE_CHECK_CRON: "0 18 * * *"
-      TELEGRAM_NOTIFY_ON_UPDATE: "true"
-      TELEGRAM_AUTO_CLEAN_IMAGES: "false"
-      TELEGRAM_CLEAN_IMAGES_CRON: "3 2 * * *"
-      TELEGRAM_AUTO_UPDATE_CONTAINERS: "false"
-      TELEGRAM_UPDATE_CONTAINERS_CRON: "0 */6 * * *"
-
-      # 🌐 代理（可选）
-      TELEGRAM_PROXY_TYPE: none
-      TELEGRAM_PROXY_HOST: ""
-      TELEGRAM_PROXY_PORT: ""
-      TELEGRAM_PROXY_USERNAME: ""
-      TELEGRAM_PROXY_PASSWORD: ""
 ```
+
+> ⚠️ **务必挂载 `/data`**：Telegram/QQ Bot 配置、备份文件都保存在 `/data` 中，未挂载时容器重建会导致配置丢失（旧版本存放于 `/app/config` 的配置会在启动时自动迁移到 `/data/config`）。Bot 的 Token、通知开关等请在面板「Bot 配置」页设置，环境变量方式不受支持。
 
 3. 修改 `secretKey`，按需填写 Telegram Bot 配置。
 4. 启动：
@@ -125,15 +110,10 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 | `DOCKER_HOST` | Docker socket 地址，通常为 `unix:///var/run/docker.sock` |
 | `BACKUP_DIR` | 备份目录，建议 `/data/backups` |
 | `WORKDIR` | 程序工作目录，通常为 `/app` |
-| `TELEGRAM_BOT_TOKEN` | Telegram Bot Token |
-| `TELEGRAM_CHAT_IDS` | 接收通知的 chat id，多个用逗号分隔 |
-| `TELEGRAM_UPDATE_CHECK_CRON` | 定时检查更新 |
-| `TELEGRAM_AUTO_CLEAN_IMAGES` | 是否自动清理无用镜像 |
-| `TELEGRAM_CLEAN_IMAGES_CRON` | 自动清理镜像 Cron |
-| `TELEGRAM_AUTO_UPDATE_CONTAINERS` | 是否自动更新容器 |
-| `TELEGRAM_UPDATE_CONTAINERS_CRON` | 自动更新容器 Cron |
-| `TELEGRAM_PROXY_TYPE` | `none / socks5 / http` |
+| `DOCKERCOPILOT_BOT_CONFIG` | Bot 配置文件路径，默认 `/data/config/config.json`，一般无需修改 |
 | `HOST_LAN_IP` | bridge 模式下建议设置宿主机局域网 IP |
+
+> Telegram / QQ Bot 的 Token、通知开关、自动清理与自动更新等均在面板「Bot 配置」页设置并持久化到 `/data/config/config.json`，不通过环境变量配置。
 
 ### bridge 模式提示
 如果必须使用 bridge：

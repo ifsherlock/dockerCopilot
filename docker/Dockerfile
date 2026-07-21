@@ -20,5 +20,5 @@ ENV secretKey="" \
     WORKDIR="/app" \
     TZ="Asia/Shanghai"
 
-VOLUME ["/data", "/app/config"]
+VOLUME ["/data"]
 CMD ["./start.sh"]

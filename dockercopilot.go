@@ -12,12 +12,14 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	qqbotruntime "github.com/onlyLTY/dockerCopilot/internal/bot/qqbot"
 	telegramruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
 	"github.com/onlyLTY/dockerCopilot/internal/automation"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/zeromicro/go-zero/core/conf"
@@ -85,6 +87,15 @@ func main() {
 	defer server.Stop()
 	ctx := svc.NewServiceContext(c)
 	logx.Infof("服务上下文初始化完成")
+
+	// 旧版本配置路径 /app/config/config.json 一次性迁移到 /data/config/config.json，
+	// 并检查 /data 是否持久化，避免容器重建后 Bot 配置丢失。
+	if migrated, err := runtimeconfig.MigrateLegacyConfig(); err != nil {
+		logx.Errorf("迁移 Bot 配置失败(将继续使用默认配置): %v", err)
+	} else if migrated {
+		logx.Infof("已将 Bot 配置从 %s 迁移到 %s", runtimeconfig.LegacyPath, runtimeconfig.DefaultPath)
+	}
+	warnIfDataNotPersistent()
 	if err := ctx.ReloadBackupSchedulers(); err != nil {
 		logx.Errorf("初始化定时备份失败: %v", err)
 	} else {
@@ -281,4 +292,22 @@ func SetupLog(logDir string) error {
 	logx.MustSetup(logConf)
 	logx.AddWriter(logx.NewWriter(os.Stdout))
 	return nil
+}
+
+// warnIfDataNotPersistent 检查 /data 是否为挂载点（宿主机目录或具名卷）。
+// 未挂载时 Bot 配置与备份会随容器重建丢失，打印醒目警告提示用户补挂载。
+func warnIfDataNotPersistent() {
+	b, err := os.ReadFile("/proc/self/mountinfo")
+	if err != nil {
+		// 非 Linux（本地开发）或无法读取时跳过检查
+		return
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		fields := strings.Fields(line)
+		// mountinfo 第 5 列为挂载点
+		if len(fields) >= 5 && fields[4] == "/data" {
+			return
+		}
+	}
+	logx.Errorf("⚠️ 检测到 /data 目录未挂载持久化卷！Bot 配置与备份将在容器重建后丢失，请在 compose 中添加卷映射，例如: ./data:/data")
 }

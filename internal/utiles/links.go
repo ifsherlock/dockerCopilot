@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/client"
 	MyType "github.com/onlyLTY/dockerCopilot/internal/types"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 )
 
 func BuildImageDockerHubURL(name string) string {
@@ -219,10 +220,7 @@ func detectConfiguredHostIP(dockerCli *client.Client) string {
 }
 
 func configuredHostIP() string {
-	path := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG"))
-	if path == "" {
-		path = "/app/config/config.json"
-	}
+	path := runtimeconfig.EnvPath()
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) == 0 {
 		return ""
@@ -296,10 +294,7 @@ func configuredContainerEndpointOverride(containerName string) (containerEndpoin
 	if containerName == "" {
 		return containerEndpointOverride{}, false
 	}
-	path := strings.TrimSpace(os.Getenv("DOCKERCOPILOT_BOT_CONFIG"))
-	if path == "" {
-		path = "/app/config/config.json"
-	}
+	path := runtimeconfig.EnvPath()
 	b, err := os.ReadFile(path)
 	if err != nil || len(b) == 0 {
 		return containerEndpointOverride{}, false
