@@ -19,8 +19,10 @@ import (
 	telegramruntime "github.com/onlyLTY/dockerCopilot/internal/bot/telegram"
 	"github.com/onlyLTY/dockerCopilot/internal/automation"
 	"github.com/onlyLTY/dockerCopilot/internal/config"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/botnotify"
 	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/handler"
+	"github.com/onlyLTY/dockerCopilot/internal/selfupdate"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/zeromicro/go-zero/core/conf"
 	"github.com/zeromicro/go-zero/core/logx"
@@ -42,6 +44,12 @@ type UnauthorizedResponse struct {
 }
 
 func main() {
+	// 接力自更新模式：由 selfupdate.Launch 以本镜像启动的一次性 updater 容器进入，
+	// 只执行"停旧建新"接力流程，不启动面板服务。
+	if os.Getenv(selfupdate.EnvFlag) == "1" {
+		os.Exit(selfupdate.RunRelay())
+	}
+
 	if loc, err := time.LoadLocation("Asia/Shanghai"); err == nil {
 		time.Local = loc
 	}
@@ -156,6 +164,22 @@ export const customImageLogos = {
 		logx.Infof("QQBot 启动流程已完成")
 	}
 	logx.Infof("程序版本=%s", config.Version)
+
+	// 若本次启动来自镜像自更新接力，延迟上报结果（等待 Bot 完成注册）
+	go func() {
+		time.Sleep(10 * time.Second)
+		selfupdate.ReportResultOnBoot(ctx, func(ok bool, detail string) {
+			evt := botnotify.AutomationEvent{Kind: botnotify.KindSelfUpdate, Details: []string{detail}}
+			if ok {
+				evt.OK = 1
+			} else {
+				evt.Failed = 1
+				evt.Err = detail
+			}
+			botnotify.BroadcastAutomation(context.Background(), evt)
+		})
+	}()
+
 	logx.Infof("HTTP 服务准备监听: %s:%d", c.Host, c.Port)
 	server.Start()
 }

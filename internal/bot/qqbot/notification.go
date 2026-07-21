@@ -89,6 +89,9 @@ func renderAutomationNotification(evt botnotify.AutomationEvent, cfg Config) Mes
 	if evt.Kind == botnotify.KindUpdateContainers {
 		title = "自动更新容器"
 	}
+	if evt.Kind == botnotify.KindSelfUpdate {
+		title = "DockerCopilot 自更新"
+	}
 	var b strings.Builder
 	b.WriteString(title + "\n\n")
 	if evt.Err != "" {

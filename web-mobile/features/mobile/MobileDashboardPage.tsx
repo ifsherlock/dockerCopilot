@@ -321,6 +321,24 @@ export default function MobileDashboardPage() {
       setPendingAction(`update-${container.id}`)
       try {
         await mobileApi.updateContainer(container.id, container.name, container.usingImage)
+        if (container.isSelf) {
+          // 自身容器走接力自更新：面板会中断十几秒，等新版本上线后自动刷新
+          showNotice({ type: "info", message: "已提交面板自更新，服务将短暂中断，稍后自动刷新" })
+          for (let i = 0; i < 40; i++) {
+            await new Promise((resolve) => setTimeout(resolve, 3000))
+            try {
+              await mobileApi.getVersion()
+              if (i >= 4) {
+                window.location.reload()
+                return
+              }
+            } catch {
+              // 服务重启中，继续等待
+            }
+          }
+          window.location.reload()
+          return
+        }
         showNotice({ type: "success", message: `容器 ${container.name} 更新成功` })
         const cRes = await mobileApi.getContainers()
         setContainers(cRes)

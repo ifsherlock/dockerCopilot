@@ -31,6 +31,7 @@ type AutomationKind string
 const (
 	KindCleanImages      AutomationKind = "clean_images"
 	KindUpdateContainers AutomationKind = "update_containers"
+	KindSelfUpdate       AutomationKind = "self_update"
 )
 
 // AutomationEvent 表示一次自动化任务的执行结果。

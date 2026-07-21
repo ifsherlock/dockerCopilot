@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/google/uuid"
+	"github.com/onlyLTY/dockerCopilot/internal/selfupdate"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/onlyLTY/dockerCopilot/internal/utiles"
@@ -43,38 +44,20 @@ func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, e
 			}
 		}()
 		if isSelf {
-			l.svcCtx.AddOperationLog("container", "切换为服务自更新", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
+			imageNameAndTag := utiles.ResolveContainerUpdateImage(l.svcCtx, req.Id, req.ImageNameAndTag)
+			l.svcCtx.AddOperationLog("container", "切换为镜像自更新", fmt.Sprintf("%s -> %s taskID=%s", req.ContainerName, imageNameAndTag, taskID))
 			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
 				TaskID:     taskID,
-				Percentage: 10,
+				Percentage: 5,
 				Name:       req.ContainerName,
 				Message:    "正在更新 DockerCopilot",
-				DetailMsg:  "检测到当前容器，切换为程序自更新流程",
+				DetailMsg:  "检测到当前容器，切换为镜像自更新流程（接力容器方式）",
 				IsDone:     false,
 			})
-			err := utiles.UpdateProgram(l.svcCtx, taskID)
-			if err != nil {
-				l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
-					TaskID:     taskID,
-					Percentage: 100,
-					Name:       req.ContainerName,
-					Message:    "更新失败",
-					DetailMsg:  err.Error(),
-					IsDone:     true,
-				})
-				l.Errorf("Error in self UpdateProgram: %v", err)
-				l.svcCtx.AddOperationLog("container", "服务自更新失败", fmt.Sprintf("%s taskID=%s: %v", req.ContainerName, taskID, err))
-				return
+			if err := selfupdate.Launch(l.svcCtx, req.Id, req.ContainerName, imageNameAndTag, taskID); err != nil {
+				l.Errorf("Error in self image update: %v", err)
+				l.svcCtx.AddOperationLog("container", "镜像自更新失败", fmt.Sprintf("%s taskID=%s: %v", req.ContainerName, taskID, err))
 			}
-			l.svcCtx.UpdateProgress(taskID, svc.TaskProgress{
-				TaskID:     taskID,
-				Percentage: 100,
-				Name:       req.ContainerName,
-				Message:    "更新成功",
-				DetailMsg:  "DockerCopilot 已完成程序自更新，容器即将重启",
-				IsDone:     true,
-			})
-			l.svcCtx.AddOperationLog("container", "服务自更新完成", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
 			return
 		}
 		imageNameAndTag := utiles.ResolveContainerUpdateImage(l.svcCtx, req.Id, req.ImageNameAndTag)

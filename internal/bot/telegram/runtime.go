@@ -426,6 +426,9 @@ func (r *Runtime) NotifyAutomation(ctx context.Context, evt botnotify.Automation
 	if evt.Kind == botnotify.KindUpdateContainers {
 		title = "🆙 <b>自动更新容器</b>"
 	}
+	if evt.Kind == botnotify.KindSelfUpdate {
+		title = "🔄 <b>DockerCopilot 自更新</b>"
+	}
 	var b strings.Builder
 	b.WriteString(title + "\n\n")
 	if evt.Err != "" {

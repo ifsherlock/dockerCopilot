@@ -797,39 +797,56 @@ export function Containers() {
         setConfirmModal({
           isOpen: true,
           title: '更新 DockerCopilot',
-          message: '这是 DockerCopilot 自身容器，将改走程序自更新流程。期间页面可能短暂断开，稍后刷新即可。',
+          message: '这是 DockerCopilot 自身容器，将拉取新镜像并由接力容器完成重建。期间面板会中断十几秒，成功后自动刷新；若新版本启动失败会自动回滚旧版本。',
           onConfirm: async () => {
             setConfirmModal({ isOpen: false })
             pinContainerInUpdateFilter(container, containerId)
-            setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在检查远端版本...', percentage: 10 })
+            setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在提交镜像自更新...', percentage: 5 })
             try {
               await flushUIFrame()
-              setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '正在下载并准备新的 DockerCopilot 二进制...', percentage: 35 })
-              await flushUIFrame()
-              const response = await versionAPI.updateProgram()
-              if (response.data.code === 200 || response.data.code === 0) {
-                if (response.data.data?.updated === false || response.data.msg === '当前已是最新版本') {
-                  setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '当前已是最新版本', percentage: 100 })
-                  setTimeout(() => {
-                    setContainerActions(prev => {
-                      const newState = { ...prev }
-                      delete newState[containerId]
-                      return newState
-                    })
-                    unpinContainerInUpdateFilter(container.name, containerId)
-                  }, 2500)
-                  return
-                }
-                setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '新版本已就绪，正在等待进程重启接管...', percentage: 90 })
-                setTimeout(() => {
-                  setContainerUpdateAction(containerId, container.name, { action: 'update', loading: false, done: true, progress: '已提交自更新，稍后重连', percentage: 100 })
-                }, 800)
-                setTimeout(() => {
-                  window.location.reload()
-                }, 12000)
-              } else {
-                throw new Error(response.data.msg || '自更新失败')
+              const response = await containerAPI.updateContainer(containerId, container.name, getUpdateImageRef(container), true)
+              if (!(response.data.code === 200 || response.data.code === 0)) {
+                throw new Error(response.data.msg || '提交自更新失败')
               }
+              const taskID = response.data.data?.taskID
+              // 轮询任务进度（拉镜像阶段可见），交接完成或服务重启后转入等待新版本上线
+              let handedOver = false
+              let pollFailures = 0
+              for (let i = 0; i < 150 && !handedOver; i++) {
+                await new Promise(resolve => setTimeout(resolve, 2000))
+                try {
+                  const progressRes = await progressAPI.getProgress(taskID)
+                  pollFailures = 0
+                  const task = progressRes.data?.data
+                  if (task?.message) {
+                    setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: task.message, percentage: Math.max(5, task.percentage || 0) })
+                  }
+                  if (task?.isDone) {
+                    if ((task.message || '').includes('失败')) {
+                      throw new Error(task.message)
+                    }
+                    handedOver = true
+                  }
+                } catch (pollError) {
+                  if ((pollError.message || '').includes('失败')) throw pollError
+                  // 连续两次请求失败视为服务已被接力容器停止
+                  pollFailures += 1
+                  if (pollFailures >= 2) handedOver = true
+                }
+              }
+              setContainerUpdateAction(containerId, container.name, { action: 'update', loading: true, progress: '面板重启中，等待新版本上线...', percentage: 95 })
+              // 轮询版本接口，新容器上线后刷新页面
+              for (let i = 0; i < 30; i++) {
+                await new Promise(resolve => setTimeout(resolve, 3000))
+                try {
+                  await versionAPI.getVersion()
+                  window.location.reload()
+                  return
+                } catch {
+                  // 服务尚未恢复，继续等待
+                }
+              }
+              window.location.reload()
             } catch (error) {
               console.error('自更新失败:', error)
               setContainerActions(prev => {
