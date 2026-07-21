@@ -329,31 +329,9 @@ export function Images() {
     setAccelerators(clean)
     setDefaultAccelerator(nextDefault || clean[0] || '')
     try {
-      const res = await botAPI.getConfig()
-      const data = res.data?.data || {}
-      const telegram = data.telegram || {}
-      const dockercopilot = data.dockercopilot || {}
+      // 后端按「字段是否提交」做合并，这里只提交加速器相关字段，
+      // 不回写其它配置，避免覆盖 Bot 开关等设置。
       await botAPI.saveConfig({
-        botToken: telegram.bot_token || '',
-        chatIds: Array.isArray(telegram.chat_ids) ? telegram.chat_ids.join('\n') : '',
-        updateCheckCron: telegram.update_check_cron || '0 18 * * *',
-        notifyOnUpdate: telegram.notify_on_update !== false,
-        updateBlacklist: Array.isArray(telegram.update_blacklist) ? telegram.update_blacklist.join('\n') : '',
-        autoCleanImages: !!telegram.auto_clean_images,
-        cleanImagesCron: telegram.clean_images_cron || '3 2 * * *',
-        autoUpdateContainers: !!telegram.auto_update_containers,
-        updateContainersCron: telegram.update_containers_cron || '0 */6 * * *',
-        proxyType: telegram.proxy?.type || 'none',
-        proxyHost: telegram.proxy?.host || '',
-        proxyPort: telegram.proxy?.port || 0,
-        proxyUsername: telegram.proxy?.username || '',
-        proxyPassword: telegram.proxy?.password || '',
-        defaultInstance: dockercopilot.default_instance || 'local',
-        instances: JSON.stringify(dockercopilot.instances || []),
-        autoBackupJson: !!telegram.auto_backup_json,
-        backupJsonCron: telegram.backup_json_cron || '0 1 * * *',
-        autoBackupCompose: !!telegram.auto_backup_compose,
-        backupComposeCron: telegram.backup_compose_cron || '30 1 * * *',
         imageAccelerators: clean.join('\n'),
         defaultImageAccelerator: nextDefault || clean[0] || '',
       })
