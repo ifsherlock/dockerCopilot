@@ -38,14 +38,6 @@ func FromContainers(ctx *svc.ServiceContext, containerIDs []string) (string, err
 		if name == "" {
 			name = containerName(item)
 		}
-		// compose 创建的容器优先用 service 标签作为服务名，生成结果更贴近原项目；
-		// 同名冲突（如 scale 出的多副本）时退回容器名保证唯一。
-		serviceKey := name
-		if label := strings.TrimSpace(item.Labels[composeServiceLabel]); label != "" {
-			if _, exists := services[sanitizeProjectName(label)]; !exists {
-				serviceKey = label
-			}
-		}
 		service := map[string]interface{}{
 			"image":          inspect.Config.Image,
 			"container_name": name,
@@ -133,7 +125,7 @@ func FromContainers(ctx *svc.ServiceContext, containerIDs []string) (string, err
 				service["networks"] = names
 			}
 		}
-		services[sanitizeProjectName(serviceKey)] = service
+		services[sanitizeProjectName(name)] = service
 	}
 	if len(services) == 0 {
 		return "", fmt.Errorf("no containers matched")

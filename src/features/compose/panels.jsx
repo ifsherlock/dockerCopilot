@@ -2,52 +2,6 @@ import React from 'react'
 import { cn } from '../../utils/cn.js'
 import { isPortVariable, sanitizeComposeProjectName } from './composeUtils.js'
 
-export function ExternalProjectPicker({ loading, projects, onPick, onRefresh }) {
-  return (
-    <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-      <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <div className="text-sm font-semibold text-slate-900 dark:text-white">导入外部 Compose 项目</div>
-          <div className="mt-0.5 text-xs text-slate-500">在宿主机上用 compose 创建、未托管到面板的项目</div>
-          <div className="mt-0.5 text-xs text-slate-400">「compose 文件可读」= 直接读取原文件；「由容器反向生成」= 原文件路径没挂载进本容器读不到，按容器实际配置生成等价内容</div>
-        </div>
-        <button onClick={onRefresh} disabled={loading} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
-          {loading ? '扫描中...' : '重新扫描'}
-        </button>
-      </div>
-      <div className="mt-3 max-h-72 space-y-2 overflow-auto pr-1">
-        {projects.map(project => (
-          <button key={project.name} onClick={() => onPick(project)} className="w-full rounded-xl border border-dashed border-slate-300 bg-white p-3 text-left transition hover:border-sky-300 hover:bg-sky-50 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-sky-800 dark:hover:bg-sky-950/30">
-            <div className="flex items-start justify-between gap-2">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2">
-                  <span className="truncate text-sm font-medium text-slate-900 dark:text-white">{project.name}</span>
-                  <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300">外部</span>
-                </div>
-                <div className="mt-1 truncate text-xs text-slate-500">
-                  {(project.containers || []).length} 容器 · 运行 {project.runningCount || 0}
-                  {project.workingDir ? ` · ${project.workingDir}` : ''}
-                </div>
-              </div>
-              <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium',
-                project.source === 'file'
-                  ? 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300'
-                  : 'border-amber-200 bg-amber-50 text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300')}>
-                {project.source === 'file' ? 'compose 文件可读' : '由容器反向生成'}
-              </span>
-            </div>
-          </button>
-        ))}
-        {!loading && projects.length === 0 && (
-          <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500 dark:border-slate-700">
-            未发现外部 Compose 项目（面板托管的项目不会出现在这里）
-          </div>
-        )}
-      </div>
-    </div>
-  )
-}
-
 export function ContainerPicker({ loading, containers, selectedIds, search, setSearch, setSelectedIds, toggle, generateSelected, generateAll }) {
   return (
     <div className="mb-4 rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">

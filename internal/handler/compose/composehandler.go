@@ -18,13 +18,6 @@ func ProjectsHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	}
 }
 
-func ExternalHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
-	return func(w http.ResponseWriter, r *http.Request) {
-		resp, err := composelogic.NewComposeLogic(r.Context(), svcCtx).External()
-		write(w, r, resp, err)
-	}
-}
-
 func ProjectHandler(svcCtx *svc.ServiceContext) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		var req types.ComposeProjectPathReq

@@ -22,7 +22,7 @@ func runComposeCommand(ctx *svc.ServiceContext, taskID string, project Project, 
 		}
 		return err
 	}
-	if action == "up" || action == "rebuild" || action == "redeploy" {
+	if action == "up" || action == "rebuild" {
 		if err := ensureComposeExternalNetworks(ctx, taskID, project.Content); err != nil {
 			return err
 		}
@@ -33,50 +33,39 @@ func runComposeCommand(ctx *svc.ServiceContext, taskID string, project Project, 
 	}
 	defer cleanup()
 	projectDir := filepath.Dir(project.Path)
-	baseArgs := []string{"compose", "-f", composePath, "--project-directory", projectDir, "-p", project.Name}
-	var steps [][]string
+	args := []string{"compose", "-f", composePath, "--project-directory", projectDir, "-p", project.Name}
 	switch action {
 	case "up":
-		steps = [][]string{{"up", "-d"}}
+		args = append(args, "up", "-d")
 	case "stop":
-		steps = [][]string{{"stop"}}
+		args = append(args, "stop")
 	case "down":
-		steps = [][]string{{"down"}}
+		args = append(args, "down")
 	case "restart":
-		steps = [][]string{{"restart"}}
+		args = append(args, "restart")
 	case "pull":
-		steps = [][]string{{"pull"}}
+		args = append(args, "pull")
 	case "rebuild":
-		steps = [][]string{{"up", "-d", "--build", "--force-recreate"}}
-	case "redeploy":
-		// 更新重建：先拉取最新镜像，再强制重建，卷数据不受影响。
-		steps = [][]string{{"pull"}, {"up", "-d", "--force-recreate"}}
+		args = append(args, "up", "-d", "--build", "--force-recreate")
 	default:
 		return fmt.Errorf("unsupported compose action: %s", action)
 	}
-	for i, step := range steps {
-		if len(steps) > 1 {
-			ctx.AppendProgressLog(taskID, fmt.Sprintf("[%d/%d] docker compose %s", i+1, len(steps), strings.Join(step, " ")))
-		}
-		cmd := exec.Command("docker", append(append([]string{}, baseArgs...), step...)...)
-		cmd.Dir = filepath.Dir(composePath)
-		out, err := cmd.CombinedOutput()
-		logText := strings.TrimSpace(string(out))
-		progress, _ := ctx.GetProgress(taskID)
-		if logText != "" {
-			progress.Logs = append(progress.Logs, strings.Split(logText, "\n")...)
-		}
-		if err != nil {
-			ctx.UpdateProgress(taskID, progress)
-			if composeCLIUnavailable(err, logText) {
-				ctx.AppendProgressLog(taskID, "docker compose CLI 不可用或无法访问 Compose 文件，尝试使用 Docker SDK 单服务降级执行")
-				return runComposeSDKFallback(ctx, taskID, project, action)
-			}
-			return err
-		}
-		ctx.UpdateProgress(taskID, progress)
-	}
+	cmd := exec.Command("docker", args...)
+	cmd.Dir = filepath.Dir(composePath)
+	out, err := cmd.CombinedOutput()
+	logText := strings.TrimSpace(string(out))
 	progress, _ := ctx.GetProgress(taskID)
+	if logText != "" {
+		progress.Logs = append(progress.Logs, strings.Split(logText, "\n")...)
+	}
+	if err != nil {
+		ctx.UpdateProgress(taskID, progress)
+		if composeCLIUnavailable(err, logText) {
+			ctx.AppendProgressLog(taskID, "docker compose CLI 不可用或无法访问 Compose 文件，尝试使用 Docker SDK 单服务降级执行")
+			return runComposeSDKFallback(ctx, taskID, project, action)
+		}
+		return err
+	}
 	progress.Percentage = 100
 	progress.Message = "Compose " + action + " 完成"
 	progress.DetailMsg = strings.Join(progress.Logs, "\n")

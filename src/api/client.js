@@ -144,7 +144,6 @@ export const overviewAPI = {
 
 export const composeAPI = {
   getProjects: () => apiClient.get('/api/compose/projects'),
-  getExternalProjects: () => apiClient.get('/api/compose/external'),
   getProject: (name) => apiClient.get(`/api/compose/project/${encodeURIComponent(name)}`),
   saveProject: (payload) => apiClient.post('/api/compose/project', payload),
   updateProject: (name, payload) => apiClient.put(`/api/compose/project/${encodeURIComponent(name)}`, payload),

@@ -160,8 +160,6 @@ type VolumeInfo struct {
 
 type ComposeProject = composeproject.Project
 
-type ExternalComposeProject = composeproject.ExternalProject
-
 type ComposeProjectContainer = composeproject.ProjectContainer
 
 type StoreSource = storecatalog.Source
@@ -720,14 +718,6 @@ func DeleteComposeProject(name string) error {
 
 func SaveComposeProject(name string, content string) (ComposeProject, error) {
 	return composeproject.Save(name, content)
-}
-
-func SaveComposeProjectWithEnv(name string, content string, envFileContent string) (ComposeProject, error) {
-	return composeproject.SaveWithEnv(name, content, envFileContent)
-}
-
-func DiscoverExternalComposeProjects(ctx *svc.ServiceContext) ([]ExternalComposeProject, error) {
-	return composeproject.DiscoverExternal(ctx)
 }
 
 func RunComposeProject(ctx *svc.ServiceContext, name string, action string) (string, error) {

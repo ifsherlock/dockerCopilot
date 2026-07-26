@@ -40,22 +40,13 @@ func (l *ComposeLogic) Project(req *types.ComposeProjectPathReq) (*types.Resp, e
 }
 
 func (l *ComposeLogic) Save(req *types.ComposeProjectReq) (*types.Resp, error) {
-	project, err := utiles.SaveComposeProjectWithEnv(req.Name, req.Content, req.EnvFileContent)
+	project, err := utiles.SaveComposeProject(req.Name, req.Content)
 	if err != nil {
 		return &types.Resp{Code: 400, Msg: err.Error(), Data: map[string]interface{}{}}, nil
 	}
 	utiles.EnrichComposeProjectStatus(l.svcCtx, &project)
 	l.svcCtx.AddOperationLog("compose", "保存 Compose 项目", project.Name)
 	return &types.Resp{Code: 200, Msg: "success", Data: project}, nil
-}
-
-// External 列出宿主机上由 compose 创建但未托管的外部项目。
-func (l *ComposeLogic) External() (*types.Resp, error) {
-	projects, err := utiles.DiscoverExternalComposeProjects(l.svcCtx)
-	if err != nil {
-		return &types.Resp{Code: 500, Msg: err.Error(), Data: []interface{}{}}, nil
-	}
-	return &types.Resp{Code: 200, Msg: "success", Data: projects}, nil
 }
 
 func (l *ComposeLogic) Clear(req *types.ComposeProjectPathReq) (*types.Resp, error) {

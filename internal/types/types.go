@@ -52,8 +52,6 @@ type GetContainerLogsReq struct {
 type ComposeProjectReq struct {
 	Name    string `json:"name"`
 	Content string `json:"content"`
-	// EnvFileContent 非空时随 compose 文件一并写入项目目录 .env（外部项目导入用）。
-	EnvFileContent string `json:"envFileContent,optional"`
 }
 
 type ComposeProjectPathReq struct {

@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react'
-import { AlertTriangle, CheckCircle2, Circle, CloudDownload, ExternalLink, FolderInput, Link, Play, RefreshCw, RotateCcw, Save, Square, Terminal, Trash2, X } from 'lucide-react'
+import { AlertTriangle, CheckCircle2, Circle, ExternalLink, Link, Play, RefreshCw, RotateCcw, Save, Square, Terminal, Trash2, X } from 'lucide-react'
 import { composeAPI, containerAPI, progressAPI } from '../../api/client.js'
 import { cn } from '../../utils/cn.js'
-import { addProjectContainerQuickLink, defaultComposeBaseDir, inferContainerWebUrl, isContainerRunning, progressToText, resolveComposeRelativeVolumes } from './composeUtils.js'
+import { addProjectContainerQuickLink, inferContainerWebUrl, isContainerRunning, progressToText } from './composeUtils.js'
 import { Panel, TerminalPanel } from './panels.jsx'
 
 function projectStatusMeta(status) {
@@ -23,12 +23,7 @@ function projectStatusMeta(status) {
 
 export function ComposeProjects({ focusProject = '' }) {
   const [projects, setProjects] = useState([])
-  const [externalProjects, setExternalProjects] = useState([])
-  const [projectSearch, setProjectSearch] = useState('')
   const [selected, setSelected] = useState(null)
-  const [selectedExternal, setSelectedExternal] = useState(null)
-  const [externalContent, setExternalContent] = useState('')
-  const [importing, setImporting] = useState(false)
   const [content, setContent] = useState('')
   const [message, setMessage] = useState('')
   const [confirm, setConfirm] = useState(null)
@@ -48,50 +43,13 @@ export function ComposeProjects({ focusProject = '' }) {
   const load = async () => {
     const res = await composeAPI.getProjects()
     setProjects(res.data?.data || [])
-    try {
-      const external = await composeAPI.getExternalProjects()
-      setExternalProjects(external.data?.data || [])
-    } catch {
-      setExternalProjects([])
-    }
   }
 
   const open = async (name) => {
     const res = await composeAPI.getProject(name)
     const project = res.data?.data
     setSelected(project)
-    setSelectedExternal(null)
     setContent(project?.content || '')
-  }
-
-  const openExternal = (project) => {
-    setSelected(null)
-    setSelectedExternal(project)
-    setExternalContent(project?.content || '')
-    setContent('')
-  }
-
-  const importExternal = async () => {
-    if (!selectedExternal?.name || !externalContent.trim()) return
-    setImporting(true)
-    try {
-      // 相对卷路径按原 working_dir 改写为绝对路径，避免导入后目录错位。
-      const baseDir = selectedExternal.workingDir || defaultComposeBaseDir(selectedExternal.name)
-      const resolved = resolveComposeRelativeVolumes(externalContent, baseDir)
-      const payload = { name: selectedExternal.name, content: resolved.content }
-      if (selectedExternal.envFileContent) payload.envFileContent = selectedExternal.envFileContent
-      await composeAPI.saveProject(payload)
-      setMessage(`已导入 ${selectedExternal.name}，现有容器将按项目名自动关联`)
-      const importedName = selectedExternal.name
-      setSelectedExternal(null)
-      await load()
-      await open(importedName)
-      emitGlobalRefresh('compose-import-external')
-    } catch (err) {
-      setMessage(err.response?.data?.msg || err.message || '导入失败')
-    } finally {
-      setImporting(false)
-    }
   }
 
   const refreshSelected = async (projectName = selected?.name) => {
@@ -233,10 +191,6 @@ export function ComposeProjects({ focusProject = '' }) {
   }
 
   const taskText = progressToText(taskProgress)
-  const searchKeyword = projectSearch.trim().toLowerCase()
-  const matchProject = (project) => !searchKeyword || String(project.name || '').toLowerCase().includes(searchKeyword)
-  const visibleProjects = projects.filter(matchProject)
-  const visibleExternalProjects = externalProjects.filter(matchProject)
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -247,17 +201,8 @@ export function ComposeProjects({ focusProject = '' }) {
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
-        <input
-          className="input mb-3"
-          placeholder="搜索项目名"
-          value={projectSearch}
-          onChange={e => setProjectSearch(e.target.value)}
-        />
-        <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1">
-          {(visibleProjects.length > 0 || visibleExternalProjects.length > 0) && (
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">托管项目 · {visibleProjects.length}</div>
-          )}
-          {visibleProjects.map(project => {
+        <div className="space-y-2">
+          {projects.map(project => {
             const meta = projectStatusMeta(project.status)
             const Icon = meta.icon
             return (
@@ -280,32 +225,7 @@ export function ComposeProjects({ focusProject = '' }) {
               </button>
             )
           })}
-          {visibleProjects.length === 0 && (
-            <div className="text-sm text-slate-500">{projectSearch.trim() ? '没有匹配的托管项目' : '暂无托管项目，在“新建”中保存。'}</div>
-          )}
-
-          {visibleExternalProjects.length > 0 && (
-            <div className="pt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">外部项目 · {visibleExternalProjects.length}</div>
-          )}
-          {visibleExternalProjects.map(project => {
-            const meta = projectStatusMeta(project.status)
-            return (
-              <button key={`external-${project.name}`} onClick={() => openExternal(project)} className={cn('w-full rounded-xl border border-dashed p-3 text-left transition', selectedExternal?.name === project.name ? 'border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30' : 'border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800')}>
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <div className="flex items-center gap-2">
-                      <div className="truncate font-medium text-slate-900 dark:text-white">{project.name}</div>
-                      <span className="shrink-0 rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300">外部</span>
-                    </div>
-                    <div className="mt-1 text-xs text-slate-500">
-                      {(project.containers || []).length} 容器 · {project.source === 'file' ? 'compose 可读' : '文件不可读'}
-                    </div>
-                  </div>
-                  <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium', meta.className)}>{meta.label}</span>
-                </div>
-              </button>
-            )
-          })}
+          {projects.length === 0 && <div className="text-sm text-slate-500">暂无项目，在“新建”中保存。</div>}
         </div>
       </div>
 
@@ -332,7 +252,6 @@ export function ComposeProjects({ focusProject = '' }) {
                 <button onClick={() => action(selected.name, 'restart', '重启')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">重启</button>
                 <button onClick={() => action(selected.name, 'pull', '拉取')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">拉取</button>
                 <button onClick={() => action(selected.name, 'rebuild', '重建')} className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-medium hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800">重建</button>
-                <button onClick={() => setConfirm({ type: 'redeploy', name: selected.name, containers: selected.containers || [] })} className="inline-flex items-center gap-1 rounded-lg border border-teal-200 bg-teal-50 px-3 py-2 text-xs font-medium text-teal-700 hover:bg-teal-100 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300 dark:hover:bg-teal-950/50"><CloudDownload className="h-3.5 w-3.5" />更新重建</button>
                 <button onClick={save} className="inline-flex items-center gap-1 rounded-lg bg-sky-600 px-3 py-2 text-xs font-medium text-white"><Save className="h-3.5 w-3.5" />保存</button>
                 <button onClick={() => setConfirm({ type: 'clear', name: selected.name, count: (selected.containers || []).length })} className="inline-flex items-center gap-1 rounded-lg bg-amber-500 px-3 py-2 text-xs font-medium text-white"><Trash2 className="h-3.5 w-3.5" />清除</button>
                 <button onClick={() => setConfirm({ type: 'delete', name: selected.name, count: (selected.containers || []).length })} className="inline-flex items-center gap-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-medium text-white"><Trash2 className="h-3.5 w-3.5" />删除</button>
@@ -378,108 +297,12 @@ export function ComposeProjects({ focusProject = '' }) {
             </div>
             {message && <div className="text-sm text-emerald-600 dark:text-emerald-300">{message}</div>}
           </div>
-        ) : selectedExternal ? (
-          <div className="space-y-4">
-            <div className="rounded-2xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <h3 className="font-semibold text-slate-950 dark:text-white">{selectedExternal.name}</h3>
-                    <span className="rounded-full border border-sky-200 bg-sky-50 px-2 py-0.5 text-[11px] font-medium text-sky-700 dark:border-sky-900/60 dark:bg-sky-950/30 dark:text-sky-300">外部项目</span>
-                  </div>
-                  <p className="mt-1 text-xs text-slate-500">
-                    {(selectedExternal.containers || []).length} 容器 · 运行 {selectedExternal.runningCount || 0}
-                    {selectedExternal.workingDir ? ` · 工作目录 ${selectedExternal.workingDir}` : ''}
-                  </p>
-                </div>
-                <button onClick={importExternal} disabled={importing || !externalContent.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"><FolderInput className="h-3.5 w-3.5" />{importing ? '导入中...' : '导入为托管项目'}</button>
-              </div>
-            </div>
-
-            {selectedExternal.source === 'file' ? (
-              <div className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300">
-                已读取宿主机原文件：{selectedExternal.sourceDetail}
-                {selectedExternal.envFileContent ? '（同目录 .env 将一并导入）' : ''}，可编辑后导入。
-              </div>
-            ) : (
-              <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-                <div>
-                  原 compose 文件在宿主机的 {selectedExternal.sourceDetail || selectedExternal.configFiles?.[0] || selectedExternal.workingDir || '未知路径'}，
-                  该路径没有挂载进 DockerCopilot 容器，容器里读不到这个文件（容器只能看到挂载进来的目录）。
-                </div>
-                <div>
-                  以下内容是按容器当前实际配置反向生成的，与原文件运行效果一致（不含原文件的注释与变量写法），可编辑核对后导入。
-                </div>
-                <div className="text-xs opacity-80">
-                  想直接读取原文件：给 DockerCopilot 容器追加挂载该目录（如 -v {selectedExternal.workingDir || '/宿主机compose目录'}:{selectedExternal.workingDir || '/宿主机compose目录'}:ro），任何覆盖该路径的挂载都会被自动识别。
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-              <textarea value={externalContent} onChange={e => setExternalContent(e.target.value)} placeholder="未获取到 Compose 内容" className="h-[52vh] min-h-[380px] w-full rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-sm leading-6 text-emerald-100 outline-none dark:border-slate-700" />
-              <Panel title="关联容器">
-                <div className="max-h-[48vh] space-y-2 overflow-auto pr-1">
-                  {(selectedExternal.containers || []).map(item => (
-                    <div key={item.id} className="rounded-xl border border-slate-200 bg-white p-3 text-sm dark:border-slate-800 dark:bg-slate-900">
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2">
-                            <span className="truncate font-medium text-slate-900 dark:text-white">{item.name}</span>
-                            {item.update && <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-1.5 py-0.5 text-[10px] font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">有新镜像</span>}
-                          </div>
-                          <div className="mt-0.5 truncate text-xs text-slate-500">{item.service || 'service'} · {item.image}</div>
-                        </div>
-                        <span className={cn('shrink-0 rounded-full border px-2 py-0.5 text-[11px] font-medium', projectStatusMeta(item.state === 'running' ? 'running' : item.state === 'restarting' || item.state === 'dead' ? 'error' : 'stopped').className)}>
-                          {item.state || 'unknown'}
-                        </span>
-                      </div>
-                      {item.ports && <div className="mt-2 text-xs text-slate-500">{item.ports}</div>}
-                    </div>
-                  ))}
-                  {(selectedExternal.containers || []).length === 0 && <div className="rounded-xl border border-dashed border-slate-300 p-4 text-center text-sm text-slate-500 dark:border-slate-700">暂无关联容器</div>}
-                </div>
-              </Panel>
-            </div>
-            <div className="rounded-xl border border-slate-200 bg-slate-50 px-3 py-2 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-950/40">
-              导入后项目文件保存到 /data/compose/{selectedExternal.name}/，正在运行的容器不受影响；之后的启动/重建操作会按项目名平滑接管现有容器。相对卷路径将按原工作目录改写为绝对路径。
-            </div>
-            {message && <div className="text-sm text-emerald-600 dark:text-emerald-300">{message}</div>}
-          </div>
         ) : (
           <div className="flex h-96 items-center justify-center text-slate-500">选择项目查看 YAML</div>
         )}
       </div>
 
-      {confirm && confirm.type === 'redeploy' && (
-        <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-4">
-          <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="flex items-center gap-2 text-lg font-semibold text-slate-950 dark:text-white"><CloudDownload className="h-5 w-5 text-teal-600 dark:text-teal-400" />拉取并重建 {confirm.name}</div>
-                <div className="mt-1 text-sm text-slate-500">将拉取最新镜像并强制重建以下 {(confirm.containers || []).length} 个容器，挂载卷中的数据不受影响。</div>
-              </div>
-              <button onClick={() => setConfirm(null)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800"><X className="h-4 w-4" /></button>
-            </div>
-            <div className="mt-3 max-h-48 space-y-1.5 overflow-auto rounded-xl border border-slate-200 bg-slate-50 p-3 dark:border-slate-800 dark:bg-slate-950/40">
-              {(confirm.containers || []).map(item => (
-                <div key={item.id} className="flex items-center justify-between gap-2 text-sm">
-                  <span className="truncate text-slate-700 dark:text-slate-200">{item.name}</span>
-                  {item.update
-                    ? <span className="shrink-0 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">有新镜像</span>
-                    : <span className="shrink-0 text-[11px] text-slate-400">未检出更新</span>}
-                </div>
-              ))}
-              {(confirm.containers || []).length === 0 && <div className="text-sm text-slate-500">当前无关联容器，将按 Compose 内容全新创建。</div>}
-            </div>
-            <div className="mt-4 flex gap-2">
-              <button onClick={() => setConfirm(null)} className="flex-1 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">取消</button>
-              <button onClick={() => { setConfirm(null); action(confirm.name, 'redeploy', '更新重建') }} className="flex-1 rounded-xl bg-teal-600 px-4 py-2.5 text-sm font-medium text-white hover:bg-teal-700">开始重建</button>
-            </div>
-          </div>
-        </div>
-      )}
-      {confirm && confirm.type !== 'redeploy' && (
+      {confirm && (
         <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/45 p-4">
           <div className="w-full max-w-md rounded-2xl border border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-800 dark:bg-slate-900">
             <div className="flex items-start justify-between gap-3">
