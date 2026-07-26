@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react'
-import { FileCode, ListChecks, PackageOpen, Terminal } from 'lucide-react'
+import { FileCode, FolderInput, ListChecks, PackageOpen, Terminal } from 'lucide-react'
 import { composeAPI, containerAPI, networkAPI, progressAPI } from '../../api/client.js'
 import { cn } from '../../utils/cn.js'
 import { applyTemplateVariables, defaultComposeBaseDir, defaultTemplateValue, externalNetworkNames, extractTemplateVariables, isPortVariable, progressToText, resolveComposeRelativeVolumes, sanitizeComposeProjectName } from './composeUtils.js'
-import { ComposePreviewPanel, ContainerPicker, DeployField, TemplateParamsPanel, TerminalPanel } from './panels.jsx'
+import { ComposePreviewPanel, ContainerPicker, DeployField, ExternalProjectPicker, TemplateParamsPanel, TerminalPanel } from './panels.jsx'
 
 export function NewDeploy({ onViewProject, onViewNamedProject }) {
   const [mode, setMode] = useState('form')
@@ -24,6 +24,9 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
   const [containerSearch, setContainerSearch] = useState('')
   const [selectedContainerIds, setSelectedContainerIds] = useState([])
   const [loadingContainers, setLoadingContainers] = useState(false)
+  const [externalProjects, setExternalProjects] = useState([])
+  const [loadingExternal, setLoadingExternal] = useState(false)
+  const [externalEnvContent, setExternalEnvContent] = useState('')
   const [error, setError] = useState('')
   const [baseDir, setBaseDir] = useState(defaultComposeBaseDir('app'))
   const [baseDirTouched, setBaseDirTouched] = useState(false)
@@ -109,7 +112,7 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
   }, [taskId, rightPanel])
 
   const generatedYaml = useMemo(() => {
-    if (mode === 'yaml' || mode === 'run' || mode === 'containers') return yaml
+    if (mode === 'yaml' || mode === 'run' || mode === 'containers' || mode === 'external') return yaml
     const name = projectName || containerName || 'app'
     const lines = ['services:', `  ${name}:`, `    image: ${image || 'nginx:latest'}`, `    container_name: ${containerName || name}`]
     if (restartPolicy && restartPolicy !== 'no') lines.push(`    restart: ${restartPolicy}`)
@@ -192,6 +195,41 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     }
   }
 
+  const loadExternalProjects = async () => {
+    setLoadingExternal(true)
+    try {
+      const res = await composeAPI.getExternalProjects()
+      setExternalProjects(res.data?.data || [])
+      setMode('external')
+      setRightPanel('compose')
+    } catch (err) {
+      setError(err.response?.data?.msg || err.message || '扫描外部项目失败')
+    } finally {
+      setLoadingExternal(false)
+    }
+  }
+
+  const pickExternalProject = (project) => {
+    if (!project?.content) {
+      setError('该项目没有可用的 Compose 内容')
+      return
+    }
+    setYaml(project.content)
+    setProjectName(project.name || '')
+    setContainerName('')
+    setExternalEnvContent(project.envFileContent || '')
+    if (project.workingDir) {
+      setBaseDir(project.workingDir)
+      setBaseDirTouched(true)
+    }
+    setMode('yaml')
+    setRightPanel('compose')
+    setError('')
+    setMessage(project.source === 'file'
+      ? `已载入外部项目 ${project.name}（读取自 ${project.sourceDetail || '宿主机文件'}）`
+      : `已载入外部项目 ${project.name}（compose 文件不可读，内容由容器配置反向生成）`)
+  }
+
   useEffect(() => {
     const onGlobalRefresh = () => {
       loadNetworks()
@@ -213,6 +251,7 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
       const selectedNames = containers.map(normalizeContainer).filter(item => ids.includes(item.id)).map(item => item.name).filter(Boolean)
       setProjectName(selectedNames.length === 1 ? selectedNames[0] : 'container-export')
       setContainerName('')
+      setExternalEnvContent('')
       setMode('yaml')
       setRightPanel('compose')
       setMessage(ids.length ? `已从 ${ids.length} 个容器生成 Compose` : '已从全部容器生成 Compose')
@@ -221,7 +260,7 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     }
   }
 
-  const canSave = mode !== 'containers' && generatedYaml.trim() && (mode !== 'form' || image.trim()) && unresolvedVariables.length === 0
+  const canSave = mode !== 'containers' && mode !== 'external' && generatedYaml.trim() && (mode !== 'form' || image.trim()) && unresolvedVariables.length === 0
 
   const save = async () => {
     if (!canSave) {
@@ -232,7 +271,9 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     const name = projectSaveName
     try {
       setError('')
-      const res = await composeAPI.saveProject({ name, content: resolvedCompose.content })
+      const payload = { name, content: resolvedCompose.content }
+      if (externalEnvContent.trim()) payload.envFileContent = externalEnvContent
+      const res = await composeAPI.saveProject(payload)
       const savedName = res.data?.data?.name || name
       setMessage(`已保存：${savedName}`)
       if (mode === 'yaml' || mode === 'run') setYaml(resolvedCompose.content)
@@ -274,6 +315,7 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     { id: 'run', label: '命令行', icon: Terminal },
     { id: 'yaml', label: 'Compose', icon: FileCode },
     { id: 'containers', label: '容器生成', icon: PackageOpen },
+    { id: 'external', label: '外部项目', icon: FolderInput },
   ]
 
   return (
@@ -288,6 +330,11 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
                   loadContainers()
                   return
                 }
+                if (item.id === 'external') {
+                  loadExternalProjects()
+                  return
+                }
+                if (item.id === 'form' || item.id === 'run') setExternalEnvContent('')
                 setMode(item.id)
                 setRightPanel(item.id === 'run' ? 'compose' : rightPanel)
               }} className={cn('flex items-center gap-2 rounded-xl border px-3 py-3 text-left text-sm font-semibold transition', mode === item.id ? 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900/70 dark:bg-teal-950/40 dark:text-teal-300' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300 dark:hover:bg-slate-800')}>
@@ -312,6 +359,14 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
             toggle={toggleContainer}
             generateSelected={() => loadFromContainers(selectedContainerIds)}
             generateAll={() => loadFromContainers([])}
+          />
+        )}
+        {mode === 'external' && (
+          <ExternalProjectPicker
+            loading={loadingExternal}
+            projects={externalProjects}
+            onPick={pickExternalProject}
+            onRefresh={loadExternalProjects}
           />
         )}
         {mode === 'form' && (

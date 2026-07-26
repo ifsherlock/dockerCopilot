@@ -23,6 +23,7 @@ type ProjectContainer struct {
 	Status  string `json:"status"`
 	Ports   string `json:"ports"`
 	Service string `json:"service"`
+	Update  bool   `json:"update"`
 }
 type sdkComposeDoc struct {
 	Services map[string]sdkComposeService `json:"services"`

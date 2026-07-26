@@ -114,6 +114,7 @@ func composeProjectContainers(ctx *svc.ServiceContext, projectName string) []Pro
 			Status:  c.Status,
 			Ports:   summarizePorts(c.Ports),
 			Service: firstNonEmptyString(c.Labels["com.docker.compose.service"], c.Labels["com.dockercopilot.compose.service"]),
+			Update:  containerImageHasUpdate(ctx, c.ImageID),
 		})
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].Name < items[j].Name })
@@ -175,6 +176,12 @@ func Delete(name string) error {
 }
 
 func Save(name string, content string) (Project, error) {
+	return SaveWithEnv(name, content, "")
+}
+
+// SaveWithEnv 保存项目 compose 文件，envFileContent 非空时一并写入同目录 .env
+//（compose 以 --project-directory 运行，.env 会被自动加载用于变量插值）。
+func SaveWithEnv(name string, content string, envFileContent string) (Project, error) {
 	name = sanitizeProjectName(name)
 	if name == "" {
 		return Project{}, fmt.Errorf("project name is required")
@@ -189,6 +196,11 @@ func Save(name string, content string) (Project, error) {
 	path := filepath.Join(dir, "docker-compose.yaml")
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
 		return Project{}, err
+	}
+	if strings.TrimSpace(envFileContent) != "" {
+		if err := os.WriteFile(filepath.Join(dir, ".env"), []byte(envFileContent), 0644); err != nil {
+			return Project{}, err
+		}
 	}
 	return Read(name)
 }

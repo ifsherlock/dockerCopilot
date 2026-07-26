@@ -33,7 +33,8 @@ func runComposeSDKFallback(ctx *svc.ServiceContext, taskID string, project Proje
 		name = project.Name + "-" + serviceName
 	}
 	switch action {
-	case "up":
+	case "up", "redeploy":
+		// SDK 路径的 up 本身就是拉取镜像后重建容器，redeploy 直接复用。
 		return sdkComposeUp(ctx, taskID, project, name, service)
 	case "stop":
 		return sdkComposeStop(ctx, taskID, project.Name, name)

@@ -135,6 +135,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: compose.ProjectsHandler(serverCtx),
 			},
 			{
+				Method:  http.MethodGet,
+				Path:    "/compose/external",
+				Handler: compose.ExternalHandler(serverCtx),
+			},
+			{
 				Method:  http.MethodPost,
 				Path:    "/compose/project",
 				Handler: compose.SaveHandler(serverCtx),
@@ -183,6 +188,11 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Method:  http.MethodPost,
 				Path:    "/compose/project/:name/rebuild",
 				Handler: compose.ActionHandler(serverCtx, "rebuild"),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/compose/project/:name/redeploy",
+				Handler: compose.ActionHandler(serverCtx, "redeploy"),
 			},
 			{
 				Method:  http.MethodPost,
