@@ -9,6 +9,7 @@ export function ExternalProjectPicker({ loading, projects, onPick, onRefresh }) 
         <div>
           <div className="text-sm font-semibold text-slate-900 dark:text-white">导入外部 Compose 项目</div>
           <div className="mt-0.5 text-xs text-slate-500">在宿主机上用 compose 创建、未托管到面板的项目</div>
+          <div className="mt-0.5 text-xs text-slate-400">「compose 文件可读」= 直接读取原文件；「由容器反向生成」= 原文件路径没挂载进本容器读不到，按容器实际配置生成等价内容</div>
         </div>
         <button onClick={onRefresh} disabled={loading} className="rounded-xl border border-slate-200 px-3 py-2 text-xs font-semibold text-slate-700 hover:bg-white disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">
           {loading ? '扫描中...' : '重新扫描'}

@@ -24,8 +24,10 @@ function projectStatusMeta(status) {
 export function ComposeProjects({ focusProject = '' }) {
   const [projects, setProjects] = useState([])
   const [externalProjects, setExternalProjects] = useState([])
+  const [projectSearch, setProjectSearch] = useState('')
   const [selected, setSelected] = useState(null)
   const [selectedExternal, setSelectedExternal] = useState(null)
+  const [externalContent, setExternalContent] = useState('')
   const [importing, setImporting] = useState(false)
   const [content, setContent] = useState('')
   const [message, setMessage] = useState('')
@@ -65,16 +67,17 @@ export function ComposeProjects({ focusProject = '' }) {
   const openExternal = (project) => {
     setSelected(null)
     setSelectedExternal(project)
+    setExternalContent(project?.content || '')
     setContent('')
   }
 
   const importExternal = async () => {
-    if (!selectedExternal?.name || !selectedExternal?.content) return
+    if (!selectedExternal?.name || !externalContent.trim()) return
     setImporting(true)
     try {
       // 相对卷路径按原 working_dir 改写为绝对路径，避免导入后目录错位。
       const baseDir = selectedExternal.workingDir || defaultComposeBaseDir(selectedExternal.name)
-      const resolved = resolveComposeRelativeVolumes(selectedExternal.content, baseDir)
+      const resolved = resolveComposeRelativeVolumes(externalContent, baseDir)
       const payload = { name: selectedExternal.name, content: resolved.content }
       if (selectedExternal.envFileContent) payload.envFileContent = selectedExternal.envFileContent
       await composeAPI.saveProject(payload)
@@ -230,6 +233,10 @@ export function ComposeProjects({ focusProject = '' }) {
   }
 
   const taskText = progressToText(taskProgress)
+  const searchKeyword = projectSearch.trim().toLowerCase()
+  const matchProject = (project) => !searchKeyword || String(project.name || '').toLowerCase().includes(searchKeyword)
+  const visibleProjects = projects.filter(matchProject)
+  const visibleExternalProjects = externalProjects.filter(matchProject)
 
   return (
     <div className="grid grid-cols-1 gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
@@ -240,11 +247,17 @@ export function ComposeProjects({ focusProject = '' }) {
             <RefreshCw className="h-4 w-4" />
           </button>
         </div>
-        <div className="space-y-2">
-          {(projects.length > 0 || externalProjects.length > 0) && (
-            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">托管项目 · {projects.length}</div>
+        <input
+          className="input mb-3"
+          placeholder="搜索项目名"
+          value={projectSearch}
+          onChange={e => setProjectSearch(e.target.value)}
+        />
+        <div className="max-h-[68vh] space-y-2 overflow-y-auto pr-1">
+          {(visibleProjects.length > 0 || visibleExternalProjects.length > 0) && (
+            <div className="text-[11px] font-medium uppercase tracking-wide text-slate-400">托管项目 · {visibleProjects.length}</div>
           )}
-          {projects.map(project => {
+          {visibleProjects.map(project => {
             const meta = projectStatusMeta(project.status)
             const Icon = meta.icon
             return (
@@ -267,12 +280,14 @@ export function ComposeProjects({ focusProject = '' }) {
               </button>
             )
           })}
-          {projects.length === 0 && <div className="text-sm text-slate-500">暂无托管项目，在“新建”中保存。</div>}
-
-          {externalProjects.length > 0 && (
-            <div className="pt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">外部项目 · {externalProjects.length}</div>
+          {visibleProjects.length === 0 && (
+            <div className="text-sm text-slate-500">{projectSearch.trim() ? '没有匹配的托管项目' : '暂无托管项目，在“新建”中保存。'}</div>
           )}
-          {externalProjects.map(project => {
+
+          {visibleExternalProjects.length > 0 && (
+            <div className="pt-2 text-[11px] font-medium uppercase tracking-wide text-slate-400">外部项目 · {visibleExternalProjects.length}</div>
+          )}
+          {visibleExternalProjects.map(project => {
             const meta = projectStatusMeta(project.status)
             return (
               <button key={`external-${project.name}`} onClick={() => openExternal(project)} className={cn('w-full rounded-xl border border-dashed p-3 text-left transition', selectedExternal?.name === project.name ? 'border-sky-400 bg-sky-50 dark:border-sky-700 dark:bg-sky-950/30' : 'border-slate-300 hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800')}>
@@ -377,23 +392,32 @@ export function ComposeProjects({ focusProject = '' }) {
                     {selectedExternal.workingDir ? ` · 工作目录 ${selectedExternal.workingDir}` : ''}
                   </p>
                 </div>
-                <button onClick={importExternal} disabled={importing || !selectedExternal.content} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"><FolderInput className="h-3.5 w-3.5" />{importing ? '导入中...' : '导入为托管项目'}</button>
+                <button onClick={importExternal} disabled={importing || !externalContent.trim()} className="inline-flex items-center gap-1.5 rounded-lg bg-sky-600 px-4 py-2 text-xs font-semibold text-white hover:bg-sky-700 disabled:opacity-50"><FolderInput className="h-3.5 w-3.5" />{importing ? '导入中...' : '导入为托管项目'}</button>
               </div>
             </div>
 
             {selectedExternal.source === 'file' ? (
               <div className="rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-sm text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300">
-                已读取宿主机 compose 文件：{selectedExternal.sourceDetail}
-                {selectedExternal.envFileContent ? '（.env 将一并导入）' : ''}
+                已读取宿主机原文件：{selectedExternal.sourceDetail}
+                {selectedExternal.envFileContent ? '（同目录 .env 将一并导入）' : ''}，可编辑后导入。
               </div>
             ) : (
-              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-                compose 文件不可读（路径未挂载进容器），以下内容由容器配置反向生成，导入前请核对。
+              <div className="space-y-1 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+                <div>
+                  原 compose 文件在宿主机的 {selectedExternal.sourceDetail || selectedExternal.configFiles?.[0] || selectedExternal.workingDir || '未知路径'}，
+                  该路径没有挂载进 DockerCopilot 容器，容器里读不到这个文件（容器只能看到挂载进来的目录）。
+                </div>
+                <div>
+                  以下内容是按容器当前实际配置反向生成的，与原文件运行效果一致（不含原文件的注释与变量写法），可编辑核对后导入。
+                </div>
+                <div className="text-xs opacity-80">
+                  想直接读取原文件：给 DockerCopilot 容器追加挂载该目录（如 -v {selectedExternal.workingDir || '/宿主机compose目录'}:{selectedExternal.workingDir || '/宿主机compose目录'}:ro），任何覆盖该路径的挂载都会被自动识别。
+                </div>
               </div>
             )}
 
             <div className="grid grid-cols-1 gap-4 2xl:grid-cols-[minmax(0,1.2fr)_minmax(320px,0.8fr)]">
-              <pre className="h-[52vh] min-h-[380px] w-full overflow-auto rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-sm leading-6 text-emerald-100 dark:border-slate-700">{selectedExternal.content || '未获取到 Compose 内容'}</pre>
+              <textarea value={externalContent} onChange={e => setExternalContent(e.target.value)} placeholder="未获取到 Compose 内容" className="h-[52vh] min-h-[380px] w-full rounded-xl border border-slate-200 bg-slate-950 p-4 font-mono text-sm leading-6 text-emerald-100 outline-none dark:border-slate-700" />
               <Panel title="关联容器">
                 <div className="max-h-[48vh] space-y-2 overflow-auto pr-1">
                   {(selectedExternal.containers || []).map(item => (
