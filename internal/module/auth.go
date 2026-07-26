@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	ref "github.com/distribution/reference"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/runtimeconfig"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
 	"github.com/zeromicro/go-zero/core/logx"
 	"io"
@@ -173,8 +174,8 @@ var (
 )
 
 // resolveDockerIOHost 返回 docker.io 实际使用的 registry 地址：
-// 官方源可达用官方源，否则回退到加速器列表。
-// 探测结果缓存 10 分钟，避免批量检测时逐镜像重复探测
+// 依次探测官方源 → 用户在「加速拉取」页配置的加速源 → 内置加速器列表，
+// 取第一个可达的。探测结果缓存 10 分钟，避免批量检测时逐镜像重复探测
 // （官方源被墙时每次探测都要等满 5 秒超时），同时保证同一轮检测里
 // token 获取与 manifest 请求落在同一个 host 上。
 func resolveDockerIOHost() string {
@@ -186,19 +187,12 @@ func resolveDockerIOHost() string {
 	}
 	dockerIOHostMu.Unlock()
 
-	address := DefaultRegistryDomain
-	if checkHost(DefaultRegistryHost) {
-		address = DefaultRegistryHost
-	} else {
-		for _, host := range DefaultAcceleratorHostList {
-			if checkHost(host) {
-				address = host
-				break
-			}
+	address := DefaultRegistryHost
+	for _, host := range dockerIOHostCandidates(userConfiguredAccelerators()) {
+		if checkHost(host) {
+			address = host
+			break
 		}
-	}
-	if address == DefaultRegistryDomain {
-		address = DefaultRegistryHost
 	}
 
 	dockerIOHostMu.Lock()
@@ -208,11 +202,84 @@ func resolveDockerIOHost() string {
 	return address
 }
 
+// dockerIOHostCandidates 生成 docker.io 的候选 host 列表：
+// 官方源优先，其次用户配置的加速源，最后内置加速器，去重。
+// 用户输入可能带 scheme / 末尾斜杠，清洗后只保留纯 host；
+// docker.io 等官方别名归一为官方源，带路径的条目无法用作 registry host，丢弃。
+func dockerIOHostCandidates(userSources []string) []string {
+	candidates := []string{DefaultRegistryHost}
+	seen := map[string]struct{}{DefaultRegistryHost: {}}
+	appendHost := func(raw string) {
+		host := strings.TrimSpace(raw)
+		host = strings.TrimPrefix(host, "https://")
+		host = strings.TrimPrefix(host, "http://")
+		host = strings.Trim(host, "/")
+		switch host {
+		case "docker.io", "registry-1.docker.io", "www.docker.io":
+			host = DefaultRegistryHost
+		}
+		if host == "" || strings.Contains(host, "/") {
+			return
+		}
+		if _, ok := seen[host]; ok {
+			return
+		}
+		seen[host] = struct{}{}
+		candidates = append(candidates, host)
+	}
+	for _, source := range userSources {
+		appendHost(source)
+	}
+	for _, source := range DefaultAcceleratorHostList {
+		appendHost(source)
+	}
+	return candidates
+}
+
+// userConfiguredAccelerators 读取「加速拉取」页保存的自定义加速源列表。
+func userConfiguredAccelerators() []string {
+	cfg, err := runtimeconfig.NewStore("", "").Read()
+	if err != nil {
+		return nil
+	}
+	return toStringList(cfg.Telegram["image_accelerators"])
+}
+
+func toStringList(v interface{}) []string {
+	out := []string{}
+	switch t := v.(type) {
+	case []string:
+		for _, item := range t {
+			if s := strings.TrimSpace(item); s != "" {
+				out = append(out, s)
+			}
+		}
+	case []interface{}:
+		for _, item := range t {
+			if s, ok := item.(string); ok && strings.TrimSpace(s) != "" {
+				out = append(out, strings.TrimSpace(s))
+			}
+		}
+	case string:
+		for _, item := range strings.FieldsFunc(t, func(r rune) bool { return r == ',' || r == '\n' || r == '\r' || r == ';' }) {
+			if s := strings.TrimSpace(item); s != "" {
+				out = append(out, s)
+			}
+		}
+	}
+	return out
+}
+
 func checkHost(host string) bool {
 	URL := "https://" + host + "/v2/"
-	// 创建带有超时设置的 http.Client
+	// 创建带有超时设置的 http.Client。
+	// 不跟随重定向：真正的 registry 对 /v2/ 直接回 200/401，
+	// 跳转到官网首页之类的域名（如 docker.io）不能当作可用源。
 	client := http.Client{
 		Timeout: 5 * time.Second,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
 	}
 	// 发送 HEAD 请求
 	resp, err := client.Get(URL)
