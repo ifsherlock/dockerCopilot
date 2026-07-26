@@ -57,9 +57,10 @@ func MigrateLegacyConfig() (bool, error) {
 	if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(target, b, 0600); err != nil {
+	if err := os.WriteFile(target, b, ConfigFileMode()); err != nil {
 		return false, err
 	}
+	chownConfigFile(target)
 	return true, nil
 }
 
@@ -89,5 +90,10 @@ func (s *Store) Read() (Config, error) {
 
 func (s *Store) Write(cfg Config) error {
 	cfg.FillDefaults(Default(s.secretKey))
-	return fsjson.WriteAtomic(s.Path(), cfg, 0600)
+	// 权限与属主策略见 filemode.go：宿主机文管需要能直接查看编辑该文件。
+	if err := fsjson.WriteAtomic(s.Path(), cfg, ConfigFileMode()); err != nil {
+		return err
+	}
+	chownConfigFile(s.Path())
+	return nil
 }

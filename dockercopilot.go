@@ -103,6 +103,8 @@ func main() {
 	} else if migrated {
 		logx.Infof("已将 Bot 配置从 %s 迁移到 %s", runtimeconfig.LegacyPath, runtimeconfig.DefaultPath)
 	}
+	// 修正历史版本写出的 root:root 0600 配置文件，恢复宿主机文管的查看编辑能力。
+	runtimeconfig.ApplyConfigFilePolicy("")
 	warnIfDataNotPersistent()
 	if err := ctx.ReloadBackupSchedulers(); err != nil {
 		logx.Errorf("初始化定时备份失败: %v", err)

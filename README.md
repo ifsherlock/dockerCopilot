@@ -114,9 +114,13 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 | `BACKUP_DIR` | 备份目录，建议 `/data/backups` |
 | `WORKDIR` | 程序工作目录，通常为 `/app` |
 | `DOCKERCOPILOT_BOT_CONFIG` | Bot 配置文件路径，默认 `/data/config/config.json`，一般无需修改 |
+| `DOCKERCOPILOT_CONFIG_FILE_MODE` | `config.json` 文件权限（八进制），默认 `666` 便于宿主机文管直接查看编辑；注重私密性可设为 `600` |
+| `PUID` / `PGID` | 设置后 `config.json` 及所在目录的属主会指定为该 UID/GID，适合把配置归属到 NAS 登录账号 |
 | `HOST_LAN_IP` | bridge 模式下建议设置宿主机局域网 IP |
 
 > Telegram / QQ Bot 的 Token、通知开关、自动清理与自动更新等均在面板「Bot 配置」页设置并持久化到 `/data/config/config.json`，不通过环境变量配置。
+>
+> 2.1.35 起 `config.json` 默认权限为 `666`（历史版本为 root 属主的 `600`，宿主机普通账号无法查看编辑）；升级后启动时会自动修正存量文件的权限。
 
 ### bridge 模式提示
 如果必须使用 bridge：

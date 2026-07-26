@@ -70,7 +70,12 @@ func saveEndpointRuntimeConfig(cfg endpointConfigRuntime) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, b, 0600)
+	if err := os.WriteFile(path, b, runtimeconfig.ConfigFileMode()); err != nil {
+		return err
+	}
+	// WriteFile 的 perm 只在新建时生效，这里统一按策略修正已有文件的权限与属主。
+	runtimeconfig.ApplyConfigFilePolicy(path)
+	return nil
 }
 
 func normalizeEndpointPort(value string) string {
