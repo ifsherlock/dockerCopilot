@@ -209,6 +209,24 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     }
   }
 
+  const parseEnvFile = (raw) => {
+    const values = {}
+    String(raw || '').split('\n').forEach(line => {
+      const trimmed = line.trim()
+      if (!trimmed || trimmed.startsWith('#')) return
+      const eq = trimmed.indexOf('=')
+      if (eq <= 0) return
+      const key = trimmed.slice(0, eq).trim()
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(key)) return
+      let value = trimmed.slice(eq + 1).trim()
+      if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+        value = value.slice(1, -1)
+      }
+      values[key] = value
+    })
+    return values
+  }
+
   const pickExternalProject = (project) => {
     if (!project?.content) {
       setError('该项目没有可用的 Compose 内容')
@@ -218,6 +236,8 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
     setProjectName(project.name || '')
     setContainerName('')
     setExternalEnvContent(project.envFileContent || '')
+    // .env 中的值预填为模板参数，避免用户被要求重填 .env 里已有的变量。
+    setTemplateValues(parseEnvFile(project.envFileContent))
     if (project.workingDir) {
       setBaseDir(project.workingDir)
       setBaseDirTouched(true)
@@ -334,7 +354,7 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
                   loadExternalProjects()
                   return
                 }
-                if (item.id === 'form' || item.id === 'run') setExternalEnvContent('')
+                if (item.id === 'form' || item.id === 'run' || item.id === 'yaml') setExternalEnvContent('')
                 setMode(item.id)
                 setRightPanel(item.id === 'run' ? 'compose' : rightPanel)
               }} className={cn('flex items-center gap-2 rounded-xl border px-3 py-3 text-left text-sm font-semibold transition', mode === item.id ? 'border-teal-200 bg-teal-50 text-teal-700 dark:border-teal-900/70 dark:bg-teal-950/40 dark:text-teal-300' : 'border-slate-200 bg-slate-50 text-slate-600 hover:bg-white dark:border-slate-800 dark:bg-slate-950/30 dark:text-slate-300 dark:hover:bg-slate-800')}>
@@ -418,6 +438,11 @@ export function NewDeploy({ onViewProject, onViewNamedProject }) {
           <DeployField label="docker-compose.yaml" hint="直接编辑">
             <textarea className="input min-h-[460px] font-mono" placeholder="services:\n  app:\n    image: nginx:latest" value={yaml} onChange={e => setYaml(e.target.value)} />
           </DeployField>
+        )}
+        {externalEnvContent.trim() && (
+          <div className="mt-3 rounded-xl border border-teal-200 bg-teal-50 px-3 py-2 text-xs text-teal-700 dark:border-teal-900/60 dark:bg-teal-950/30 dark:text-teal-300">
+            已附带外部项目的 .env（保存时写入项目目录，参数已按 .env 预填）
+          </div>
         )}
         <div className="mt-4 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <button onClick={save} disabled={!canSave} className="rounded-xl border border-slate-200 px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:text-slate-200 dark:hover:bg-slate-800">保存</button>
