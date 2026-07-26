@@ -2,7 +2,6 @@ package module
 
 import (
 	"context"
-	"strings"
 
 	"github.com/onlyLTY/dockerCopilot/internal/domain/updatecheck"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
@@ -11,11 +10,8 @@ import (
 const ContentDigestHeader = "Docker-Content-Digest"
 
 func CheckImageRefUpdate(imageNameAndTag string, localRepoDigests []string) (bool, error) {
-	imageName, imageTag, ok := strings.Cut(imageNameAndTag, ":")
-	if !ok || imageName == "" || imageTag == "" || imageTag == "None" {
-		return false, nil
-	}
 	checker := updatecheck.NewRegistryChecker()
+	checker.ResolveHost = GetRegistryAddress
 	checker.Token = func(ctx context.Context, imageName string) (string, error) {
 		return GetToken(types.Image{ImageName: imageName}, "")
 	}

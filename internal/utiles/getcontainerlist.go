@@ -34,6 +34,12 @@ func GetContainerList(ctx *svc.ServiceContext) ([]MyType.Container, error) {
 }
 
 func CheckImageUpdate(ctx *svc.ServiceContext, containerListData []MyType.Container) []MyType.Container {
+	type refCheckOutcome struct {
+		needUpdate bool
+		err        error
+	}
+	// 同一镜像可能被多个容器共用，一轮检测内只访问一次 registry。
+	memo := map[string]refCheckOutcome{}
 	for i, v := range containerListData {
 		inspect, err := ctx.DockerClient.ContainerInspect(context.Background(), v.ID)
 		if err != nil {
@@ -41,7 +47,9 @@ func CheckImageUpdate(ctx *svc.ServiceContext, containerListData []MyType.Contai
 			continue
 		}
 		createImage := strings.TrimSpace(inspect.Config.Image)
-		if createImage == "" || strings.HasPrefix(createImage, "sha256:") || !strings.Contains(createImage, ":") {
+		// 无 tag 的引用（docker run nginx）交给检测器按 latest 处理，
+		// 仅跳过按镜像 ID 创建的容器（无法对应远端仓库）。
+		if createImage == "" || strings.HasPrefix(createImage, "sha256:") || looksLikeImageID(createImage) {
 			continue
 		}
 		imageInspect, _, err := ctx.DockerClient.ImageInspectWithRaw(context.Background(), v.ImageID)
@@ -50,16 +58,37 @@ func CheckImageUpdate(ctx *svc.ServiceContext, containerListData []MyType.Contai
 			ctx.ClearHubImageUpdate(v.ImageID)
 			continue
 		}
-		result, err := checkImageRefUpdateState(createImage, imageInspect.RepoDigests)
-		if err != nil {
-			ctx.ClearHubImageUpdate(v.ImageID)
+		key := v.ImageID + "|" + createImage
+		outcome, seen := memo[key]
+		if !seen {
+			result, err := checkImageRefUpdateState(createImage, imageInspect.RepoDigests)
+			outcome = refCheckOutcome{needUpdate: result.NeedUpdate, err: err}
+			memo[key] = outcome
+		}
+		if outcome.err != nil {
+			// 网络抖动/限流导致的单次失败不清掉上次结果，避免已检测到的
+			// “有更新”状态被误抹掉，表现成时有时无的漏检。
+			logx.Infof("check image update failed for %s (%s), keep last state: %v", v.Names, createImage, outcome.err)
 			continue
 		}
-		needUpdate := result.NeedUpdate
-		containerListData[i].Update = needUpdate
-		ctx.SetHubImageUpdate(v.ImageID, needUpdate)
+		containerListData[i].Update = outcome.needUpdate
+		ctx.SetHubImageUpdate(v.ImageID, outcome.needUpdate)
 	}
 	return containerListData
+}
+
+// looksLikeImageID 识别形如 3fa822599e10 / 完整 64 位十六进制的镜像 ID 引用。
+func looksLikeImageID(s string) bool {
+	if len(s) < 12 || len(s) > 64 || strings.Contains(s, "/") || strings.Contains(s, ":") {
+		return false
+	}
+	for _, r := range s {
+		isHex := (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')
+		if !isHex {
+			return false
+		}
+	}
+	return true
 }
 
 func ResolveContainerUpdateImage(ctx *svc.ServiceContext, id string, requested string) string {
@@ -113,6 +142,9 @@ func PullImageOnly(ctx *svc.ServiceContext, imageNameAndTag string) error {
 
 func checkImageRefUpdateState(imageNameAndTag string, localRepoDigests []string) (updatecheck.RegistryCheckResult, error) {
 	checker := updatecheck.NewRegistryChecker()
+	// docker.io 必须走 GetRegistryAddress：官方源不可达时回退加速器，
+	// 且与 GetToken 的 challenge host 保持一致，否则国内环境全部检测失败。
+	checker.ResolveHost = module.GetRegistryAddress
 	checker.Token = func(ctx context.Context, imageName string) (string, error) {
 		return module.GetToken(MyType.Image{ImageName: imageName}, "")
 	}

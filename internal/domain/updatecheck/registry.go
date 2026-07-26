@@ -127,6 +127,16 @@ func (c RegistryChecker) CheckImageRef(ctx context.Context, imageRef string, loc
 		}
 	}
 
+	// 先用 HEAD 取 digest：HEAD 不计入 Docker Hub 拉取限额。
+	// 命中本地 RepoDigests 说明已是最新，直接返回，省掉 GET 正文。
+	if digest, headErr := c.FetchManifestDigest(ctx, manifestURL, token); headErr == nil && digest != "" &&
+		localDigestsContain(imageRef, digest, localRepoDigests) {
+		result.RemoteIndexDigest = digest
+		result.NeedUpdate = false
+		result.Status = StatusUpToDate
+		return result, nil
+	}
+
 	digest, body, err := c.FetchManifest(ctx, manifestURL, token)
 	if err != nil {
 		result.Status = StatusCheckFailed
@@ -170,6 +180,34 @@ func (c RegistryChecker) BuildManifestURL(imageName string, tag string) (string,
 		Path:   fmt.Sprintf("/v2/%s/manifests/%s", ref.Path(taggedRef), taggedRef.Tag()),
 	}
 	return u.String(), taggedRef.Name(), nil
+}
+
+// FetchManifestDigest 用 HEAD 请求获取 manifest 的 Docker-Content-Digest。
+// HEAD 请求不计入 Docker Hub 的拉取限额，适合做"是否有变化"的低成本探测。
+func (c RegistryChecker) FetchManifestDigest(ctx context.Context, manifestURL string, token string) (string, error) {
+	client := c.Client
+	if client == nil {
+		client = defaultRegistryHTTPClient()
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodHead, manifestURL, nil)
+	if err != nil {
+		return "", err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", token)
+	}
+	for _, accept := range registryManifestAccepts() {
+		req.Header.Add("Accept", accept)
+	}
+	res, err := client.Do(req)
+	if err != nil {
+		return "", err
+	}
+	defer res.Body.Close()
+	if res.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("registry responded to head request with %q", res.Status)
+	}
+	return res.Header.Get(ContentDigestHeader), nil
 }
 
 func (c RegistryChecker) FetchManifest(ctx context.Context, manifestURL string, token string) (digest string, body []byte, err error) {
@@ -216,9 +254,53 @@ func registryManifestAccepts() []string {
 	}
 }
 
+// splitImageRef 用标准镜像引用语法拆分 repo 与 tag。
+// 相比按第一个冒号切分：无 tag 时补默认 latest（docker run nginx），
+// 带端口的私有仓库（registry.example.com:5000/app:v1）不会被切错，
+// digest 固定引用（repo@sha256:...）视为不支持检测。
 func splitImageRef(imageRef string) (string, string, bool) {
-	imageName, imageTag, ok := strings.Cut(imageRef, ":")
-	return strings.TrimSpace(imageName), strings.TrimSpace(imageTag), ok
+	trimmed := strings.TrimSpace(imageRef)
+	if trimmed == "" {
+		return "", "", false
+	}
+	named, err := ref.ParseDockerRef(trimmed)
+	if err != nil {
+		return trimmed, "", false
+	}
+	tagged, isTagged := named.(ref.NamedTagged)
+	if !isTagged {
+		return ref.FamiliarName(named), "", false
+	}
+	return ref.FamiliarName(named), tagged.Tag(), true
+}
+
+// repoFromImageRef 提取镜像引用中的 repo 部分（不含 tag/digest）。
+func repoFromImageRef(imageRef string) string {
+	if named, err := ref.ParseDockerRef(strings.TrimSpace(imageRef)); err == nil {
+		return ref.FamiliarName(named)
+	}
+	return strings.Split(imageRef, ":")[0]
+}
+
+// localDigestsContain 判断本地 RepoDigests 中同仓库的条目是否已包含远端 digest。
+func localDigestsContain(imageRef string, remoteDigest string, localRepoDigests []string) bool {
+	if remoteDigest == "" {
+		return false
+	}
+	remoteRepo := repoFromImageRef(imageRef)
+	for _, localRepoDigest := range localRepoDigests {
+		parts := strings.Split(localRepoDigest, "@")
+		if len(parts) != 2 {
+			continue
+		}
+		if normalizeRepoName(parts[0]) != normalizeRepoName(remoteRepo) {
+			continue
+		}
+		if parts[1] == remoteDigest {
+			return true
+		}
+	}
+	return false
 }
 
 func selectPlatformDigest(body []byte, platform Platform) string {
@@ -251,7 +333,7 @@ func CompareRemoteDigestsForLegacy(imageRef string, remoteIndexDigest string, re
 	if len(localRepoDigests) == 0 {
 		return false
 	}
-	remoteRepo := strings.Split(imageRef, ":")[0]
+	remoteRepo := repoFromImageRef(imageRef)
 	matchedRepo := false
 	hasRemoteDigest := remoteIndexDigest != "" || remotePlatformDigest != ""
 	if !hasRemoteDigest {

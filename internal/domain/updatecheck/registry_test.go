@@ -116,6 +116,91 @@ func TestRegistryCheckerTimeoutIsCheckFailed(t *testing.T) {
 	}
 }
 
+func TestSplitImageRefNormalizesTagAndPortRegistry(t *testing.T) {
+	cases := []struct {
+		in       string
+		wantRepo string
+		wantTag  string
+		wantOK   bool
+	}{
+		{"nginx", "nginx", "latest", true},
+		{"nginx:1.25", "nginx", "1.25", true},
+		{"registry.example.com:5000/app", "registry.example.com:5000/app", "latest", true},
+		{"registry.example.com:5000/app:v1", "registry.example.com:5000/app", "v1", true},
+		{"nginx@sha256:0000000000000000000000000000000000000000000000000000000000000000", "nginx", "", false},
+		{"", "", "", false},
+	}
+	for _, c := range cases {
+		repo, tag, ok := splitImageRef(c.in)
+		if ok != c.wantOK || (ok && (repo != c.wantRepo || tag != c.wantTag)) {
+			t.Fatalf("splitImageRef(%q) = (%q, %q, %v), want (%q, %q, %v)", c.in, repo, tag, ok, c.wantRepo, c.wantTag, c.wantOK)
+		}
+	}
+}
+
+func TestCompareRemoteDigestsPortRegistry(t *testing.T) {
+	needUpdate := CompareRemoteDigestsForLegacy(
+		"registry.example.com:5000/app:v1",
+		"sha256:new", "",
+		[]string{"registry.example.com:5000/app@sha256:old"},
+	)
+	if !needUpdate {
+		t.Fatalf("CompareRemoteDigestsForLegacy port registry = false, want true")
+	}
+	upToDate := CompareRemoteDigestsForLegacy(
+		"registry.example.com:5000/app:v1",
+		"sha256:same", "",
+		[]string{"registry.example.com:5000/app@sha256:same"},
+	)
+	if upToDate {
+		t.Fatalf("CompareRemoteDigestsForLegacy matching digest = true, want false")
+	}
+}
+
+func TestRegistryCheckerHeadMatchSkipsGet(t *testing.T) {
+	getCount := 0
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodGet {
+			getCount++
+		}
+		w.Header().Set(ContentDigestHeader, "sha256:index")
+		_, _ = w.Write([]byte(`{"schemaVersion": 2}`))
+	}))
+	defer server.Close()
+
+	checker := testRegistryChecker(server, Platform{OS: "linux", Architecture: "amd64"})
+	result, err := checker.CheckImageRef(context.Background(), "nginx:latest", []string{"docker.io/library/nginx@sha256:index"})
+	if err != nil {
+		t.Fatalf("CheckImageRef returned error: %v", err)
+	}
+	if result.NeedUpdate || result.Status != StatusUpToDate {
+		t.Fatalf("result = %#v, want up_to_date", result)
+	}
+	if getCount != 0 {
+		t.Fatalf("GET count = %d, want 0 (HEAD digest match should skip GET)", getCount)
+	}
+}
+
+func TestRegistryCheckerUntaggedRefDefaultsToLatest(t *testing.T) {
+	server := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v2/library/nginx/manifests/latest" {
+			t.Fatalf("path = %s, want /v2/library/nginx/manifests/latest", r.URL.Path)
+		}
+		w.Header().Set(ContentDigestHeader, "sha256:new")
+		_, _ = w.Write([]byte(`{"schemaVersion": 2}`))
+	}))
+	defer server.Close()
+
+	checker := testRegistryChecker(server, Platform{OS: "linux", Architecture: "amd64"})
+	result, err := checker.CheckImageRef(context.Background(), "nginx", []string{"nginx@sha256:old"})
+	if err != nil {
+		t.Fatalf("CheckImageRef returned error: %v", err)
+	}
+	if !result.NeedUpdate || result.Status != StatusUpdateAvailable {
+		t.Fatalf("result = %#v, want update_available", result)
+	}
+}
+
 func testRegistryChecker(server *httptest.Server, platform Platform) RegistryChecker {
 	checker := NewRegistryChecker()
 	checker.Client = server.Client()

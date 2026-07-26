@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -160,21 +161,51 @@ func GetRegistryAddress(imageRef string) (string, error) {
 	address := ref.Domain(normalizedRef)
 
 	if address == DefaultRegistryDomain {
-		if checkHost(DefaultRegistryHost) {
-			address = DefaultRegistryHost
-		} else {
-			for _, host := range DefaultAcceleratorHostList {
-				if checkHost(host) {
-					address = host
-					break
-				}
-			}
-		}
-		if address == DefaultRegistryDomain {
-			address = DefaultRegistryHost
-		}
+		address = resolveDockerIOHost()
 	}
 	return address, nil
+}
+
+var (
+	dockerIOHostMu      sync.Mutex
+	dockerIOHostCached  string
+	dockerIOHostExpires time.Time
+)
+
+// resolveDockerIOHost 返回 docker.io 实际使用的 registry 地址：
+// 官方源可达用官方源，否则回退到加速器列表。
+// 探测结果缓存 10 分钟，避免批量检测时逐镜像重复探测
+// （官方源被墙时每次探测都要等满 5 秒超时），同时保证同一轮检测里
+// token 获取与 manifest 请求落在同一个 host 上。
+func resolveDockerIOHost() string {
+	dockerIOHostMu.Lock()
+	if dockerIOHostCached != "" && time.Now().Before(dockerIOHostExpires) {
+		host := dockerIOHostCached
+		dockerIOHostMu.Unlock()
+		return host
+	}
+	dockerIOHostMu.Unlock()
+
+	address := DefaultRegistryDomain
+	if checkHost(DefaultRegistryHost) {
+		address = DefaultRegistryHost
+	} else {
+		for _, host := range DefaultAcceleratorHostList {
+			if checkHost(host) {
+				address = host
+				break
+			}
+		}
+	}
+	if address == DefaultRegistryDomain {
+		address = DefaultRegistryHost
+	}
+
+	dockerIOHostMu.Lock()
+	dockerIOHostCached = address
+	dockerIOHostExpires = time.Now().Add(10 * time.Minute)
+	dockerIOHostMu.Unlock()
+	return address
 }
 
 func checkHost(host string) bool {
