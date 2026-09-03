@@ -38,8 +38,8 @@ function getAPIBaseURL() {
 const API_BASE_URL = getAPIBaseURL()
 
 export function getSelectedInstance() {
-  if (typeof window === 'undefined') return 'local'
-  return String(localStorage.getItem('docker_copilot_selected_instance') || 'local').trim() || 'local'
+  if (typeof window === 'undefined') return ''
+  return String(localStorage.getItem('docker_copilot_selected_instance') || '').trim()
 }
 
 function instancePath(path, instanceName = 'local') {
