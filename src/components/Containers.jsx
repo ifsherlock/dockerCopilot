@@ -21,7 +21,7 @@ import {
   ExternalLink,
   Pencil
 } from 'lucide-react'
-import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI } from '../api/client.js'
+import { containerAPI, progressAPI, imageAPI, botAPI, versionAPI, instanceAPI, createInstanceApi, getSelectedInstance } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { getCachedFavicon, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
@@ -133,6 +133,46 @@ export function Containers() {
   const [linkPopoverId, setLinkPopoverId] = useState('')
   const [hostLanIp, setHostLanIp] = useState('')
   const [faviconIcons, setFaviconIcons] = useState({})
+  const [selectedInstance, setSelectedInstance] = useState(getSelectedInstance)
+  const { data: instanceData } = useQuery({
+    queryKey: ['instances'],
+    queryFn: async () => {
+      const response = await instanceAPI.getInstances()
+      return response.data?.data || { instances: [], defaultInstance: 'local' }
+    },
+    staleTime: 60000,
+  })
+  const instanceOptions = useMemo(() => {
+    const items = Array.isArray(instanceData?.instances) ? instanceData.instances : []
+    if (instanceData?.enabled) return items
+    return items.filter(item => item?.local || String(item?.name || '').toLowerCase() === 'local')
+  }, [instanceData])
+  const activeInstance = useMemo(() => {
+    if (instanceOptions.length === 0) return 'local'
+    const selected = instanceOptions.find(item => String(item?.name || '').toLowerCase() === String(selectedInstance || '').toLowerCase())
+    const configured = instanceOptions.find(item => String(item?.name || '').toLowerCase() === String(instanceData?.defaultInstance || '').toLowerCase())
+    return selected?.name || configured?.name || instanceOptions[0]?.name || 'local'
+  }, [instanceData?.defaultInstance, instanceOptions, selectedInstance])
+  const scopedInstanceApi = useMemo(() => createInstanceApi(activeInstance), [activeInstance])
+  const containerAPI = scopedInstanceApi.container
+  const progressAPI = scopedInstanceApi.progress
+  const botAPI = scopedInstanceApi.bot
+  useEffect(() => {
+    if (instanceOptions.length === 0) return
+    const saved = String(localStorage.getItem('docker_copilot_selected_instance') || '').trim()
+    if (activeInstance !== selectedInstance) setSelectedInstance(activeInstance)
+    if (activeInstance !== saved) localStorage.setItem('docker_copilot_selected_instance', activeInstance)
+  }, [activeInstance, instanceOptions.length, selectedInstance])
+
+  const changeInstance = (value) => {
+    const next = String(value || 'local').trim() || 'local'
+    localStorage.setItem('docker_copilot_selected_instance', next)
+    setSelectedInstance(next)
+    setSelectedContainer(null)
+    setSelectedContainers([])
+    setFilterStatus(null)
+    window.dispatchEvent(new CustomEvent('docker-copilot-instance-changed', { detail: { instance: next } }))
+  }
   const loadHostLanIp = async () => {
     try {
       const res = await botAPI.getConfig()
@@ -159,7 +199,7 @@ export function Containers() {
 
   // 使用React Query获取容器列表
   const { data: containers = [], isLoading, refetch } = useQuery({
-    queryKey: ['containers'],
+    queryKey: ['containers', activeInstance],
     queryFn: async () => {
       const response = await containerAPI.getContainers()
       if (response.data.code === 200 || response.data.code === 0) {
@@ -237,7 +277,7 @@ export function Containers() {
 
   useEffect(() => {
     loadHostLanIp()
-  }, [])
+  }, [activeInstance])
 
   useEffect(() => {
     localStorage.setItem('docker_copilot_containers_view_mode', viewMode)
@@ -1825,6 +1865,16 @@ export function Containers() {
             </div>
 
             <div className="flex shrink-0 items-center gap-2 xl:w-[460px]">
+              {instanceOptions.length > 1 && (
+                <select
+                  value={activeInstance}
+                  onChange={(event) => changeInstance(event.target.value)}
+                  className="h-10 max-w-[150px] rounded-xl border border-gray-200 bg-white px-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900/30 dark:text-gray-200 sm:text-sm"
+                  title="切换 Docker 实例"
+                >
+                  {instanceOptions.map((item) => <option key={item.name} value={item.name}>{item.name}{item.local ? '（本地）' : ''}</option>)}
+                </select>
+              )}
               <div className="relative min-w-0 flex-1">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
                 <input
@@ -2178,6 +2228,8 @@ export function Containers() {
             isUpdateIgnored={isUpdateIgnored}
             onIgnore={ignoreUpdate}
             onUnignore={unignoreUpdate}
+            containerApi={containerAPI}
+            botApi={botAPI}
           />
         )
       }
@@ -2186,7 +2238,7 @@ export function Containers() {
 }
 
 // 容器详情弹窗组件
-function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction, isUpdateIgnored, onIgnore, onUnignore }) {
+function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction, isUpdateIgnored, onIgnore, onUnignore, containerApi = containerAPI, botApi = botAPI }) {
   const queryClient = useQueryClient()
   const [name, setName] = useState(container.name)
   const [imageNameAndTag, setImageNameAndTag] = useState(container.usingImage)
@@ -2236,7 +2288,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
   React.useEffect(() => {
     const loadHostLanIp = async () => {
       try {
-        const res = await botAPI.getConfig()
+        const res = await botApi.getConfig()
         const cfg = res.data?.data || {}
         setGlobalHostLanIp(String(cfg?.dockercopilot?.host_lan_ip || '').trim())
       } catch {
@@ -2264,7 +2316,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
   React.useEffect(() => {
     const interval = setInterval(async () => {
       try {
-        const response = await containerAPI.getContainers();
+        const response = await containerApi.getContainers();
         if (response.data.code === 0) {
           const containers = response.data.data;
           const updatedContainer = containers.find(c => c.id === container.id);
@@ -2312,7 +2364,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
     const cleanedPort = String(detailPort || '').replace(/\D+/g, '').slice(0, 5)
     try {
       setEndpointSaveState({ saving: true, ok: false, message: '' })
-      const response = await containerAPI.saveEndpointConfig(container.id, {
+      const response = await containerApi.saveEndpointConfig(container.id, {
         hostIP: cleanedHostIp,
         port: cleanedPort,
       })
@@ -2514,7 +2566,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
         console.log(`新镜像: ${imageNameAndTag}`)
 
         // 直接调用API更新容器
-        const response = await containerAPI.updateContainer(
+        const response = await containerApi.updateContainer(
           container.id,
           container.name,
           imageNameAndTag,

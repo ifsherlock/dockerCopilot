@@ -13,6 +13,7 @@ import (
 	favicon "github.com/onlyLTY/dockerCopilot/internal/handler/favicon"
 	icons "github.com/onlyLTY/dockerCopilot/internal/handler/icons"
 	image "github.com/onlyLTY/dockerCopilot/internal/handler/image"
+	instance "github.com/onlyLTY/dockerCopilot/internal/handler/instance"
 	network "github.com/onlyLTY/dockerCopilot/internal/handler/network"
 	overview "github.com/onlyLTY/dockerCopilot/internal/handler/overview"
 	progress "github.com/onlyLTY/dockerCopilot/internal/handler/progress"
@@ -44,6 +45,88 @@ func RegisterHandlers(server *rest.Server, serverCtx *svc.ServiceContext) {
 				Handler: auth.LoginHandler(serverCtx),
 			},
 		},
+		rest.WithPrefix("/api"),
+	)
+
+	server.AddRoutes(
+		[]rest.Route{
+			{
+				Method:  http.MethodGet,
+				Path:    "/instances",
+				Handler: instance.ListHandler(serverCtx),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/instance/:instance/containers",
+				Handler: instance.ProxyHandler(serverCtx, instance.StaticPath("/api/containers")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/containers/check-update",
+				Handler: instance.ProxyHandler(serverCtx, instance.StaticPath("/api/containers/check-update")),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/instance/:instance/progress/:taskid",
+				Handler: instance.ProxyHandler(serverCtx, instance.ProgressPath),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/start",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/start")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/stop",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/stop")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/restart",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/restart")),
+			},
+			{
+				Method:  http.MethodDelete,
+				Path:    "/instance/:instance/container/:id",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/rename",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/rename")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/update",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/update")),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/instance/:instance/container/:id/logs",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/logs")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/container/:id/endpoint",
+				Handler: instance.ProxyHandler(serverCtx, instance.ContainerPath("/endpoint")),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/instance/:instance/bot/config",
+				Handler: instance.ProxyHandler(serverCtx, instance.StaticPath("/api/bot/config")),
+			},
+			{
+				Method:  http.MethodGet,
+				Path:    "/instance/:instance/bot/update-blacklist",
+				Handler: instance.ProxyHandler(serverCtx, instance.StaticPath("/api/bot/update-blacklist")),
+			},
+			{
+				Method:  http.MethodPost,
+				Path:    "/instance/:instance/bot/update-blacklist",
+				Handler: instance.ProxyHandler(serverCtx, instance.StaticPath("/api/bot/update-blacklist")),
+			},
+		},
+		rest.WithJwt(serverCtx.Config.Auth.AccessSecret),
 		rest.WithPrefix("/api"),
 	)
 

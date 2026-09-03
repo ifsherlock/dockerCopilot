@@ -37,6 +37,17 @@ function getAPIBaseURL() {
 
 const API_BASE_URL = getAPIBaseURL()
 
+export function getSelectedInstance() {
+  if (typeof window === 'undefined') return 'local'
+  return String(localStorage.getItem('docker_copilot_selected_instance') || 'local').trim() || 'local'
+}
+
+function instancePath(path, instanceName = 'local') {
+  const instance = String(instanceName || 'local').trim()
+  if (!instance || instance.toLowerCase() === 'local' || !String(path).startsWith('/api/')) return path
+  return `/api/instance/${encodeURIComponent(instance)}${String(path).slice(4)}`
+}
+
 // 创建axios实例
 const apiClient = axios.create({
   baseURL: API_BASE_URL,
@@ -231,6 +242,44 @@ export const botAPI = {
   }),
   getUpdateBlacklist: () => apiClient.get('/api/bot/update-blacklist'),
   saveUpdateBlacklist: (items) => apiClient.post('/api/bot/update-blacklist', { items }),
+}
+
+export const instanceAPI = {
+  getInstances: () => apiClient.get('/api/instances'),
+}
+
+export function createInstanceApi(instanceName) {
+  const scopedPath = (path) => instancePath(path, instanceName)
+  return {
+    container: {
+      getContainers: () => apiClient.get(scopedPath('/api/containers')),
+      checkUpdates: () => apiClient.post(scopedPath('/api/containers/check-update')),
+      startContainer: (id) => apiClient.post(scopedPath(`/api/container/${id}/start`)),
+      stopContainer: (id) => apiClient.post(scopedPath(`/api/container/${id}/stop`)),
+      restartContainer: (id) => apiClient.post(scopedPath(`/api/container/${id}/restart`)),
+      deleteContainer: (id) => apiClient.delete(scopedPath(`/api/container/${id}`)),
+      renameContainer: (id, newName) => apiClient.post(scopedPath(`/api/container/${id}/rename?newName=${encodeURIComponent(newName)}`)),
+      updateContainer: (id, containerName, imageNameAndTag, delOldContainer) => {
+        const formData = new FormData()
+        formData.append('containerName', containerName)
+        formData.append('imageNameAndTag', imageNameAndTag)
+        formData.append('delOldContainer', delOldContainer ? 'true' : 'false')
+        return apiClient.post(scopedPath(`/api/container/${id}/update`), formData, {
+          headers: { 'Content-Type': 'multipart/form-data' },
+        })
+      },
+      getContainerLogs: (id, tail = 300) => apiClient.get(scopedPath(`/api/container/${id}/logs?tail=${tail}`)),
+      saveEndpointConfig: (id, payload) => apiClient.post(scopedPath(`/api/container/${id}/endpoint`), payload),
+    },
+    progress: {
+      getProgress: (taskid) => apiClient.get(scopedPath(`/api/progress/${taskid}`)),
+    },
+    bot: {
+      getConfig: () => apiClient.get(scopedPath('/api/bot/config')),
+      getUpdateBlacklist: () => apiClient.get(scopedPath('/api/bot/update-blacklist')),
+      saveUpdateBlacklist: (items) => apiClient.post(scopedPath('/api/bot/update-blacklist'), { items }),
+    },
+  }
 }
 
 // GitHub API - 用于检查前端更新
