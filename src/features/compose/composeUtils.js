@@ -1,3 +1,5 @@
+import { quickLinkId } from '../../utils/quickLinks.js'
+
 export function sanitizeComposeProjectName(value) {
   return String(value || '').trim().toLowerCase().replace(/[^a-z0-9_. -]/g, '').replace(/[ .]+/g, '-').replace(/^[-_]+|[-_]+$/g, '') || 'app'
 }
@@ -170,7 +172,7 @@ export function addProjectContainerQuickLink(item) {
     deleted: parsed.deleted && typeof parsed.deleted === 'object' ? parsed.deleted : {},
     manual: Array.isArray(parsed.manual) ? parsed.manual : [],
   }
-  const id = item.id || item.name
+  const id = quickLinkId(item)
   const link = {
     id,
     name: item.name || item.service || id,

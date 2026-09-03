@@ -5,17 +5,21 @@ import { overviewAPI, containerAPI, imageAPI } from '../api/client.js'
 import { cn } from '../utils/cn.js'
 import { getCachedFavicon, getContainerImageRef, getContainerWebUrl, resolveContainerBuiltInIconUrl, resolveContainerCustomIconUrl, resolveFaviconFallback } from '../utils/containerIcons.js'
 import { IconWithFallback } from './IconWithFallback.jsx'
+import { quickLinkId } from '../utils/quickLinks.js'
 
 const quickLinkPrefsKey = 'docker_copilot_overview_quick_links'
 
 function loadQuickLinkPrefs() {
   try {
     const parsed = JSON.parse(localStorage.getItem(quickLinkPrefsKey) || '{}')
+    const manual = Array.isArray(parsed.manual) ? parsed.manual : []
+    const migrateMap = new Map(manual.map(link => [String(link?.id || ''), quickLinkId(link)]).filter(([oldId, nextId]) => oldId && nextId))
+    const migrateRecord = (value) => Object.fromEntries(Object.entries(value && typeof value === 'object' ? value : {}).map(([key, item]) => [migrateMap.get(key) || key, item]))
     return {
-      order: Array.isArray(parsed.order) ? parsed.order : [],
-      hidden: parsed.hidden && typeof parsed.hidden === 'object' ? parsed.hidden : {},
-      deleted: parsed.deleted && typeof parsed.deleted === 'object' ? parsed.deleted : {},
-      manual: Array.isArray(parsed.manual) ? parsed.manual : [],
+      order: Array.from(new Set((Array.isArray(parsed.order) ? parsed.order : []).map(item => migrateMap.get(item) || item))),
+      hidden: migrateRecord(parsed.hidden),
+      deleted: migrateRecord(parsed.deleted),
+      manual: manual.map(link => ({ ...link, id: quickLinkId(link) })),
     }
   } catch {
     return { order: [], hidden: {}, deleted: {}, manual: [] }
@@ -24,6 +28,40 @@ function loadQuickLinkPrefs() {
 
 function saveQuickLinkPrefs(prefs) {
   localStorage.setItem(quickLinkPrefsKey, JSON.stringify(prefs))
+}
+
+function migrateQuickLinkPrefsForContainers(prefs, links) {
+  const aliases = new Map()
+  ;(links || []).forEach(link => {
+    const stableId = quickLinkId(link)
+    if (!stableId) return
+    ;[link?.id, link?.container].forEach(value => {
+      const legacyId = String(value || '').trim()
+      if (legacyId && legacyId !== stableId) aliases.set(legacyId, stableId)
+    })
+  })
+  if (aliases.size === 0) return prefs
+  const remapRecord = (record) => {
+    const source = record && typeof record === 'object' ? record : {}
+    const next = { ...source }
+    let changed = false
+    Object.entries(source).forEach(([key, value]) => {
+      const stableId = aliases.get(key)
+      if (!stableId || Object.prototype.hasOwnProperty.call(next, stableId)) return
+      next[stableId] = value
+      delete next[key]
+      changed = true
+    })
+    return { value: next, changed }
+  }
+  const hidden = remapRecord(prefs.hidden)
+  const deleted = remapRecord(prefs.deleted)
+  const order = Array.from(new Set((prefs.order || []).map(id => aliases.get(id) || id)))
+  const orderChanged = order.length !== (prefs.order || []).length || order.some((id, index) => id !== prefs.order[index])
+  const manual = (prefs.manual || []).map(link => ({ ...link, id: aliases.get(link?.id) || quickLinkId(link) }))
+  const manualChanged = manual.some((link, index) => link.id !== prefs.manual[index]?.id)
+  if (!hidden.changed && !deleted.changed && !orderChanged && !manualChanged) return prefs
+  return { ...prefs, order, hidden: hidden.value, deleted: deleted.value, manual }
 }
 
 function StatCard({ icon: Icon, title, value, sub, tone = 'sky' }) {
@@ -262,6 +300,15 @@ export function Overview({ onNavigate }) {
   }, [])
 
   useEffect(() => {
+    const links = [
+      ...(Array.isArray(data?.quickLinks) ? data.quickLinks : []),
+      ...(Array.isArray(data?.runningContainers) ? data.runningContainers : []),
+    ]
+    if (links.length === 0) return
+    setQuickLinkPrefs(prev => migrateQuickLinkPrefsForContainers(prev, links))
+  }, [data?.quickLinks, data?.runningContainers])
+
+  useEffect(() => {
     saveQuickLinkPrefs(quickLinkPrefs)
   }, [quickLinkPrefs])
 
@@ -284,8 +331,8 @@ export function Overview({ onNavigate }) {
 
   const orderedQuickLinks = useMemo(() => {
     const merged = new Map()
-    ;(quickLinks || []).forEach(link => merged.set(link.id, link))
-    ;(quickLinkPrefs.manual || []).forEach(link => merged.set(link.id, { ...merged.get(link.id), ...link, manual: true }))
+    ;(quickLinks || []).forEach(link => merged.set(quickLinkId(link), { ...link, id: quickLinkId(link) }))
+    ;(quickLinkPrefs.manual || []).forEach(link => merged.set(quickLinkId(link), { ...merged.get(quickLinkId(link)), ...link, id: quickLinkId(link), manual: true }))
     const available = Array.from(merged.values()).filter(link => link?.url && !quickLinkPrefs.deleted?.[link.id] && !quickLinkPrefs.hidden?.[link.id])
     const orderIndex = new Map((quickLinkPrefs.order || []).map((id, index) => [id, index]))
     return [...available].sort((a, b) => {
@@ -298,8 +345,8 @@ export function Overview({ onNavigate }) {
 
   const restoreableQuickLinks = useMemo(() => {
     const merged = new Map()
-    ;(quickLinks || []).forEach(link => merged.set(link.id, link))
-    ;(quickLinkPrefs.manual || []).forEach(link => merged.set(link.id, { ...merged.get(link.id), ...link, manual: true }))
+    ;(quickLinks || []).forEach(link => merged.set(quickLinkId(link), { ...link, id: quickLinkId(link) }))
+    ;(quickLinkPrefs.manual || []).forEach(link => merged.set(quickLinkId(link), { ...merged.get(quickLinkId(link)), ...link, id: quickLinkId(link), manual: true }))
     return Array.from(merged.values()).filter(link => quickLinkPrefs.hidden?.[link.id] || quickLinkPrefs.deleted?.[link.id])
   }, [quickLinks, quickLinkPrefs])
 
@@ -343,7 +390,7 @@ export function Overview({ onNavigate }) {
     const iconUrl = resolveContainerCustomIconUrl(item, customIcons) || await resolveFaviconFallback(url)
     updateQuickLinkPrefs(prev => {
       const link = {
-        id: item.id,
+        id: quickLinkId(item),
         name: item.name,
         url,
         status: item.status,

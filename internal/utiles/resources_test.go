@@ -29,6 +29,15 @@ func TestReadServiceLogsCreatesMissingDirectory(t *testing.T) {
 	}
 }
 
+func TestQuickLinkIDUsesContainerName(t *testing.T) {
+	if got := quickLinkID("/Zomboid-Panel"); got != "container:zomboid-panel" {
+		t.Fatalf("quickLinkID() = %q, want container:zomboid-panel", got)
+	}
+	if got := quickLinkID("  "); got != "" {
+		t.Fatalf("quickLinkID(blank) = %q, want empty", got)
+	}
+}
+
 func TestReadServiceLogsReadsLogFiles(t *testing.T) {
 	logDir := t.TempDir()
 	t.Setenv("DOCKERCOPILOT_LOG_DIR", logDir)

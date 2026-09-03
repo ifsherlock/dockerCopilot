@@ -28,6 +28,7 @@ import { getCachedFavicon, getContainerWebUrl, resolveContainerBuiltInIconUrl, r
 import { useResizableTableColumns } from '../hooks/useResizableTableColumns.js'
 import icons8Img from '../assets/icons8.png'
 import { IconWithFallback } from './IconWithFallback.jsx'
+import { quickLinkId } from '../utils/quickLinks.js'
 
 // 格式化运行时间为中文
 function formatRunningTime(runningTime) {
@@ -2359,7 +2360,7 @@ function ContainerDetailModal({ container, onClose, onRename, onUpdate, onAction
         manual: Array.isArray(parsed.manual) ? parsed.manual : [],
       }
       const link = {
-        id: currentContainer.id,
+        id: quickLinkId(currentContainer),
         name: currentContainer.name,
         url,
         status: currentContainer.status,

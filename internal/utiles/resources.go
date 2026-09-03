@@ -766,13 +766,21 @@ func summarizeQuickLink(ctx *svc.ServiceContext, c dockerTypes.Container) QuickL
 		return QuickLink{}
 	}
 	return QuickLink{
-		ID:        c.ID,
+		ID:        quickLinkID(summary.Name),
 		Name:      summary.Name,
 		URL:       summary.EndpointLink.SuggestedURL,
 		Status:    c.State,
 		Image:     c.Image,
 		Container: c.ID,
 	}
+}
+
+func quickLinkID(name string) string {
+	name = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(name, "/")))
+	if name == "" {
+		return ""
+	}
+	return "container:" + name
 }
 
 func containerName(c dockerTypes.Container) string {
