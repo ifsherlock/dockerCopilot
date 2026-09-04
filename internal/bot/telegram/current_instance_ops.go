@@ -390,10 +390,25 @@ func (r *Runtime) updateContainerOnCurrent(ctx context.Context, chatID int64, id
 		if item.UpdateBlocked {
 			return "", "", fmt.Errorf("该容器命中更新黑名单，已禁止更新")
 		}
-		if item.IsSelf {
-			return "", "", fmt.Errorf("SELF_UPDATE_REQUIRED:%s", item.Name)
-		}
 		if inst.Local {
+			if item.IsSelf {
+				resp, err := containerlogic.NewUpdateLogic(ctx, r.svcCtx).Update(&apptypes.ContainerUpdateReq{
+					IdReq:           apptypes.IdReq{Id: item.ID},
+					ImageNameAndTag: item.CreateImage,
+					ContainerName:   item.Name,
+				})
+				if err != nil || resp == nil || resp.Code != 200 {
+					if err == nil && resp != nil {
+						err = fmt.Errorf(firstNonEmpty(resp.Msg, "提交 DockerCopilot 自更新失败"))
+					}
+					return "", "", err
+				}
+				data := map[string]interface{}{}
+				if err := decodeRespData(resp.Data, &data); err != nil {
+					return "", "", err
+				}
+				return item.Name, svc.AsString(data["taskID"], ""), nil
+			}
 			taskID := utilesTaskID()
 			go func(ci containerView) {
 				if err := utiles.UpdateContainer(r.svcCtx, ci.ID, ci.Name, ci.CreateImage, true, taskID); err != nil {

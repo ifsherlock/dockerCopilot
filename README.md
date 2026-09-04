@@ -4,7 +4,7 @@
   <img alt="License: AGPLv3" src="https://shields.io/badge/License-AGPL%20v3-blue.svg">
 </a>
 
-> 🛠️ 维护版：`2.1.32`  
+> 🛠️ 维护版：`2.1.39`
 > ❤️ 基于原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 持续演进，感谢原作者开源贡献。
 
 DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥️ **Web 面板** + 📱 **Mobile 面板** + 🤖 **Telegram Bot** + 🐧 **QQ Bot**，适合 NAS、Linux 主机和家庭服务器统一管理容器、镜像、日志、备份与更新。
@@ -52,13 +52,14 @@ jaysherlock/dockercopilot:latest
 ```
 
 ## 🧭 快速开始
-1. 拉取镜像：
+1. 创建部署目录并下载 Compose 示例：
 
 ```bash
-docker pull jaysherlock/dockercopilot:latest
+mkdir -p dockercopilot && cd dockercopilot
+curl -fsSLO https://raw.githubusercontent.com/ifsherlock/dockerCopilot/latest/docker-compose.example.yml
 ```
 
-2. 新建 `docker-compose.yml`，推荐直接使用下面的配置示例：
+2. 将 `docker-compose.example.yml` 重命名为 `docker-compose.yml`，并直接修改 `environment.secretKey`。推荐使用下面的配置：
 
 ```yaml
 services:
@@ -70,19 +71,25 @@ services:
     network_mode: host
     volumes:
       - /var/run/docker.sock:/var/run/docker.sock
-      # /data 为唯一持久化目录：Bot 配置、备份、图标均在其中，必须挂载
+      # /data 为必须持久化的目录：Bot 配置、备份、图标和自更新结果均在其中
       - ./data:/data
     environment:
       TZ: Asia/Shanghai
       DOCKER_HOST: unix:///var/run/docker.sock
-      secretKey: please-change-me
+      # 直接在这里设置登录密钥，务必替换示例值，不要使用默认值
+      secretKey: please-change-me-to-a-long-random-secret
       BACKUP_DIR: /data/backups
       WORKDIR: /app
 ```
 
-> ⚠️ **务必挂载 `/data`**：Telegram/QQ Bot 配置、备份文件都保存在 `/data` 中，未挂载时容器重建会导致配置丢失（旧版本存放于 `/app/config` 的配置会在启动时自动迁移到 `/data/config`）。Bot 的 Token、通知开关等请在面板「Bot 配置」页设置，环境变量方式不受支持。
+> ⚠️ **务必挂载 `/data`**：Telegram/QQ Bot 配置、备份文件、图标和镜像自更新结果都保存在 `/data` 中，未挂载时容器重建会导致配置丢失（旧版本存放于 `/app/config` 的配置会在启动时自动迁移到 `/data/config`）。Bot 的 Token、通知开关等请在面板「Bot 配置」页设置，环境变量方式不受支持。
 
-3. 修改 `secretKey`，按需填写 Telegram Bot 配置。
+3. 拉取镜像：
+
+```bash
+docker pull jaysherlock/dockercopilot:latest
+```
+
 4. 启动：
 
 ```bash
@@ -113,7 +120,7 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 ### 常用环境变量
 | 变量 | 说明 |
 | --- | --- |
-| `secretKey` | Web 登录密钥，建议修改为强密码 |
+| `secretKey` | Compose `environment` 中直接设置的 Web 登录密钥，建议使用至少 16 位随机字符串；不要使用示例值 |
 | `TZ` | 时区，建议 `Asia/Shanghai` |
 | `DOCKER_HOST` | Docker socket 地址，通常为 `unix:///var/run/docker.sock` |
 | `BACKUP_DIR` | 备份目录，建议 `/data/backups` |
@@ -139,7 +146,9 @@ DockerCopilot 同时提供两套适合手机访问的入口，可按使用场景
 
 ## 📦 更新说明
 - 容器更新：支持 Web / Bot / 批量更新
-- **面板自身更新（镜像级）**：容器列表中直接更新 DockerCopilot 自身。流程为：拉取新镜像 → 启动一次性接力容器 → 停旧建新（保留原有配置与挂载）→ 启动校验，失败自动回滚旧版本，结果通过 Bot 推送。期间面板中断十几秒后自动恢复。
+- **普通容器自动更新**：自动更新调度器只处理普通容器，主动跳过 DockerCopilot 自身，避免定时任务在控制面板重启时失去控制权。
+- **面板自身更新（镜像级）**：在 Web、Telegram 或 QQ 的容器更新交互中选择 DockerCopilot 自身时，使用专用接力流程：拉取新镜像 → 启动一次性接力容器 → 停旧建新（保留原有配置、hostname 和挂载）→ 启动校验，失败自动回滚，结果通过 Bot 推送。服务会短暂中断，建议单独更新自身，不要与其他容器并行批量更新。
+- **手动更新 DockerCopilot 镜像**：如果机器人不可用，在 Compose 目录执行 `docker compose pull dockercopilot && docker compose up -d --no-deps dockercopilot`。
 - 二进制热替换：关于页保留"拉取二进制更新"作为降级方案，适合 socket 受限场景（注意：该方式不更新镜像基础层）
 - 黑名单：可避免误更新关键容器
 

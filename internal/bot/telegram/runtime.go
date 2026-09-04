@@ -1376,6 +1376,9 @@ func (r *Runtime) renderConfirmSingleUpdate(session updateSession, index int) (s
 	if item.CreateImage != "" && item.CreateImage != item.UsingImage {
 		b.WriteString(fmt.Sprintf("创建镜像: <code>%s</code>\n", escapeHTML(shorten(oneLineImageRef(item.CreateImage), 90))))
 	}
+	if item.IsSelf {
+		b.WriteString("\n⚠️ 这是 DockerCopilot 自身，将通过接力容器重建，服务会短暂重启。\n")
+	}
 	rows := [][]telego.InlineKeyboardButton{
 		tu.InlineKeyboardRow(
 			tu.InlineKeyboardButton("✅ 确认更新").WithCallbackData(updateSessionCallbackData(session.ID, "confirm_item", index)),
@@ -1408,6 +1411,12 @@ func (r *Runtime) renderConfirmBatchUpdate(session updateSession) (string, *tele
 		item := runnable[i]
 		b.WriteString(fmt.Sprintf("%d. <b>%s</b>\n", i+1, escapeHTML(item.Name)))
 		b.WriteString(fmt.Sprintf("   <code>%s</code>\n", escapeHTML(shorten(oneLineImageRef(item.UsingImage), 72))))
+	}
+	for _, item := range runnable {
+		if item.IsSelf {
+			b.WriteString("\n⚠️ 包含 DockerCopilot 自身，将通过接力容器重建并短暂中断服务，建议单独确认更新。\n")
+			break
+		}
 	}
 	if len(runnable) > limit {
 		b.WriteString(fmt.Sprintf("\n… 还有 <b>%d</b> 个\n", len(runnable)-limit))

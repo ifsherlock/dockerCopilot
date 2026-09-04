@@ -566,15 +566,29 @@ func renderConfirmUpdateText(item ContainerUpdateItem, markdown bool) string {
 		if ref != "" {
 			b.WriteString(markdownKV("镜像", ref))
 		}
+		if item.IsSelf {
+			b.WriteString("\n⚠️ 这是 DockerCopilot 自身，将通过接力容器重建，服务会短暂重启。\n")
+		}
 		return strings.TrimSpace(b.String())
 	}
-	return fmt.Sprintf("确认更新容器？\n\n实例: %s\n%s\n%s", instanceName, item.Name, ref)
+	text := fmt.Sprintf("确认更新容器？\n\n实例: %s\n%s\n%s", instanceName, item.Name, ref)
+	if item.IsSelf {
+		text += "\n\n⚠️ 这是 DockerCopilot 自身，将通过接力容器重建，服务会短暂重启。"
+	}
+	return text
 }
 
 func renderConfirmAllText(items []ContainerUpdateItem, markdown bool) string {
 	instanceName := "local"
 	if len(items) > 0 {
 		instanceName = notificationInstanceName(items[0].InstanceName)
+	}
+	containsSelf := false
+	for _, item := range items {
+		if item.IsSelf {
+			containsSelf = true
+			break
+		}
 	}
 	if markdown {
 		var b strings.Builder
@@ -591,9 +605,16 @@ func renderConfirmAllText(items []ContainerUpdateItem, markdown bool) string {
 		if len(items) > limit {
 			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示。", len(items)-limit), true))
 		}
+		if containsSelf {
+			b.WriteString("\n\n⚠️ 包含 DockerCopilot 自身，建议单独确认更新，服务会短暂重启。")
+		}
 		return strings.TrimSpace(b.String())
 	}
-	return fmt.Sprintf("确认批量更新 %d 个容器？\n实例: %s", len(items), instanceName)
+	text := fmt.Sprintf("确认批量更新 %d 个容器？\n实例: %s", len(items), instanceName)
+	if containsSelf {
+		text += "\n\n⚠️ 包含 DockerCopilot 自身，建议单独确认更新，服务会短暂重启。"
+	}
+	return text
 }
 
 func renderConfirmDeleteImageText(item ImageInfoLite, markdown bool) string {

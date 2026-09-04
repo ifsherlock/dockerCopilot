@@ -64,6 +64,7 @@ func TestInstanceUpdateActionsRouteToConfiguredRemote(t *testing.T) {
 	if err != nil || checkedInstance != "nas" || msg != "远端检测已提交" {
 		t.Fatalf("CheckUpdatesForInstance() = msg=%q instance=%q err=%v", msg, checkedInstance, err)
 	}
+	items[0].IsSelf = true
 	taskID, err := actions.UpdateContainer(context.Background(), items[0])
 	if err != nil {
 		t.Fatalf("UpdateContainer() error = %v", err)

@@ -395,9 +395,6 @@ func (s *ActionService) UpdateContainer(ctx context.Context, item ContainerUpdat
 	if item.Blocked {
 		return "", fmt.Errorf("该容器命中更新黑名单，已禁止更新")
 	}
-	if item.IsSelf {
-		return "", fmt.Errorf("DockerCopilot 自身容器需要走程序更新流程")
-	}
 	if !strings.EqualFold(notificationInstanceName(item.InstanceName), "local") {
 		query := url.Values{
 			"imageNameAndTag": []string{firstNonEmpty(item.CreateImage, item.UsingImage)},
@@ -410,6 +407,24 @@ func (s *ActionService) UpdateContainer(ctx context.Context, item ContainerUpdat
 		var data map[string]interface{}
 		if len(resp.Data) > 0 {
 			_ = json.Unmarshal(resp.Data, &data)
+		}
+		return svc.AsString(data["taskID"], ""), nil
+	}
+	if item.IsSelf {
+		resp, err := containerlogic.NewUpdateLogic(ctx, s.svcCtx).Update(&types.ContainerUpdateReq{
+			IdReq:           types.IdReq{Id: item.ID},
+			ImageNameAndTag: firstNonEmpty(item.CreateImage, item.UsingImage),
+			ContainerName:   item.Name,
+		})
+		if err != nil || resp == nil || resp.Code != 200 {
+			if err == nil && resp != nil {
+				err = fmt.Errorf(firstNonEmpty(resp.Msg, "提交 DockerCopilot 自更新失败"))
+			}
+			return "", err
+		}
+		data := map[string]interface{}{}
+		if err := decodeRespData(resp.Data, &data); err != nil {
+			return "", err
 		}
 		return svc.AsString(data["taskID"], ""), nil
 	}
