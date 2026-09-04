@@ -4,9 +4,9 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/google/uuid"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/inventory"
 	"github.com/onlyLTY/dockerCopilot/internal/selfupdate"
 	"github.com/onlyLTY/dockerCopilot/internal/svc"
 	"github.com/onlyLTY/dockerCopilot/internal/types"
@@ -31,9 +31,7 @@ func NewUpdateLogic(ctx context.Context, svcCtx *svc.ServiceContext) *UpdateLogi
 func (l *UpdateLogic) Update(req *types.ContainerUpdateReq) (resp *types.Resp, err error) {
 	resp = &types.Resp{}
 	taskID := uuid.New().String()
-	selfID, _ := os.Hostname()
-	selfID = strings.TrimSpace(selfID)
-	isSelf := selfID != "" && (req.Id == selfID || strings.HasPrefix(req.Id, selfID) || strings.HasPrefix(selfID, req.Id))
+	isSelf := inventory.IsSelfContainer(req.Id, inventory.CurrentContainerID())
 	l.svcCtx.AddOperationLog("container", "提交容器更新任务", fmt.Sprintf("%s taskID=%s", req.ContainerName, taskID))
 	go func() {
 		// Catch any panic and log the error

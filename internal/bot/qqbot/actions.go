@@ -2,12 +2,17 @@ package qqbot
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 
 	"github.com/google/uuid"
 	"github.com/onlyLTY/dockerCopilot/internal/domain/blacklist"
+	"github.com/onlyLTY/dockerCopilot/internal/domain/instanceproxy"
 	botlogic "github.com/onlyLTY/dockerCopilot/internal/logic/bot"
 	containerlogic "github.com/onlyLTY/dockerCopilot/internal/logic/container"
 	imagelogic "github.com/onlyLTY/dockerCopilot/internal/logic/image"
@@ -18,12 +23,29 @@ import (
 )
 
 type ContainerUpdateItem struct {
-	ID          string
-	Name        string
-	UsingImage  string
-	CreateImage string
-	Blocked     bool
-	IsSelf      bool
+	ID           string
+	Name         string
+	UsingImage   string
+	CreateImage  string
+	Blocked      bool
+	IsSelf       bool
+	InstanceName string
+}
+
+type instanceContainer struct {
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	UsingImage  string `json:"usingImage"`
+	CreateImage string `json:"createImage"`
+	HaveUpdate  bool   `json:"haveUpdate"`
+	Ignored     bool   `json:"ignored"`
+	IsSelf      bool   `json:"isSelf"`
+}
+
+type instanceAPIResponse struct {
+	Code int             `json:"code"`
+	Msg  string          `json:"msg"`
+	Data json.RawMessage `json:"data"`
 }
 
 type StatusSummary struct {
@@ -224,6 +246,22 @@ func (s *ActionService) CheckUpdates(ctx context.Context) (string, error) {
 	return firstNonEmpty(resp.Msg, "已提交更新检测。"), nil
 }
 
+func (s *ActionService) CheckUpdatesForInstance(ctx context.Context, instanceName string) (string, string, error) {
+	instance, err := s.resolveInstance(instanceName)
+	if err != nil {
+		return "", "", err
+	}
+	if instance.Local {
+		msg, err := s.CheckUpdates(ctx)
+		return msg, instance.Name, err
+	}
+	resp, err := s.requestInstance(ctx, instance.Name, http.MethodPost, "/api/containers/check-update", nil)
+	if err != nil {
+		return "", instance.Name, err
+	}
+	return firstNonEmpty(resp.Msg, "已提交更新检测。"), instance.Name, nil
+}
+
 func (s *ActionService) BackupJSON(ctx context.Context) error {
 	return s.svcCtx.RunJSONBackupNow()
 }
@@ -315,6 +353,44 @@ func (s *ActionService) Updates(ctx context.Context) ([]ContainerUpdateItem, err
 	return updates, nil
 }
 
+func (s *ActionService) UpdatesForInstance(ctx context.Context, instanceName string) ([]ContainerUpdateItem, string, error) {
+	instance, err := s.resolveInstance(instanceName)
+	if err != nil {
+		return nil, "", err
+	}
+	if instance.Local {
+		items, err := s.Updates(ctx)
+		for i := range items {
+			items[i].InstanceName = instance.Name
+		}
+		return items, instance.Name, err
+	}
+	resp, err := s.requestInstance(ctx, instance.Name, http.MethodGet, "/api/containers", nil)
+	if err != nil {
+		return nil, instance.Name, err
+	}
+	var containers []instanceContainer
+	if err := json.Unmarshal(resp.Data, &containers); err != nil {
+		return nil, instance.Name, err
+	}
+	updates := make([]ContainerUpdateItem, 0)
+	for _, item := range containers {
+		if !item.HaveUpdate || item.Ignored {
+			continue
+		}
+		updates = append(updates, ContainerUpdateItem{
+			ID:           item.ID,
+			Name:         item.Name,
+			UsingImage:   item.UsingImage,
+			CreateImage:  item.CreateImage,
+			IsSelf:       item.IsSelf,
+			InstanceName: instance.Name,
+		})
+	}
+	sort.Slice(updates, func(i, j int) bool { return strings.ToLower(updates[i].Name) < strings.ToLower(updates[j].Name) })
+	return updates, instance.Name, nil
+}
+
 func (s *ActionService) UpdateContainer(ctx context.Context, item ContainerUpdateItem) (string, error) {
 	if item.Blocked {
 		return "", fmt.Errorf("该容器命中更新黑名单，已禁止更新")
@@ -322,11 +398,67 @@ func (s *ActionService) UpdateContainer(ctx context.Context, item ContainerUpdat
 	if item.IsSelf {
 		return "", fmt.Errorf("DockerCopilot 自身容器需要走程序更新流程")
 	}
+	if !strings.EqualFold(notificationInstanceName(item.InstanceName), "local") {
+		query := url.Values{
+			"imageNameAndTag": []string{firstNonEmpty(item.CreateImage, item.UsingImage)},
+			"containerName":   []string{item.Name},
+		}
+		resp, err := s.requestInstance(ctx, item.InstanceName, http.MethodPost, "/api/container/"+url.PathEscape(item.ID)+"/update", query)
+		if err != nil {
+			return "", err
+		}
+		var data map[string]interface{}
+		if len(resp.Data) > 0 {
+			_ = json.Unmarshal(resp.Data, &data)
+		}
+		return svc.AsString(data["taskID"], ""), nil
+	}
 	taskID := newTaskID()
 	go func() {
 		_ = utiles.UpdateContainer(s.svcCtx, item.ID, item.Name, item.CreateImage, true, taskID)
 	}()
 	return taskID, nil
+}
+
+func (s *ActionService) resolveInstance(instanceName string) (instanceproxy.Instance, error) {
+	list, err := instanceproxy.List(s.svcCtx)
+	if err != nil {
+		return instanceproxy.Instance{}, err
+	}
+	requested := notificationInstanceName(instanceName)
+	for _, instance := range list.Instances {
+		if !strings.EqualFold(instance.Name, requested) {
+			continue
+		}
+		if !instance.Local && !list.Enabled {
+			return instanceproxy.Instance{}, fmt.Errorf("多实例功能未启用")
+		}
+		return instance, nil
+	}
+	return instanceproxy.Instance{}, fmt.Errorf("实例不存在: %s", requested)
+}
+
+func (s *ActionService) requestInstance(ctx context.Context, instanceName string, method string, path string, query url.Values) (instanceAPIResponse, error) {
+	resp, err := instanceproxy.Proxy(ctx, s.svcCtx, instanceName, method, path, query, http.Header{}, nil)
+	if err != nil {
+		return instanceAPIResponse{}, err
+	}
+	defer resp.Body.Close()
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return instanceAPIResponse{}, err
+	}
+	if resp.StatusCode >= http.StatusBadRequest {
+		return instanceAPIResponse{}, fmt.Errorf("实例 %s 请求失败: %s", instanceName, firstNonEmpty(strings.TrimSpace(string(body)), resp.Status))
+	}
+	var result instanceAPIResponse
+	if err := json.Unmarshal(body, &result); err != nil {
+		return instanceAPIResponse{}, fmt.Errorf("实例 %s 返回无效响应: %w", instanceName, err)
+	}
+	if result.Code != 0 && result.Code != http.StatusOK {
+		return instanceAPIResponse{}, fmt.Errorf("实例 %s: %s", instanceName, firstNonEmpty(result.Msg, "请求失败"))
+	}
+	return result, nil
 }
 
 func (s *ActionService) listContainers(ctx context.Context) ([]containerlogic.Info, error) {

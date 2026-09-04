@@ -377,9 +377,11 @@ func (r *Runtime) NotifyUpdates(ctx context.Context, evt botnotify.UpdatesEvent)
 	}
 	var b strings.Builder
 	b.WriteString("🆕 <b>检测到可更新容器</b>\n\n")
-	if evt.Instance != "" && !strings.EqualFold(evt.Instance, "local") {
-		b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(evt.Instance)))
+	instanceName := strings.TrimSpace(evt.Instance)
+	if instanceName == "" {
+		instanceName = "local"
 	}
+	b.WriteString(fmt.Sprintf("🖥 实例: <b>%s</b>\n", escapeHTML(instanceName)))
 	b.WriteString(fmt.Sprintf("新增可更新: <b>%d</b> 个\n\n", len(evt.Items)))
 	limit := len(evt.Items)
 	if limit > 8 {
@@ -397,7 +399,7 @@ func (r *Runtime) NotifyUpdates(ctx context.Context, evt botnotify.UpdatesEvent)
 	}
 	markup := tu.InlineKeyboard(
 		tu.InlineKeyboardRow(
-			tu.InlineKeyboardButton("🆙 查看并更新").WithCallbackData("updates_refresh:"),
+			tu.InlineKeyboardButton("🆙 查看此实例更新").WithCallbackData(updateInstanceCallbackData(instanceName)),
 		),
 	)
 	msg := b.String()
@@ -575,6 +577,8 @@ func (r *Runtime) handleCallback(ctx context.Context, q *telego.CallbackQuery) {
 		r.updateContainer(ctx, chatID, arg)
 	case "switch_instance":
 		r.switchInstance(ctx, chatID, messageID, arg)
+	case "updates_instance":
+		r.openUpdatesForInstance(ctx, chatID, messageID, arg)
 	case "manage_instances":
 		r.sendManageInstances(ctx, chatID, messageID)
 	case "instances_menu":
@@ -1081,6 +1085,27 @@ func (r *Runtime) sendUpdates(ctx context.Context, chatID int64) {
 	}(messageID)
 }
 
+func (r *Runtime) openUpdatesForInstance(ctx context.Context, chatID int64, messageID int, token string) {
+	instances, _, enabled, err := r.loadInstances(ctx, chatID)
+	if err != nil {
+		r.replyText(ctx, chatID, "❌ 获取实例失败: "+err.Error())
+		return
+	}
+	inst, ok := findUpdateInstanceByToken(instances, token)
+	if !ok || (!inst.Local && !enabled) {
+		r.editOrReplyText(ctx, chatID, messageID, "⚠️ 通知对应的实例已不存在或未启用，请重新选择实例。", staleUpdatesMarkup())
+		return
+	}
+	r.setCurrentInstance(chatID, inst.Name)
+	r.clearChatState(chatID)
+	r.editOrReplyText(ctx, chatID, messageID, fmt.Sprintf("⏳ 正在刷新实例 <b>%s</b> 的可更新容器，请稍候...", escapeHTML(inst.Name)), nil)
+	go func(mid int, target instanceConfig) {
+		checkCtx, cancel := context.WithTimeout(context.Background(), 3*time.Minute)
+		defer cancel()
+		r.sendUpdatesProgressivelyForInstance(checkCtx, chatID, mid, 0, target)
+	}(messageID, inst)
+}
+
 func (r *Runtime) sendUpdatesProgressively(ctx context.Context, chatID int64, messageID int, page int) {
 	inst, err := r.currentInstance(ctx, chatID)
 	if err != nil {
@@ -1088,6 +1113,10 @@ func (r *Runtime) sendUpdatesProgressively(ctx context.Context, chatID int64, me
 		r.replyText(ctx, chatID, "❌ 获取可更新容器失败: "+err.Error())
 		return
 	}
+	r.sendUpdatesProgressivelyForInstance(ctx, chatID, messageID, page, inst)
+}
+
+func (r *Runtime) sendUpdatesProgressivelyForInstance(ctx context.Context, chatID int64, messageID int, page int, inst instanceConfig) {
 
 	resultCh := make(chan updatesProgressiveResult, 1)
 	go func() {

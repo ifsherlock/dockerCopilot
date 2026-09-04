@@ -129,7 +129,6 @@ func RunRelay() int {
 	}
 
 	cfg := ins.Config
-	cfg.Hostname = ""
 	cfg.Image = image
 	hostCfg := ins.HostConfig
 	netCfg := &network.NetworkingConfig{EndpointsConfig: ins.NetworkSettings.Networks}

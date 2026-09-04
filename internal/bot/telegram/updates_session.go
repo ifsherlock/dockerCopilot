@@ -2,6 +2,7 @@ package telegram
 
 import (
 	"crypto/rand"
+	"crypto/sha256"
 	"encoding/base64"
 	"fmt"
 	"strconv"
@@ -104,6 +105,28 @@ func updateSessionAllCallbackData(sessionID string) string {
 
 func updateSessionRunAllCallbackData(sessionID string) string {
 	return fmt.Sprintf("upd:%s:run_all", sessionID)
+}
+
+func updateInstanceCallbackData(instanceName string) string {
+	return "updates_instance:" + updateInstanceToken(instanceName)
+}
+
+func updateInstanceToken(instanceName string) string {
+	normalized := strings.ToLower(strings.TrimSpace(instanceName))
+	if normalized == "" {
+		normalized = "local"
+	}
+	sum := sha256.Sum256([]byte(normalized))
+	return base64.RawURLEncoding.EncodeToString(sum[:9])
+}
+
+func findUpdateInstanceByToken(instances []instanceConfig, token string) (instanceConfig, bool) {
+	for _, instance := range instances {
+		if updateInstanceToken(instance.Name) == token {
+			return instance, true
+		}
+	}
+	return instanceConfig{}, false
 }
 
 type updateSessionCallback struct {

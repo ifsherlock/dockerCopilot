@@ -18,8 +18,8 @@ type commandActions interface {
 	ImageList(ctx context.Context) ([]ImageInfoLite, error)
 	Backups(ctx context.Context) (BackupSummary, error)
 	Version(ctx context.Context) (VersionSummary, error)
-	Updates(ctx context.Context) ([]ContainerUpdateItem, error)
-	CheckUpdates(ctx context.Context) (string, error)
+	UpdatesForInstance(ctx context.Context, instanceName string) ([]ContainerUpdateItem, string, error)
+	CheckUpdatesForInstance(ctx context.Context, instanceName string) (string, string, error)
 	StartContainer(ctx context.Context, item ContainerInfoLite) (string, error)
 	StopContainer(ctx context.Context, item ContainerInfoLite) (string, error)
 	RestartContainer(ctx context.Context, item ContainerInfoLite) (string, error)
@@ -54,7 +54,9 @@ func (d *CommandDispatcher) Dispatch(ctx context.Context, cmd IncomingCommand) e
 	if cmd.Kind == CommandKindInteraction {
 		return d.handleInteraction(ctx, cmd)
 	}
-	switch NormalizeCommandText(cmd.Content) {
+	command := NormalizeCommandText(cmd.Content)
+	argument := commandArgument(cmd.Content)
+	switch command {
 	case "/start":
 		return d.reply(ctx, cmd, renderHome(d.cfg))
 	case "/help":
@@ -66,9 +68,9 @@ func (d *CommandDispatcher) Dispatch(ctx context.Context, cmd IncomingCommand) e
 	case "/images":
 		return d.handleImages(ctx, cmd)
 	case "/updates":
-		return d.handleUpdates(ctx, cmd)
+		return d.handleUpdates(ctx, cmd, argument)
 	case "/check_updates":
-		return d.handleCheckUpdates(ctx, cmd)
+		return d.handleCheckUpdates(ctx, cmd, argument)
 	case "/backups":
 		return d.handleBackups(ctx, cmd)
 	case "/backup":
@@ -110,24 +112,31 @@ func (d *CommandDispatcher) handleImages(ctx context.Context, cmd IncomingComman
 	return d.reply(ctx, cmd, renderImagesPage(items, session, 0, d.cfg))
 }
 
-func (d *CommandDispatcher) handleUpdates(ctx context.Context, cmd IncomingCommand) error {
-	items, err := d.actions.Updates(ctx)
+func (d *CommandDispatcher) handleUpdates(ctx context.Context, cmd IncomingCommand, requestedInstance string) error {
+	items, instanceName, err := d.actions.UpdatesForInstance(ctx, notificationInstanceName(requestedInstance))
 	if err != nil {
 		return d.reply(ctx, cmd, d.renderError("获取可更新容器失败："+err.Error()))
 	}
-	session := d.sessions.put(cmd.UserOpenID, cmd.GroupOpenID, items)
+	for i := range items {
+		items[i].InstanceName = instanceName
+	}
+	session := d.sessions.put(cmd.UserOpenID, cmd.GroupOpenID, instanceName, items)
 	return d.reply(ctx, cmd, renderUpdates(items, session, d.cfg))
 }
 
-func (d *CommandDispatcher) handleCheckUpdates(ctx context.Context, cmd IncomingCommand) error {
-	msg, err := d.actions.CheckUpdates(ctx)
+func (d *CommandDispatcher) handleCheckUpdates(ctx context.Context, cmd IncomingCommand, requestedInstance string) error {
+	msg, instanceName, err := d.actions.CheckUpdatesForInstance(ctx, notificationInstanceName(requestedInstance))
 	if err != nil {
 		return d.reply(ctx, cmd, d.renderError("触发更新检测失败："+err.Error()))
 	}
+	updateCommand := updateCommandForInstance(instanceName)
+	content := "实例: " + instanceName + "\n" + msg
+	hint := "稍后点击“查看更新”或发送 " + updateCommand + " 查看结果。"
 	return d.reply(ctx, cmd, richMessage(Message{
-		Text: renderNoticeText("更新检测已触发", msg, "稍后点击“查看更新”或发送 /updates 查看结果。", d.cfg.MarkdownEnabled),
+		Text:      renderNoticeText("更新检测已触发", content, hint, d.cfg.MarkdownEnabled),
+		PlainText: renderNoticeText("更新检测已触发", content, hint, false),
 		Keyboard: quickActionKeyboard([]quickAction{
-			{Label: "查看更新", Command: "/updates", ID: "updates"},
+			{Label: "查看更新", Command: updateCommand, ID: "updates"},
 			homeAction(),
 		}),
 	}, d.cfg))
@@ -206,9 +215,9 @@ func (d *CommandDispatcher) handleInteraction(ctx context.Context, cmd IncomingC
 		if cb.Index < 0 || cb.Index >= len(session.Items) {
 			return d.reply(ctx, cmd, renderStaleInteraction("更新项已变化，请发送 /updates 刷新。"))
 		}
-		return d.runOne(ctx, cmd, session.Items[cb.Index])
+		return d.runOne(ctx, cmd, session.InstanceName, session.Items[cb.Index])
 	case "run_all":
-		return d.runAll(ctx, cmd, session.Items)
+		return d.runAll(ctx, cmd, session.InstanceName, session.Items)
 	case "cancel":
 		return d.reply(ctx, cmd, renderHome(d.cfg))
 	default:
@@ -297,17 +306,19 @@ func (d *CommandDispatcher) runImageDelete(ctx context.Context, cmd IncomingComm
 	return d.reply(ctx, cmd, renderImageActionResult(item, msg, session.ID, cb.Page, d.cfg))
 }
 
-func (d *CommandDispatcher) runOne(ctx context.Context, cmd IncomingCommand, item ContainerUpdateItem) error {
+func (d *CommandDispatcher) runOne(ctx context.Context, cmd IncomingCommand, instanceName string, item ContainerUpdateItem) error {
+	item.InstanceName = instanceName
 	if _, err := d.actions.UpdateContainer(ctx, item); err != nil {
 		return d.reply(ctx, cmd, d.renderError("提交更新失败："+err.Error()))
 	}
-	return d.reply(ctx, cmd, d.renderSuccess(fmt.Sprintf("已提交更新：%s\n更新在后台进行，稍后发送 /updates 或 /status 查看结果。", item.Name)))
+	return d.reply(ctx, cmd, d.renderSuccess(fmt.Sprintf("实例：%s\n已提交更新：%s\n更新在后台进行，稍后发送 %s 查看结果。", instanceName, item.Name, updateCommandForInstance(instanceName)), instanceName))
 }
 
-func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, items []ContainerUpdateItem) error {
+func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, instanceName string, items []ContainerUpdateItem) error {
 	started := make([]string, 0, len(items))
 	failed := make([]string, 0)
 	for _, item := range items {
+		item.InstanceName = instanceName
 		if _, err := d.actions.UpdateContainer(ctx, item); err != nil {
 			failed = append(failed, item.Name)
 			continue
@@ -328,8 +339,19 @@ func (d *CommandDispatcher) runAll(ctx context.Context, cmd IncomingCommand, ite
 			b.WriteString("- " + name + "\n")
 		}
 	}
-	b.WriteString("\n更新在后台进行，稍后发送 /updates 查看结果。")
-	return d.reply(ctx, cmd, d.renderSuccess(strings.TrimSpace(b.String())))
+	b.WriteString("\n实例：" + instanceName)
+	b.WriteString("\n更新在后台进行，稍后发送 " + updateCommandForInstance(instanceName) + " 查看结果。")
+	return d.reply(ctx, cmd, d.renderSuccess(strings.TrimSpace(b.String()), instanceName))
+}
+
+func commandArgument(content string) string {
+	content = strings.TrimSpace(content)
+	for i, r := range content {
+		if r == ' ' || r == '\t' || r == '\r' || r == '\n' {
+			return strings.TrimSpace(content[i:])
+		}
+	}
+	return ""
 }
 
 func (d *CommandDispatcher) renderError(text string) Message {
@@ -338,12 +360,16 @@ func (d *CommandDispatcher) renderError(text string) Message {
 	return msg
 }
 
-func (d *CommandDispatcher) renderSuccess(text string) Message {
+func (d *CommandDispatcher) renderSuccess(text string, instanceNames ...string) Message {
+	updatesCommand := "/updates"
+	if len(instanceNames) > 0 && strings.TrimSpace(instanceNames[0]) != "" {
+		updatesCommand = updateCommandForInstance(instanceNames[0])
+	}
 	msg := richMessage(Message{
 		Text: renderSuccessText(text, d.cfg.MarkdownEnabled),
 		Keyboard: quickActionKeyboard([]quickAction{
 			{Label: "查看备份", Command: "/backups", ID: "backups"},
-			{Label: "查看更新", Command: "/updates", ID: "updates"},
+			{Label: "查看更新", Command: updatesCommand, ID: "updates"},
 			homeAction(),
 		}),
 	}, d.cfg)

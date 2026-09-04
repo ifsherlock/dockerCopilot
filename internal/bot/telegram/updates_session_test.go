@@ -58,6 +58,25 @@ func TestUpdateSessionCallbackDataLengthAndParse(t *testing.T) {
 	}
 }
 
+func TestUpdateInstanceCallbackUsesStableShortToken(t *testing.T) {
+	data := updateInstanceCallbackData("nas-ubuntu-production-with-a-very-long-name")
+	if len(data) > 64 {
+		t.Fatalf("callback data too long: %q len=%d", data, len(data))
+	}
+	token := strings.TrimPrefix(data, "updates_instance:")
+	instances := []instanceConfig{
+		{Name: "local", Local: true},
+		{Name: "nas-ubuntu-production-with-a-very-long-name"},
+	}
+	got, ok := findUpdateInstanceByToken(instances, token)
+	if !ok || got.Name != instances[1].Name {
+		t.Fatalf("resolved instance = %#v, ok=%v", got, ok)
+	}
+	if updateInstanceToken("NAS-Ubuntu-Production-With-A-Very-Long-Name") != token {
+		t.Fatal("instance token should be case-insensitive and stable")
+	}
+}
+
 func TestConfirmSingleUpdateUsesSessionSnapshotAndReturnButton(t *testing.T) {
 	r := &Runtime{}
 	session := updateSession{

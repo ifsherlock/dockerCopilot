@@ -2,7 +2,6 @@ package updateview
 
 import (
 	"context"
-	"os"
 
 	dockerTypes "github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
@@ -38,7 +37,7 @@ func BuildContainerSnapshot(ctx context.Context, svcCtx *svc.ServiceContext) (Sn
 			createdRefs[item.ID] = inspect.Config.Image
 		}
 	}
-	selfID, _ := os.Hostname()
+	selfID := inventory.CurrentContainerID()
 	return Snapshot{
 		Inventory:        inventory.Snapshot{Containers: inventory.ContainersFromDocker(containers, createdRefs, selfID)},
 		DockerContainers: append([]dockerTypes.Container(nil), containers...),
@@ -56,7 +55,7 @@ func BuildImageSnapshot(ctx context.Context, svcCtx *svc.ServiceContext) (Snapsh
 	if err != nil {
 		return Snapshot{}, err
 	}
-	selfID, _ := os.Hostname()
+	selfID := inventory.CurrentContainerID()
 	containerSnapshot := inventory.ContainersFromDocker(containers, nil, selfID)
 	return Snapshot{
 		Inventory: inventory.Snapshot{

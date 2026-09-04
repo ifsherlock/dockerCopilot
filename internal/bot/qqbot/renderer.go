@@ -121,18 +121,20 @@ func renderStatusText(summary StatusSummary, markdown bool) string {
 }
 
 func renderUpdates(items []ContainerUpdateItem, session updateSession, cfg Config) Message {
+	instanceName := notificationInstanceName(session.InstanceName)
+	updateCommand := updateCommandForInstance(instanceName)
 	if len(items) == 0 {
 		return richMessage(Message{
-			Text:      renderNoticeText("可更新容器", "当前没有可更新容器。", "可以点击刷新检测重新检查。", cfg.MarkdownEnabled),
-			PlainText: renderNoticeText("可更新容器", "当前没有可更新容器。", "可以点击刷新检测重新检查。", false),
-			Keyboard:  quickActionKeyboard([]quickAction{{Label: "刷新检测", Command: "/check_updates", ID: "check"}, homeAction()}),
+			Text:      renderNoticeText("可更新容器", "实例: "+instanceName+"\n当前没有可更新容器。", "可以点击刷新检测重新检查。", cfg.MarkdownEnabled),
+			PlainText: renderNoticeText("可更新容器", "实例: "+instanceName+"\n当前没有可更新容器。", "可以点击刷新检测重新检查。", false),
+			Keyboard:  quickActionKeyboard([]quickAction{{Label: "刷新检测", Command: "/check_updates " + instanceName, ID: "check"}, homeAction()}),
 		}, cfg)
 	}
-	text := renderUpdatesText(items, cfg.MarkdownEnabled, 8)
-	plain := renderUpdatesText(items, false, 8)
+	text := renderUpdatesText(items, instanceName, cfg.MarkdownEnabled, 8)
+	plain := renderUpdatesText(items, instanceName, false, 8)
 	if !cfg.ButtonsEnabled {
-		text += "\n\n" + renderHintText("按钮未启用，可发送 `/updates` 刷新列表。", cfg.MarkdownEnabled)
-		plain += "\n\n" + renderHintText("按钮未启用，可发送 /updates 刷新列表。", false)
+		text += "\n\n" + renderHintText("按钮未启用，可发送 "+updateCommand+" 刷新列表。", cfg.MarkdownEnabled)
+		plain += "\n\n" + renderHintText("按钮未启用，可发送 "+updateCommand+" 刷新列表。", false)
 		return richMessage(Message{Text: text, PlainText: plain}, cfg)
 	}
 	return richMessage(Message{
@@ -142,13 +144,15 @@ func renderUpdates(items []ContainerUpdateItem, session updateSession, cfg Confi
 	}, cfg)
 }
 
-func renderUpdatesText(items []ContainerUpdateItem, markdown bool, limit int) string {
+func renderUpdatesText(items []ContainerUpdateItem, instanceName string, markdown bool, limit int) string {
 	if limit <= 0 || limit > len(items) {
 		limit = len(items)
 	}
 	if markdown {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("**可更新容器** · %d 个\n\n", len(items)))
+		b.WriteString(markdownKV("实例", notificationInstanceName(instanceName)))
+		b.WriteString("\n")
 		for i := 0; i < limit; i++ {
 			item := items[i]
 			ref := firstNonEmpty(item.UsingImage, item.CreateImage)
@@ -163,7 +167,7 @@ func renderUpdatesText(items []ContainerUpdateItem, markdown bool, limit int) st
 		return strings.TrimSpace(b.String())
 	}
 	var b strings.Builder
-	b.WriteString(fmt.Sprintf("可更新容器：%d 个\n\n", len(items)))
+	b.WriteString(fmt.Sprintf("可更新容器：%d 个\n实例: %s\n\n", len(items), notificationInstanceName(instanceName)))
 	for i := 0; i < limit; i++ {
 		item := items[i]
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Name))
@@ -553,22 +557,30 @@ func renderConfirmAll(items []ContainerUpdateItem, sessionID string, cfg Config)
 
 func renderConfirmUpdateText(item ContainerUpdateItem, markdown bool) string {
 	ref := firstNonEmpty(item.CreateImage, item.UsingImage)
+	instanceName := notificationInstanceName(item.InstanceName)
 	if markdown {
 		var b strings.Builder
 		b.WriteString("**确认更新容器？**\n\n")
+		b.WriteString(markdownKV("实例", instanceName))
 		b.WriteString(markdownKV("容器", item.Name))
 		if ref != "" {
 			b.WriteString(markdownKV("镜像", ref))
 		}
 		return strings.TrimSpace(b.String())
 	}
-	return fmt.Sprintf("确认更新容器？\n\n%s\n%s", item.Name, ref)
+	return fmt.Sprintf("确认更新容器？\n\n实例: %s\n%s\n%s", instanceName, item.Name, ref)
 }
 
 func renderConfirmAllText(items []ContainerUpdateItem, markdown bool) string {
+	instanceName := "local"
+	if len(items) > 0 {
+		instanceName = notificationInstanceName(items[0].InstanceName)
+	}
 	if markdown {
 		var b strings.Builder
 		b.WriteString(fmt.Sprintf("**确认批量更新？** · %d 个容器\n\n", len(items)))
+		b.WriteString(markdownKV("实例", instanceName))
+		b.WriteString("\n")
 		limit := len(items)
 		if limit > 8 {
 			limit = 8
@@ -581,7 +593,7 @@ func renderConfirmAllText(items []ContainerUpdateItem, markdown bool) string {
 		}
 		return strings.TrimSpace(b.String())
 	}
-	return fmt.Sprintf("确认批量更新 %d 个容器？", len(items))
+	return fmt.Sprintf("确认批量更新 %d 个容器？\n实例: %s", len(items), instanceName)
 }
 
 func renderConfirmDeleteImageText(item ImageInfoLite, markdown bool) string {

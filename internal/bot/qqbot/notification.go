@@ -74,13 +74,19 @@ func renderStartupNotificationText(proxySummary string, instances []string, mark
 // renderUpdateNotification 生成 QQ 更新通知：合并为一条精简消息，
 // 附带纯文本降级版本，避免富文本失败时露出 markdown 源码。
 func renderUpdateNotification(instanceName string, items []NotifyUpdateItem, cfg Config) Message {
+	instanceName = notificationInstanceName(instanceName)
 	plain := renderUpdateNotificationText(instanceName, items, false)
-	if !cfg.MarkdownEnabled {
-		return Message{Text: plain}
+	msg := Message{
+		Text:      plain,
+		PlainText: plain,
+		Keyboard: quickActionKeyboard([]quickAction{
+			{Label: "查看此实例更新", Command: updateCommandForInstance(instanceName), ID: "updates_instance"},
+		}),
 	}
-	msg := enrichMarkdown(Message{Text: renderUpdateNotificationText(instanceName, items, true)}, true)
-	msg.PlainText = plain
-	return msg
+	if cfg.MarkdownEnabled {
+		msg.Text = renderUpdateNotificationText(instanceName, items, true)
+	}
+	return richMessage(msg, cfg)
 }
 
 // renderAutomationNotification 生成 QQ 自动化任务结果通知（自动清理镜像 / 自动更新容器）。
@@ -114,6 +120,7 @@ func renderAutomationNotification(evt botnotify.AutomationEvent, cfg Config) Mes
 }
 
 func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem, markdown bool) string {
+	instanceName = notificationInstanceName(instanceName)
 	var b strings.Builder
 	limit := len(items)
 	if limit > 8 {
@@ -121,6 +128,7 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 	}
 	if markdown {
 		b.WriteString(fmt.Sprintf("**检测到可更新容器** · %d 个\n\n", len(items)))
+		b.WriteString("- 实例：**" + markdownInline(instanceName) + "**\n\n")
 		for i := 0; i < limit; i++ {
 			item := items[i]
 			ref := firstNonEmpty(item.ImageRef, item.CreateRef)
@@ -132,10 +140,10 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 		if len(items) > limit {
 			b.WriteString("\n" + renderHintText(fmt.Sprintf("还有 %d 个未显示。", len(items)-limit), true))
 		}
-		b.WriteString("\n\n" + renderHintText("发送 `/updates` 查看详情。", true))
+		b.WriteString("\n\n" + renderHintText("发送 `"+markdownCodeInline(updateCommandForInstance(instanceName))+"` 查看此实例详情。", true))
 		return strings.TrimSpace(b.String())
 	}
-	b.WriteString(fmt.Sprintf("检测到可更新容器：%d 个\n\n", len(items)))
+	b.WriteString(fmt.Sprintf("检测到可更新容器：%d 个\n实例: %s\n\n", len(items), instanceName))
 	for i := 0; i < limit; i++ {
 		item := items[i]
 		b.WriteString(fmt.Sprintf("%d. %s\n", i+1, item.Name))
@@ -146,8 +154,16 @@ func renderUpdateNotificationText(instanceName string, items []NotifyUpdateItem,
 	if len(items) > limit {
 		b.WriteString(fmt.Sprintf("\n还有 %d 个未显示。\n", len(items)-limit))
 	}
-	b.WriteString("\n发送 /updates 查看详情。")
+	b.WriteString("\n发送 " + updateCommandForInstance(instanceName) + " 查看此实例详情。")
 	return strings.TrimSpace(b.String())
+}
+
+func notificationInstanceName(instanceName string) string {
+	return firstNonEmpty(strings.TrimSpace(instanceName), "local")
+}
+
+func updateCommandForInstance(instanceName string) string {
+	return "/updates " + notificationInstanceName(instanceName)
 }
 
 func sendNotificationToTargets(ctx context.Context, cfg Config, targets []notifyTarget, msg Message) {

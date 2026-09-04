@@ -6,15 +6,21 @@ import (
 )
 
 func TestRenderUpdateNotificationUsesCompactMarkdownList(t *testing.T) {
-	text := renderUpdateNotificationText("local", []NotifyUpdateItem{
+	items := []NotifyUpdateItem{
 		{Name: "asf", ImageRef: "justarchi/archisteamfarm:latest"},
 		{Name: "emby-toolkit", ImageRef: "nbq0405/emby-toolkit:latest"},
-	}, true)
-	if !strings.Contains(text, "**检测到可更新容器**") || !strings.Contains(text, "1. **asf**") || !strings.Contains(text, "`justarchi/archisteamfarm:latest`") {
+	}
+	text := renderUpdateNotificationText("nas", items, true)
+	if !strings.Contains(text, "**检测到可更新容器**") || !strings.Contains(text, "实例：**nas**") || !strings.Contains(text, "1. **asf**") || !strings.Contains(text, "`justarchi/archisteamfarm:latest`") {
 		t.Fatalf("notification text = %q, want compact markdown list", text)
 	}
-	if strings.Contains(text, "| # | 容器 | 镜像 |") || strings.Contains(text, "发送 /updates") {
+	if strings.Contains(text, "| # | 容器 | 镜像 |") || !strings.Contains(text, "/updates nas") {
 		t.Fatalf("notification text = %q, want non-table markdown body and command", text)
+	}
+	msg := renderUpdateNotification("nas", items, Config{MarkdownEnabled: true, ButtonsEnabled: true})
+	callbacks := collectQQCallbackData(msg)
+	if len(callbacks) != 1 || callbacks[0] != "cmd:/updates nas" {
+		t.Fatalf("notification callbacks = %#v, want instance-bound updates command", callbacks)
 	}
 }
 

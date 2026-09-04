@@ -75,6 +75,32 @@ func TestIsSelfContainerSupportsDockerHostnamePrefixCases(t *testing.T) {
 	}
 }
 
+func TestContainerIDFromMountInfoSupportsCustomHostname(t *testing.T) {
+	const containerID = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef"
+	mountInfo := "2137 2090 253:0 /var/snap/docker/common/var-lib-docker/containers/" + containerID + "/hostname /etc/hostname rw,relatime - ext4 /dev/mapper/vg-lv rw\n"
+
+	if got := containerIDFromMountInfo(mountInfo); got != containerID {
+		t.Fatalf("containerIDFromMountInfo() = %q, want %q", got, containerID)
+	}
+}
+
+func TestContainerIDFromMountInfoRejectsUnrelatedAndShortIDs(t *testing.T) {
+	mountInfo := "1 0 0:1 /var/lib/docker/containers/abcdef/hostname /etc/hostname rw - ext4 /dev/root rw\n" +
+		"2 0 0:2 /var/lib/docker/containers/0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef/hostname /tmp/hostname rw - ext4 /dev/root rw\n"
+
+	if got := containerIDFromMountInfo(mountInfo); got != "" {
+		t.Fatalf("containerIDFromMountInfo() = %q, want empty", got)
+	}
+}
+
+func TestCurrentContainerIDPrefersExplicitOverride(t *testing.T) {
+	t.Setenv(selfContainerIDEnv, " explicit-container-id ")
+
+	if got := CurrentContainerID(); got != "explicit-container-id" {
+		t.Fatalf("CurrentContainerID() = %q, want explicit override", got)
+	}
+}
+
 func TestNewSnapshotConnectsContainersAndImages(t *testing.T) {
 	snapshot := NewSnapshot(
 		[]dockerTypes.Container{{ID: "c1", Names: []string{"/web"}, Image: "nginx:latest", ImageID: "sha256:img1", State: "running"}},

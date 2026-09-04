@@ -11,12 +11,13 @@ import (
 )
 
 type updateSession struct {
-	ID        string
-	UserID    string
-	GroupID   string
-	Items     []ContainerUpdateItem
-	CreatedAt time.Time
-	ExpiresAt time.Time
+	ID           string
+	UserID       string
+	GroupID      string
+	InstanceName string
+	Items        []ContainerUpdateItem
+	CreatedAt    time.Time
+	ExpiresAt    time.Time
 }
 
 type updateSessionStore struct {
@@ -32,15 +33,16 @@ func newUpdateSessionStore(ttl time.Duration) *updateSessionStore {
 	return &updateSessionStore{ttl: ttl, sessions: map[string]updateSession{}}
 }
 
-func (s *updateSessionStore) put(userID string, groupID string, items []ContainerUpdateItem) updateSession {
+func (s *updateSessionStore) put(userID string, groupID string, instanceName string, items []ContainerUpdateItem) updateSession {
 	now := time.Now()
 	session := updateSession{
-		ID:        newSessionID(),
-		UserID:    userID,
-		GroupID:   groupID,
-		Items:     append([]ContainerUpdateItem(nil), items...),
-		CreatedAt: now,
-		ExpiresAt: now.Add(s.ttl),
+		ID:           newSessionID(),
+		UserID:       userID,
+		GroupID:      groupID,
+		InstanceName: notificationInstanceName(instanceName),
+		Items:        append([]ContainerUpdateItem(nil), items...),
+		CreatedAt:    now,
+		ExpiresAt:    now.Add(s.ttl),
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()

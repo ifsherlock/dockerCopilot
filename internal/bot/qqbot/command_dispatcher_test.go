@@ -37,6 +37,8 @@ type fakeActions struct {
 	stoppedContainers   []string
 	restartedContainers []string
 	removedImages       []string
+	requestedInstances  []string
+	startedInstances    []string
 }
 
 func (a *fakeActions) Status(ctx context.Context) (StatusSummary, error) {
@@ -63,9 +65,26 @@ func (a *fakeActions) Updates(ctx context.Context) ([]ContainerUpdateItem, error
 	return append([]ContainerUpdateItem(nil), a.updates...), nil
 }
 
+func (a *fakeActions) UpdatesForInstance(ctx context.Context, instanceName string) ([]ContainerUpdateItem, string, error) {
+	instanceName = notificationInstanceName(instanceName)
+	a.requestedInstances = append(a.requestedInstances, instanceName)
+	items := append([]ContainerUpdateItem(nil), a.updates...)
+	for i := range items {
+		items[i].InstanceName = instanceName
+	}
+	return items, instanceName, nil
+}
+
 func (a *fakeActions) CheckUpdates(ctx context.Context) (string, error) {
 	a.checkUpdatesCalled = true
 	return "已提交更新检测。", nil
+}
+
+func (a *fakeActions) CheckUpdatesForInstance(ctx context.Context, instanceName string) (string, string, error) {
+	instanceName = notificationInstanceName(instanceName)
+	a.checkUpdatesCalled = true
+	a.requestedInstances = append(a.requestedInstances, instanceName)
+	return "已提交更新检测。", instanceName, nil
 }
 
 func (a *fakeActions) StartContainer(ctx context.Context, item ContainerInfoLite) (string, error) {
@@ -85,6 +104,7 @@ func (a *fakeActions) RestartContainer(ctx context.Context, item ContainerInfoLi
 
 func (a *fakeActions) UpdateContainer(ctx context.Context, item ContainerUpdateItem) (string, error) {
 	a.started = append(a.started, item.Name)
+	a.startedInstances = append(a.startedInstances, notificationInstanceName(item.InstanceName))
 	return "task-" + item.Name, nil
 }
 
@@ -263,6 +283,30 @@ func TestUpdatesCommandFallsBackWhenButtonsDisabled(t *testing.T) {
 	}
 	if len(sender.c2c) != 1 || sender.c2c[0].Keyboard != nil || !strings.Contains(sender.c2c[0].Text, "按钮未启用") {
 		t.Fatalf("fallback reply = %#v", sender.c2c)
+	}
+}
+
+func TestUpdatesCommandBindsExplicitInstanceThroughInteraction(t *testing.T) {
+	sender := &fakeQQSender{}
+	actions := &fakeActions{updates: []ContainerUpdateItem{{ID: "c1", Name: "web", CreateImage: "nginx:latest"}}}
+	dispatcher := NewCommandDispatcher(Config{ButtonsEnabled: true, MarkdownEnabled: true}, sender, actions)
+	ctx := context.Background()
+
+	if err := dispatcher.Dispatch(ctx, IncomingCommand{Kind: CommandKindMessage, UserOpenID: "user-1", Content: "/updates nas"}); err != nil {
+		t.Fatalf("updates Dispatch() error = %v", err)
+	}
+	if strings.Join(actions.requestedInstances, ",") != "nas" {
+		t.Fatalf("requested instances = %#v, want nas", actions.requestedInstances)
+	}
+	if len(sender.c2c) != 1 || !strings.Contains(sender.c2c[0].Text, "nas") {
+		t.Fatalf("updates reply = %#v, want instance name", sender.c2c)
+	}
+	sessionID := firstSessionID(t, dispatcher.sessions)
+	if err := dispatcher.Dispatch(ctx, IncomingCommand{Kind: CommandKindInteraction, UserOpenID: "user-1", Action: updateCallbackData(sessionID, "run_item", 0)}); err != nil {
+		t.Fatalf("run Dispatch() error = %v", err)
+	}
+	if strings.Join(actions.startedInstances, ",") != "nas" {
+		t.Fatalf("started instances = %#v, want nas", actions.startedInstances)
 	}
 }
 
