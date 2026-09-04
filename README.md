@@ -4,10 +4,14 @@
   <img alt="License: AGPLv3" src="https://shields.io/badge/License-AGPL%20v3-blue.svg">
 </a>
 
-> 🛠️ 维护版：`2.1.39`
+> 🛠️ 维护版：`2.1.40`
 > ❤️ 基于原作者 [onlyLTY/dockerCopilot](https://github.com/onlyLTY/dockerCopilot) 持续演进，感谢原作者开源贡献。
 
 DockerCopilot 是一个面向日常运维的 Docker 管理工具，提供 🖥️ **Web 面板** + 📱 **Mobile 面板** + 🤖 **Telegram Bot** + 🐧 **QQ Bot**，适合 NAS、Linux 主机和家庭服务器统一管理容器、镜像、日志、备份与更新。
+
+## ✨ 2.1.40 看点
+- 🤖 修复 Telegram / QQ 机器人更新 DockerCopilot 自身时被错误拦截的问题，检测到自身容器后改走已有的镜像接力自更新流程
+- 📦 Compose 示例明确在 `environment.secretKey` 中设置登录密钥，并补充 `/data` 持久化、镜像更新和自更新说明
 
 ## ✨ 2.1.39 看点
 - 🔍 修复 2.1.25 起容器更新检测漏检：恢复 Docker Hub 加速器回退与 HEAD 低成本探测，检测失败不再清空已检出状态；检测候选源纳入「加速拉取」页配置的加速源
